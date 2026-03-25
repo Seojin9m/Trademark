@@ -20,7 +20,7 @@ export function MetricCard({ label, value, delta, deltaValue, className }: Metri
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-xl border border-border/60 bg-card p-5 shadow-sm shadow-black/20 transition-colors hover:border-border",
+        "group relative overflow-hidden rounded-xl border border-border/60 bg-card px-5 py-3.5 shadow-sm shadow-black/20 transition-colors hover:border-border",
         className,
       )}
     >
@@ -28,9 +28,9 @@ export function MetricCard({ label, value, delta, deltaValue, className }: Metri
       <p className="relative text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
-      <p className="relative mt-2 text-2xl font-medium tracking-tight">{value}</p>
+      <p className="relative mt-1 text-xl font-medium tracking-tight">{value}</p>
       {delta && (
-        <div className="relative mt-2 flex items-center gap-1.5">
+        <div className="relative mt-1 flex items-center gap-1.5">
           {deltaValue !== undefined && (
             <TrendIcon className={cn("h-3.5 w-3.5", pnlColor(deltaValue))} />
           )}

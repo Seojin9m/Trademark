@@ -20,12 +20,12 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("px-6 pt-5 pb-1 text-sm font-semibold tracking-wide text-muted-foreground uppercase", className)}
+      className={cn("px-5 pt-4 pb-0.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase", className)}
       {...props}
     />
   )
 }
 
 export function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("px-6 pb-6 pt-3", className)} {...props} />
+  return <div className={cn("px-5 pb-4 pt-2", className)} {...props} />
 }

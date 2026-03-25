@@ -59,7 +59,7 @@ export default function PortfolioOverview() {
     return (
       <>
         <PageHeader title="Portfolio Overview" />
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-4 gap-3 mb-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-28 rounded-xl border border-border/60 bg-card animate-shimmer" />
           ))}
@@ -87,26 +87,25 @@ export default function PortfolioOverview() {
     (a, b) => b.market_value - a.market_value,
   )
 
-  // Chart data: P&L by position
+  // Chart data: P&L by position (keep green/red for P&L)
   const pnlChartData = positions.map((p) => ({
     ticker: p.ticker,
     pnl: p.unrealized_pnl,
     fill: p.unrealized_pnl >= 0 ? "#22c55e" : "#ef4444",
   }))
 
-  // Chart data: Return % by position
+  // Chart data: Return % by position (keep green/red)
   const returnChartData = positions.map((p) => ({
     ticker: p.ticker,
     return_pct: +(p.unrealized_pct * 100).toFixed(2),
     fill: p.unrealized_pct >= 0 ? "#22c55e" : "#ef4444",
   }))
 
-  // Chart data: Market value composition (horizontal stacked)
+  // Chart data: single market value bar per position, colored by P&L
   const valueChartData = positions.map((p) => ({
     ticker: p.ticker,
-    cost: p.cost_basis * p.shares,
-    gain: Math.max(0, p.unrealized_pnl),
-    loss: Math.min(0, p.unrealized_pnl),
+    value: p.market_value,
+    fill: p.unrealized_pnl >= 0 ? "#22c55e" : "#ef4444",
   }))
 
   // Allocation pie
@@ -177,7 +176,7 @@ export default function PortfolioOverview() {
       <PageHeader title="Portfolio Overview" />
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-3 mb-4">
         <MetricCard
           label="Portfolio Value"
           value={formatCurrency(pnl.total_portfolio_value)}
@@ -194,11 +193,11 @@ export default function PortfolioOverview() {
 
       {/* P&L Bar Chart + Return % Chart */}
       {positions.length > 0 && (
-        <div className="grid grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-2 gap-4 mb-4">
           <Card>
             <CardTitle>P&L by Position</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={pnlChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
                   <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
                   <XAxis
@@ -239,7 +238,7 @@ export default function PortfolioOverview() {
           <Card>
             <CardTitle>Return % by Position</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={returnChartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                   <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
                   <XAxis
@@ -274,84 +273,74 @@ export default function PortfolioOverview() {
         </div>
       )}
 
-      {/* Value Breakdown (cost basis + gain/loss stacked) */}
-      {positions.length > 0 && (
-        <Card className="mb-6">
-          <CardTitle>Position Value Breakdown</CardTitle>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={valueChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
-                <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
-                  tick={{ fontSize: 11, fill: "#71717a" }}
-                  axisLine={{ stroke: "#27272a" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="ticker"
-                  width={50}
-                  tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  formatter={(value: number, name: string) => {
-                    const label = name === "cost" ? "Cost Basis" : name === "gain" ? "Gain" : "Loss"
-                    return [formatCurrency(Math.abs(value)), label]
-                  }}
-                  contentStyle={tooltipStyle}
-                  cursor={{ fill: "rgba(99, 102, 241, 0.08)" }}
-                />
-                <Bar dataKey="cost" stackId="val" fill="#6366f1" radius={[0, 0, 0, 0]} maxBarSize={24} name="cost" />
-                <Bar dataKey="gain" stackId="val" fill="#22c55e" radius={[0, 4, 4, 0]} maxBarSize={24} name="gain" />
-                <Bar dataKey="loss" stackId="val" fill="#ef4444" radius={[0, 4, 4, 0]} maxBarSize={24} name="loss" />
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="flex items-center gap-5 mt-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#6366f1]" /> Cost Basis
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#22c55e]" /> Gain
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#ef4444]" /> Loss
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Current Holdings — full width */}
+      <Card className="mb-4">
+        <CardTitle>Current Holdings</CardTitle>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={positions}
+            rowKey={(r) => r.ticker}
+            emptyMessage="No positions. Update portfolio_state.json with your holdings."
+          />
+        </CardContent>
+      </Card>
 
-      {/* Holdings Table + Allocation Pie */}
-      <div className="grid grid-cols-3 gap-6">
-        <Card className="col-span-2">
-          <CardTitle>Current Holdings</CardTitle>
-          <CardContent>
-            <DataTable
-              columns={columns}
-              data={positions}
-              rowKey={(r) => r.ticker}
-              emptyMessage="No positions. Update portfolio_state.json with your holdings."
-            />
-          </CardContent>
-        </Card>
+      {/* Value Breakdown + Allocation */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        {positions.length > 0 && (
+          <Card className="col-span-2">
+            <CardTitle>Position Value Breakdown</CardTitle>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={valueChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
+                  <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
+                  <XAxis
+                    type="number"
+                    tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
+                    tick={{ fontSize: 11, fill: "#71717a" }}
+                    axisLine={{ stroke: "#27272a" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="ticker"
+                    width={50}
+                    tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => [formatCurrency(value), "Market Value"]}
+                    contentStyle={tooltipStyle}
+                    labelStyle={tooltipLabelStyle}
+                    itemStyle={{ color: "#fafafa" }}
+                    cursor={{ fill: "rgba(99, 102, 241, 0.08)" }}
+                  />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                    {valueChartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardTitle>Allocation</CardTitle>
           <CardContent>
             {pieData.length > 0 ? (
               <>
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveContainer width="100%" height={180}>
                   <PieChart>
                     <Pie
                       data={pieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={95}
+                      innerRadius={45}
+                      outerRadius={75}
                       dataKey="value"
                       nameKey="name"
                       stroke="none"
@@ -369,7 +358,7 @@ export default function PortfolioOverview() {
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="mt-3 space-y-2">
+                <div className="mt-2 space-y-1.5">
                   {pieData.map((d, i) => (
                     <div key={d.name} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2.5">

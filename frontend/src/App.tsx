@@ -13,7 +13,7 @@ function Layout() {
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <main className="ml-60 flex-1 p-8">
+      <main className="ml-60 flex-1 px-6 py-5">
         <div className="mx-auto max-w-[1400px] animate-fade-in">
           <Outlet />
         </div>
