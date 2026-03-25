@@ -1,0 +1,76 @@
+ticker,name,sub_sector,market_cap_tier
+AAPL,Apple Inc,hardware,mega
+MSFT,Microsoft Corp,enterprise_software,mega
+NVDA,NVIDIA Corp,semiconductors,mega
+GOOGL,Alphabet Inc Class A,internet_platforms,mega
+META,Meta Platforms Inc,internet_platforms,mega
+AMZN,Amazon.com Inc,internet_platforms,mega
+AVGO,Broadcom Inc,semiconductors,mega
+TSLA,Tesla Inc,hardware,mega
+AMD,Advanced Micro Devices,semiconductors,large
+CRM,Salesforce Inc,cloud_software,large
+ORCL,Oracle Corp,enterprise_software,large
+CSCO,Cisco Systems Inc,hardware,large
+ACN,Accenture PLC,enterprise_software,large
+ADBE,Adobe Inc,enterprise_software,large
+NOW,ServiceNow Inc,cloud_software,large
+IBM,International Business Machines,enterprise_software,large
+TXN,Texas Instruments Inc,semiconductors,large
+QCOM,Qualcomm Inc,semiconductors,large
+INTC,Intel Corp,semiconductors,large
+INTU,Intuit Inc,enterprise_software,large
+AMAT,Applied Materials Inc,semiconductors,large
+PANW,Palo Alto Networks,cybersecurity,large
+MU,Micron Technology Inc,semiconductors,large
+LRCX,Lam Research Corp,semiconductors,large
+ADI,Analog Devices Inc,semiconductors,large
+KLAC,KLA Corp,semiconductors,large
+SNPS,Synopsys Inc,enterprise_software,large
+CDNS,Cadence Design Systems,enterprise_software,large
+CRWD,CrowdStrike Holdings,cybersecurity,large
+MRVL,Marvell Technology Inc,semiconductors,large
+FTNT,Fortinet Inc,cybersecurity,large
+NXPI,NXP Semiconductors,semiconductors,large
+DASH,DoorDash Inc,internet_platforms,large
+TTD,The Trade Desk Inc,internet_platforms,large
+WDAY,Workday Inc,cloud_software,large
+ROP,Roper Technologies Inc,enterprise_software,large
+TEAM,Atlassian Corp,cloud_software,large
+HUBS,HubSpot Inc,cloud_software,large
+DDOG,Datadog Inc,cloud_software,large
+ZS,Zscaler Inc,cybersecurity,large
+NET,Cloudflare Inc,cloud_software,mid
+SNOW,Snowflake Inc,cloud_software,mid
+MDB,MongoDB Inc,cloud_software,mid
+PLTR,Palantir Technologies,ai_infrastructure,large
+UBER,Uber Technologies,internet_platforms,large
+XYZ,Block Inc,fintech,large
+SHOP,Shopify Inc,internet_platforms,large
+COIN,Coinbase Global Inc,fintech,mid
+ARM,Arm Holdings PLC,semiconductors,large
+ON,ON Semiconductor,semiconductors,mid
+SMCI,Super Micro Computer,ai_infrastructure,mid
+MCHP,Microchip Technology,semiconductors,mid
+SWKS,Skyworks Solutions,semiconductors,mid
+MPWR,Monolithic Power Systems,semiconductors,mid
+ABNB,Airbnb Inc,internet_platforms,large
+KEYS,Keysight Technologies,hardware,mid
+ZBRA,Zebra Technologies,hardware,mid
+GEN,Gen Digital Inc,cybersecurity,mid
+OKTA,Okta Inc,cybersecurity,mid
+VEEV,Veeva Systems Inc,cloud_software,mid
+PAYC,Paycom Software Inc,cloud_software,mid
+PCTY,Paylocity Holding Corp,cloud_software,mid
+BILL,BILL Holdings Inc,fintech,mid
+MNDY,monday.com Ltd,cloud_software,mid
+GTLB,GitLab Inc,cloud_software,mid
+S,SentinelOne Inc,cybersecurity,mid
+CFLT,Confluent Inc,cloud_software,mid
+PATH,UiPath Inc,enterprise_software,mid
+IOT,Samsara Inc,ai_infrastructure,mid
+AI,C3.ai Inc,ai_infrastructure,mid
+ESTC,Elastic NV,cloud_software,mid
+DOCN,DigitalOcean Holdings,cloud_software,mid
+APPN,Appian Corp,enterprise_software,mid
+CWAN,Clearwater Analytics,fintech,mid
+VERX,Vertex Inc,enterprise_software,mid

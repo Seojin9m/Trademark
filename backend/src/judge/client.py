@@ -1,0 +1,281 @@
+"""Claude API client for the LLM judge layer + SQLite logging."""
+
+import hashlib
+import json
+import sqlite3
+import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+import anthropic
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from config.settings import settings
+from src.judge.schema import (
+    JudgeInput,
+    JudgeOutput,
+    EvaluationContext,
+    ProposedTrade,
+    SignalContext,
+    FactorScores,
+    ConstraintCheck,
+    Verdict,
+)
+from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULES_SUMMARY
+
+
+def _init_judge_log_db() -> None:
+    """Create the judge log SQLite database and table."""
+    db_path = settings.paths.judge_log_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    con = sqlite3.connect(str(db_path))
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS judge_log (
+            log_id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            proposal_id TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            action TEXT NOT NULL,
+            input_payload TEXT NOT NULL,
+            output_payload TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            model_used TEXT NOT NULL,
+            input_hash TEXT NOT NULL
+        )
+    """)
+    con.commit()
+    con.close()
+
+
+def _log_judge_call(
+    proposal_id: str,
+    ticker: str,
+    action: str,
+    input_payload: str,
+    output_payload: str,
+    verdict: str,
+    confidence: float,
+    model_used: str,
+    input_hash: str,
+) -> None:
+    """Persist a judge call to the SQLite audit log."""
+    _init_judge_log_db()
+
+    con = sqlite3.connect(str(settings.paths.judge_log_path))
+    con.execute("""
+        INSERT INTO judge_log
+        (log_id, created_at, proposal_id, ticker, action,
+         input_payload, output_payload, verdict, confidence, model_used, input_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, [
+        str(uuid.uuid4())[:8],
+        datetime.now().isoformat(),
+        proposal_id,
+        ticker,
+        action,
+        input_payload,
+        output_payload,
+        verdict,
+        confidence,
+        model_used,
+        input_hash,
+    ])
+    con.commit()
+    con.close()
+
+
+def build_judge_input(proposal: dict, portfolio_value: float, pnl: dict) -> JudgeInput:
+    """Convert a trade proposal dict into a structured JudgeInput."""
+    signal_data = proposal.get("signal_data", {})
+    factor_data = signal_data.get("factors", {})
+
+    cash_pct = pnl.get("cash", 0) / portfolio_value * 100 if portfolio_value > 0 else 0
+    drawdown = pnl.get("total_return_pct", 0) * 100 if pnl.get("total_return_pct", 0) < 0 else 0
+
+    return JudgeInput(
+        evaluation_context=EvaluationContext(
+            date=datetime.now().strftime("%Y-%m-%d"),
+            portfolio_value_usd=portfolio_value,
+            portfolio_drawdown_from_peak_pct=drawdown,
+            cash_pct=cash_pct,
+        ),
+        proposed_trade=ProposedTrade(
+            ticker=proposal["ticker"],
+            action=proposal["action"],
+            proposed_shares=proposal.get("shares", 0),
+            current_weight_pct=proposal.get("current_weight", 0) * 100,
+            proposed_weight_pct=proposal.get("target_weight", 0) * 100,
+            estimated_cost_usd=proposal.get("estimated_value", 0),
+        ),
+        signal_context=SignalContext(
+            composite_score=signal_data.get("composite_score", 0),
+            score_decile=signal_data.get("decile", 5),
+            prior_decile=proposal.get("prior_decile", 5),
+            factor_scores=FactorScores(**{
+                k: factor_data.get(k)
+                for k in ["momentum_12m1m", "eps_growth_yoy", "revenue_growth_yoy",
+                           "gross_margin_trend", "relative_valuation"]
+            }),
+            reason=proposal.get("reason", ""),
+        ),
+        constraint_check=ConstraintCheck(
+            passes_all_constraints=proposal.get("constraint_check", {}).get("passed", True),
+            violations=proposal.get("constraint_check", {}).get("violations", []),
+        ),
+        strategy_rules_summary=STRATEGY_RULES_SUMMARY,
+    )
+
+
+def evaluate_proposal(proposal: dict, portfolio_value: float, pnl: dict, news=None) -> JudgeOutput:
+    """Send a trade proposal to Claude for evaluation.
+
+    Args:
+        news: Optional NewsResearch object with recent news context.
+
+    Returns a validated JudgeOutput.
+    """
+    judge_input = build_judge_input(proposal, portfolio_value, pnl)
+    input_json = judge_input.model_dump_json(indent=2)
+    input_hash = hashlib.sha256(input_json.encode()).hexdigest()[:16]
+
+    # Build news context section
+    news_section = ""
+    if news and news.ai_summary and news.confidence > 0:
+        news_section = f"""
+
+## Recent News Context
+Ticker: {news.ticker}
+Summary: {news.ai_summary}
+Sentiment: {news.sentiment}
+Risk factors: {', '.join(news.risk_factors) if news.risk_factors else 'None identified'}
+Opportunities: {', '.join(news.opportunities) if news.opportunities else 'None identified'}
+Binary events: {', '.join(e.description for e in news.binary_events) if news.binary_events else 'None upcoming'}
+
+Consider this news context when evaluating. If a binary event (earnings, regulatory) is within 7 days, set binary_event_warning=true."""
+
+    prompt = JUDGE_PROMPT_TEMPLATE.format(
+        proposal_json=input_json,
+        strategy_rules=STRATEGY_RULES_SUMMARY,
+    ) + news_section
+
+    model = settings.judge.model
+    client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            temperature=settings.judge.temperature,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw_text = response.content[0].text.strip()
+
+        # Parse JSON — handle possible markdown fences
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        result = json.loads(raw_text)
+        output = JudgeOutput(
+            verdict=result.get("verdict", "needs_review"),
+            confidence=result.get("confidence", 0.5),
+            reasons=result.get("reasons", []),
+            violated_rules=result.get("violated_rules", []),
+            risk_flags=result.get("risk_flags", []),
+            follow_up_checks=result.get("follow_up_checks", []),
+            binary_event_warning=result.get("binary_event_warning", False),
+            data_quality_concerns=result.get("data_quality_concerns", []),
+            judge_model=model,
+            evaluation_timestamp=datetime.now().isoformat(),
+            input_hash=input_hash,
+        )
+
+    except (json.JSONDecodeError, KeyError, Exception) as e:
+        # If parsing fails, return needs_review with the error
+        output = JudgeOutput(
+            verdict=Verdict.NEEDS_REVIEW,
+            confidence=0.0,
+            reasons=[f"Judge parse error: {str(e)}"],
+            risk_flags=["LLM response was not valid JSON"],
+            judge_model=model,
+            evaluation_timestamp=datetime.now().isoformat(),
+            input_hash=input_hash,
+        )
+
+    # Log to SQLite (immutable audit trail)
+    _log_judge_call(
+        proposal_id=proposal.get("proposal_id", "unknown"),
+        ticker=proposal["ticker"],
+        action=proposal["action"],
+        input_payload=input_json,
+        output_payload=output.model_dump_json(),
+        verdict=output.verdict.value,
+        confidence=output.confidence,
+        model_used=model,
+        input_hash=input_hash,
+    )
+
+    return output
+
+
+def evaluate_all_proposals(
+    proposals: list[dict],
+    portfolio_value: float,
+    pnl: dict,
+    research_map: dict | None = None,
+) -> list[tuple[dict, JudgeOutput]]:
+    """Evaluate all proposals through the LLM judge.
+
+    Args:
+        research_map: Optional dict of ticker -> NewsResearch objects.
+
+    Returns list of (proposal, judge_output) tuples.
+    """
+    research_map = research_map or {}
+    results = []
+    for p in proposals:
+        if not p.get("constraint_check", {}).get("passed", True):
+            # Skip proposals that already failed constraints
+            continue
+
+        print(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
+        news = research_map.get(p["ticker"])
+        output = evaluate_proposal(p, portfolio_value, pnl, news=news)
+        print(f"    Verdict: {output.verdict.value} (confidence: {output.confidence:.0%})")
+        if output.reasons:
+            for r in output.reasons:
+                print(f"    - {r}")
+
+        # Update proposal status based on verdict
+        p["judge_verdict"] = output.verdict.value
+        p["judge_confidence"] = output.confidence
+        p["judge_reasons"] = output.reasons
+        p["judge_risk_flags"] = output.risk_flags
+
+        if output.verdict == Verdict.APPROVE:
+            p["status"] = "JUDGE_APPROVED"
+        elif output.verdict == Verdict.REJECT:
+            p["status"] = "JUDGE_REJECTED"
+        else:
+            p["status"] = "NEEDS_REVIEW"
+
+        results.append((p, output))
+
+    return results
+
+
+def get_judge_log(limit: int = 50) -> list[dict]:
+    """Retrieve recent judge log entries."""
+    _init_judge_log_db()
+    con = sqlite3.connect(str(settings.paths.judge_log_path))
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT * FROM judge_log ORDER BY created_at DESC LIMIT ?", [limit]
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]

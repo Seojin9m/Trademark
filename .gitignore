@@ -179,3 +179,25 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Markdown files
+plan.md
+
+# trade4me backend data (raw downloads, processed files, databases)
+backend/data/raw/
+backend/data/processed/
+backend/data/*.duckdb
+backend/data/*.duckdb.wal
+
+# Backend logs
+backend/logs/*.db
+backend/logs/*.log
+
+# Keep portfolio_state.json and directory structure
+!backend/data/portfolio_state.json
+!backend/data/raw/.gitkeep
+!backend/data/processed/.gitkeep
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
