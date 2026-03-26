@@ -16,6 +16,7 @@ def generate_signals(
     current_holdings: dict[str, float],
     prior_deciles: dict[str, int],
     portfolio_drawdown: float = 0.0,
+    adaptive_params: dict | None = None,
 ) -> list[dict]:
     """Generate trade signals from ranked scores and current holdings.
 
@@ -24,15 +25,27 @@ def generate_signals(
         current_holdings: {ticker: current_weight_pct}
         prior_deciles: {ticker: prior_score_decile}
         portfolio_drawdown: Current portfolio drawdown from peak (negative number)
+        adaptive_params: Optional dict from adaptive constraint tuner overriding defaults
 
     Returns:
         List of signal dicts with: ticker, action, reason, score details
     """
-    min_decile_change = settings.strategy.min_decile_change_to_trade
+    # Use adaptive parameters if available, otherwise fall back to settings
+    if adaptive_params:
+        min_decile_change = adaptive_params.get("min_decile_change", settings.strategy.min_decile_change_to_trade)
+        max_new = adaptive_params.get("max_new_positions_per_run", settings.strategy.max_new_positions_per_run)
+        max_total_trades = adaptive_params.get("max_trades_per_run", settings.strategy.max_trades_per_run)
+        position_scalar = adaptive_params.get("position_size_scalar", 1.0)
+        dd_schedule = adaptive_params.get("drawdown_schedule")
+    else:
+        min_decile_change = settings.strategy.min_decile_change_to_trade
+        max_new = settings.strategy.max_new_positions_per_run
+        max_total_trades = settings.strategy.max_trades_per_run
+        position_scalar = 1.0
+        dd_schedule = None
+
     dd_alert = settings.strategy.max_portfolio_drawdown_alert
     dd_halt = settings.strategy.max_portfolio_drawdown_halt
-    max_new = settings.strategy.max_new_positions_per_run
-    max_total_trades = settings.strategy.max_trades_per_run
 
     signals = []
     score_map = {}
@@ -52,12 +65,22 @@ def generate_signals(
             },
         }
 
-    # Check drawdown gates
-    buys_blocked = portfolio_drawdown < dd_alert
-    all_blocked = portfolio_drawdown < dd_halt
+    # Check drawdown gates — use continuous scaling if adaptive params available
+    if dd_schedule:
+        from src.learning.adaptive import drawdown_size_scalar
+        dd_scalar = drawdown_size_scalar(portfolio_drawdown, dd_schedule)
+        buys_blocked = dd_scalar <= 0.0
+        all_blocked = portfolio_drawdown < dd_halt
+        effective_scalar = position_scalar * dd_scalar
+    else:
+        buys_blocked = portfolio_drawdown < dd_alert
+        all_blocked = portfolio_drawdown < dd_halt
+        effective_scalar = position_scalar
 
     if buys_blocked:
         gate_note = f"Drawdown gate active ({portfolio_drawdown:.1%}): new buys blocked"
+    elif effective_scalar < 1.0:
+        gate_note = f"Position sizing reduced to {effective_scalar:.0%} (drawdown: {portfolio_drawdown:.1%}, vol scalar: {position_scalar:.0%})"
     else:
         gate_note = None
 
@@ -100,11 +123,12 @@ def generate_signals(
         elif decile >= 9 and decile_change >= min_decile_change:
             if not buys_blocked:
                 max_w = settings.strategy.max_single_position_weight
-                target = min(current_weight * 1.5, max_w)
+                add_multiplier = 1.0 + (0.5 * effective_scalar)  # Scale add aggressiveness
+                target = min(current_weight * add_multiplier, max_w)
                 sell_signals.append({
                     "ticker": ticker,
                     "action": "ADD",
-                    "reason": f"Strong hold/add: decile rose to {decile} (was {prior_decile})",
+                    "reason": f"Strong hold/add: decile rose to {decile} (was {prior_decile}), size {effective_scalar:.0%}",
                     "current_weight": current_weight,
                     "target_weight": target,
                     "score_decile": decile,
@@ -140,12 +164,14 @@ def generate_signals(
             decile_change = decile - prior_decile
 
             if decile >= 9 and decile_change >= min_decile_change:
+                base_weight = 0.06
+                scaled_weight = round(base_weight * effective_scalar, 4)
                 buy_signals.append({
                     "ticker": ticker,
                     "action": "BUY",
-                    "reason": f"Buy candidate: decile {decile} (was {prior_decile}, change +{decile_change})",
+                    "reason": f"Buy candidate: decile {decile} (was {prior_decile}, change +{decile_change}), size {effective_scalar:.0%}",
                     "current_weight": 0.0,
-                    "target_weight": 0.06,  # Default core weight
+                    "target_weight": scaled_weight,
                     "score_decile": decile,
                     "prior_decile": prior_decile,
                     "signal_data": score_map.get(ticker, {}),

@@ -26,7 +26,7 @@ JUDGE_PROMPT_TEMPLATE = """Evaluate the following proposed trade and return your
 
 ## Strategy Rules
 {strategy_rules}
-
+{historical_section}
 ## Required Output Format
 Return ONLY valid JSON matching this exact schema (no markdown, no code fences):
 {{
@@ -44,6 +44,20 @@ Verdict rules:
 - "approve": Trade satisfies entry/exit rules and passes constraints. This is your DEFAULT. Use confidence 0.7+ for clean trades, 0.5-0.7 for trades with minor flags.
 - "reject": Clear rule violation OR proposed_shares is 0 OR constraint check failed. Confidence should be 0.8+.
 - "needs_review": EXCEPTIONAL cases only — obvious data bugs, active fraud investigations, imminent delisting. You should almost never use this."""
+
+
+HISTORICAL_CONTEXT_TEMPLATE = """
+## Historical Decision Context (Self-Learning)
+The system has tracked past decisions and their outcomes. Use this to calibrate your confidence.
+
+Overall win rate: {overall_win_rate}
+Sector ({sector_name}) win rate: {sector_win_rate}
+
+Similar past decisions:
+{similar_decisions}
+
+{alerts_section}
+If similar past decisions have a low win rate or negative excess returns, lower your confidence accordingly. Historical underperformance in a sector or pattern is a risk flag worth noting."""
 
 
 STRATEGY_RULES_SUMMARY = """Momentum-quality hybrid factor strategy on a 75-ticker US tech stock universe.

@@ -8,6 +8,7 @@ import RiskMonitor from "@/pages/RiskMonitor"
 import BacktestResults from "@/pages/BacktestResults"
 import PipelineControl from "@/pages/PipelineControl"
 import NewsResearch from "@/pages/NewsResearch"
+import LearningDashboard from "@/pages/LearningDashboard"
 
 function Layout() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="risk" element={<RiskMonitor />} />
         <Route path="research" element={<NewsResearch />} />
         <Route path="backtest" element={<BacktestResults />} />
+        <Route path="learning" element={<LearningDashboard />} />
         <Route path="pipeline" element={<PipelineControl />} />
       </Route>
     </Routes>

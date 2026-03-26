@@ -7,6 +7,7 @@ import sys
 import threading
 import traceback
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -62,10 +63,108 @@ app.add_middleware(
 _pipeline_runs: dict[str, list[dict]] = {}
 _pipeline_locks: dict[str, threading.Event] = {}
 
+# Auto mode state: when enabled, pipeline auto-approves and executes judge-approved trades
+_auto_mode: dict = {"enabled": False}
+
 
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+# ============================================================
+# Auto mode endpoints
+# ============================================================
+
+@app.post("/api/reset")
+def reset_trading_data(keep_prices: bool = True):
+    """Reset all trading data: proposals, decisions, outcomes, patterns, judge logs, portfolio.
+
+    Keeps price/fundamental/macro data by default (expensive to re-fetch).
+    Resets portfolio_state.json back to default (cash only, no positions).
+    """
+    import sqlite3
+
+    con = get_connection()
+
+    # Tables to always clear (trading activity)
+    always_clear = [
+        "trade_proposals",
+        "decision_outcomes",
+        "decision_patterns",
+        "simulated_positions",
+        "news_research",
+    ]
+
+    # Optionally clear these too
+    optional_clear = ["adaptive_state"]
+
+    cleared = []
+    for table in always_clear + optional_clear:
+        try:
+            count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            con.execute(f"DELETE FROM {table}")
+            cleared.append(f"{table} ({count} rows)")
+        except Exception:
+            pass  # Table may not exist yet
+
+    if not keep_prices:
+        for table in ["prices", "fundamentals_pit", "factor_scores", "macro_data"]:
+            try:
+                count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                con.execute(f"DELETE FROM {table}")
+                cleared.append(f"{table} ({count} rows)")
+            except Exception:
+                pass
+
+    con.close()
+
+    # Clear SQLite judge log
+    judge_log_path = settings.paths.judge_log_path
+    judge_cleared = 0
+    if judge_log_path.exists():
+        try:
+            jcon = sqlite3.connect(str(judge_log_path))
+            judge_cleared = jcon.execute("SELECT COUNT(*) FROM judge_log").fetchone()[0]
+            jcon.execute("DELETE FROM judge_log")
+            jcon.commit()
+            jcon.close()
+            cleared.append(f"judge_log ({judge_cleared} rows)")
+        except Exception:
+            pass
+
+    # Reset portfolio state to clean slate
+    import json
+    default_portfolio = {
+        "as_of_date": datetime.now().strftime("%Y-%m-%d"),
+        "cash": 100000.00,
+        "positions": [],
+    }
+    with open(settings.paths.portfolio_state_path, "w") as f:
+        json.dump(default_portfolio, f, indent=2)
+    cleared.append("portfolio_state.json (reset to $100k cash)")
+
+    logger.warning(f"RESET: Cleared {len(cleared)} data stores: {', '.join(cleared)}")
+    return {
+        "status": "reset_complete",
+        "cleared": cleared,
+        "kept_prices": keep_prices,
+    }
+
+
+@app.get("/api/auto-mode")
+def get_auto_mode():
+    """Get current auto mode state."""
+    return _auto_mode
+
+
+@app.post("/api/auto-mode")
+def set_auto_mode(enabled: bool):
+    """Toggle auto mode. When enabled, the pipeline will auto-approve and execute
+    all judge-APPROVED trades without human review."""
+    _auto_mode["enabled"] = enabled
+    logger.warning(f"AUTO MODE {'ENABLED' if enabled else 'DISABLED'}")
+    return _auto_mode
 
 
 # ============================================================
@@ -231,6 +330,66 @@ def get_research(ticker: str | None = None, limit: int = 20):
 
 
 # ============================================================
+# Learning endpoints (Phase 7)
+# ============================================================
+
+@app.get("/api/learning/outcomes")
+def get_learning_outcomes(limit: int = 100):
+    """Decision outcomes with measured returns."""
+    try:
+        from src.learning.outcome_tracker import get_outcomes
+        return get_outcomes(limit)
+    except Exception as e:
+        logger.error(f"Learning outcomes endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learning/summary")
+def get_learning_summary():
+    """High-level outcome summary: win rate, totals, averages."""
+    try:
+        from src.learning.outcome_tracker import get_outcome_summary
+        return get_outcome_summary()
+    except Exception as e:
+        logger.error(f"Learning summary endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learning/patterns")
+def get_learning_patterns():
+    """Detected decision patterns across all dimensions."""
+    try:
+        from src.learning.pattern_detector import get_patterns
+        return get_patterns()
+    except Exception as e:
+        logger.error(f"Learning patterns endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learning/alerts")
+def get_learning_alerts():
+    """Alerting patterns (low win rate with sufficient sample size)."""
+    try:
+        from src.learning.pattern_detector import get_alerts
+        return get_alerts()
+    except Exception as e:
+        logger.error(f"Learning alerts endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learning/adaptive")
+def get_adaptive_state_endpoint():
+    """Current adaptive strategy state: regime, IC analysis, constraints."""
+    try:
+        from src.learning.adaptive import get_adaptive_state
+        state = get_adaptive_state()
+        return state or {"message": "No adaptive state computed yet. Run the pipeline."}
+    except Exception as e:
+        logger.error(f"Adaptive state endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
 # Pipeline streaming endpoints
 # ============================================================
 
@@ -294,7 +453,25 @@ def _run_pipeline_thread(run_id: str) -> None:
         _pipeline_locks[run_id].set()
         return
 
-    # Step 3: Signal generation
+    # Step 3: Adaptive analysis (regime detection, factor IC, constraint tuning)
+    adaptive_params = None
+    _emit(run_id, "adaptive", "running", "Running adaptive strategy analysis...")
+    try:
+        from src.learning.adaptive import run_adaptive_analysis
+        adaptive_result = run_adaptive_analysis()
+        adaptive_params = adaptive_result.get("adaptive_constraints", {})
+        regime = adaptive_result.get("regime", {})
+        ic = adaptive_result.get("ic_analysis", {})
+
+        regime_msg = f"{regime.get('vol_regime', '?')} vol ({regime.get('realized_vol', 0):.0%}), {regime.get('momentum_regime', '?')} trend"
+        weights_msg = ", ".join(f"{k}: {v:.0%}" for k, v in ic.get("shrunk_weights", {}).items())
+        _emit(run_id, "adaptive", "done",
+              f"Regime: {regime_msg} | Decile threshold: {adaptive_params.get('min_decile_change', '?')} | "
+              f"Size scalar: {adaptive_params.get('position_size_scalar', 1):.0%} | Weights: {weights_msg}")
+    except Exception as e:
+        _emit(run_id, "adaptive", "done", f"Adaptive analysis skipped: {e}")
+
+    # Step 4: Signal generation
     _emit(run_id, "signals", "running", "Generating signals...")
     try:
         from src.signals.decision_rules import generate_signals, filter_actionable_signals
@@ -310,7 +487,7 @@ def _run_pipeline_thread(run_id: str) -> None:
         pnl = compute_pnl(portfolio, prices)
         drawdown = pnl["total_return_pct"] if pnl["total_return_pct"] < 0 else 0.0
 
-        signals = generate_signals(scores, current_weights, prior_deciles, drawdown)
+        signals = generate_signals(scores, current_weights, prior_deciles, drawdown, adaptive_params=adaptive_params)
         actionable = filter_actionable_signals(signals)
 
         if len(actionable) == 0:
@@ -371,6 +548,7 @@ def _run_pipeline_thread(run_id: str) -> None:
         _emit(run_id, "research", "skipped", "No tickers to research")
 
     # Step 6: Judge evaluation (now enriched with news context)
+    judge_results = []
     if len(passed_proposals) > 0:
         _emit(run_id, "judge", "running", f"Evaluating {len(passed_proposals)} proposals with LLM judge...")
         try:
@@ -382,7 +560,68 @@ def _run_pipeline_thread(run_id: str) -> None:
     else:
         _emit(run_id, "judge", "skipped", "No proposals to evaluate")
 
-    # Step 6: P&L report
+    # Step 6b: Auto-execution (only when auto mode is enabled)
+    if _auto_mode["enabled"] and judge_results:
+        _emit(run_id, "execution", "running", "AUTO MODE: Executing approved trades...")
+        try:
+            from src.simulation.executor import execute_proposals, save_portfolio_state
+
+            # Auto-approve all judge-approved proposals
+            con = get_connection()
+            approved_count = 0
+            rejected_count = 0
+            for result in judge_results:
+                pid = result.get("proposal_id", "")
+                verdict = result.get("verdict", "REJECT")
+                if verdict == "APPROVE":
+                    con.execute("""
+                        UPDATE trade_proposals
+                        SET status = 'APPROVED', human_decision = 'AUTO_APPROVED',
+                            human_notes = 'Auto-approved by auto mode'
+                        WHERE proposal_id = ?
+                    """, [pid])
+                    approved_count += 1
+                else:
+                    con.execute("""
+                        UPDATE trade_proposals
+                        SET status = 'REJECTED', human_decision = 'AUTO_REJECTED',
+                            human_notes = 'Auto-rejected by auto mode (judge verdict: ' || ? || ')'
+                        WHERE proposal_id = ?
+                    """, [verdict, pid])
+                    rejected_count += 1
+
+            # Fetch approved proposals for execution
+            approved_df = con.execute("""
+                SELECT * FROM trade_proposals
+                WHERE status = 'APPROVED' AND human_decision = 'AUTO_APPROVED'
+                  AND created_at >= CURRENT_DATE
+            """).fetchdf()
+            con.close()
+
+            if not approved_df.empty:
+                approved_list = approved_df.to_dict(orient="records")
+                portfolio = load_portfolio_state()
+                pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
+                exec_tickers = list(set(pos_tickers + [p["ticker"] for p in approved_list]))
+                exec_prices = get_current_prices(exec_tickers)
+
+                portfolio, exec_log = execute_proposals(portfolio, approved_list, exec_prices)
+                save_portfolio_state(portfolio)
+
+                executed = [e for e in exec_log if e.get("executed")]
+                _emit(run_id, "execution", "done",
+                      f"AUTO MODE: {approved_count} approved, {rejected_count} rejected, "
+                      f"{len(executed)} trades executed | "
+                      f"Cash: ${portfolio['cash']:,.2f}, Positions: {len(portfolio['positions'])}")
+            else:
+                _emit(run_id, "execution", "done",
+                      f"AUTO MODE: {approved_count} approved, {rejected_count} rejected, 0 to execute")
+        except Exception as e:
+            _emit(run_id, "execution", "error", f"Auto-execution failed: {e}")
+    elif _auto_mode["enabled"]:
+        _emit(run_id, "execution", "skipped", "AUTO MODE: No judge results to execute")
+
+    # Step 7: P&L report
     _emit(run_id, "pnl", "running", "Computing P&L...")
     try:
         from src.simulation.pnl import compute_pnl as pnl_compute
@@ -397,6 +636,31 @@ def _run_pipeline_thread(run_id: str) -> None:
         )
     except Exception as e:
         _emit(run_id, "pnl", "done", f"P&L report skipped: {e}")
+
+    # Step 8: Self-Learning — outcome tracking + pattern detection
+    _emit(run_id, "learning", "running", "Running self-learning analysis...")
+    try:
+        from src.learning.outcome_tracker import run_outcome_tracking
+        from src.learning.pattern_detector import detect_patterns
+
+        outcome_result = run_outcome_tracking()
+        patterns = detect_patterns()
+
+        seeded = outcome_result["seeded"]
+        measured = outcome_result["measurements"]
+        summary = outcome_result["summary"]
+        alerts = [p for p in patterns if p.get("is_alert")]
+
+        msg_parts = [f"Seeded {seeded} new outcomes"]
+        if summary.get("classified", 0) > 0:
+            msg_parts.append(f"win rate: {summary['win_rate']:.0%} ({summary['good']}W/{summary['bad']}L/{summary['neutral']}N)")
+        msg_parts.append(f"{len(patterns)} patterns detected")
+        if alerts:
+            msg_parts.append(f"{len(alerts)} alerts")
+
+        _emit(run_id, "learning", "done", " | ".join(msg_parts))
+    except Exception as e:
+        _emit(run_id, "learning", "done", f"Self-learning skipped: {e}")
 
     # Complete
     _emit(run_id, "complete", "done", "Pipeline finished successfully", summary={

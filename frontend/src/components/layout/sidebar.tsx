@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Workflow,
   Newspaper,
+  Brain,
 } from "lucide-react"
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/decisions", icon: ClipboardList, label: "Decisions" },
   { to: "/risk", icon: ShieldAlert, label: "Risk" },
   { to: "/research", icon: Newspaper, label: "Research" },
+  { to: "/learning", icon: Brain, label: "Learning" },
   { to: "/backtest", icon: FlaskConical, label: "Backtest" },
   { to: "/pipeline", icon: Workflow, label: "Pipeline" },
 ]
@@ -61,7 +63,7 @@ export function Sidebar() {
 
       <div className="border-t border-border/60 px-5 py-4">
         <p className="text-[11px] font-medium text-muted-foreground/60">
-          v3.0 &middot; Phase 6
+          v4.0 &middot; Phase 7
         </p>
       </div>
     </aside>

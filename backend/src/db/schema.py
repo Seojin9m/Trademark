@@ -92,6 +92,55 @@ CREATE TABLE IF NOT EXISTS news_research (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ticker, research_date)
 );
+
+-- Decision outcomes (Phase 7 - Self-Learning)
+CREATE TABLE IF NOT EXISTS decision_outcomes (
+    proposal_id VARCHAR PRIMARY KEY,
+    ticker VARCHAR NOT NULL,
+    action VARCHAR NOT NULL,
+    decision_date DATE NOT NULL,
+    entry_price DOUBLE,
+    shares INTEGER,
+    composite_score DOUBLE,
+    score_decile INTEGER,
+    prior_decile INTEGER,
+    judge_verdict VARCHAR,
+    judge_confidence DOUBLE,
+    sector VARCHAR,
+    sub_sector VARCHAR,
+    factor_snapshot JSON,
+    return_1w DOUBLE,
+    return_1m DOUBLE,
+    return_3m DOUBLE,
+    benchmark_return_1w DOUBLE,
+    benchmark_return_1m DOUBLE,
+    benchmark_return_3m DOUBLE,
+    excess_return_1w DOUBLE,
+    excess_return_1m DOUBLE,
+    excess_return_3m DOUBLE,
+    outcome_1m VARCHAR,
+    measured_at_1w DATE,
+    measured_at_1m DATE,
+    measured_at_3m DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Decision patterns (Phase 7 - Self-Learning)
+CREATE TABLE IF NOT EXISTS decision_patterns (
+    pattern_id VARCHAR PRIMARY KEY,
+    dimension VARCHAR NOT NULL,
+    dimension_value VARCHAR NOT NULL,
+    sample_size INTEGER NOT NULL,
+    win_rate DOUBLE,
+    avg_excess_return_1m DOUBLE,
+    avg_excess_return_3m DOUBLE,
+    best_ticker VARCHAR,
+    worst_ticker VARCHAR,
+    is_alert BOOLEAN DEFAULT FALSE,
+    alert_message TEXT,
+    computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 

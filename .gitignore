@@ -193,8 +193,10 @@ backend/data/*.duckdb.wal
 backend/logs/*.db
 backend/logs/*.log
 
-# Keep portfolio_state.json and directory structure
-!backend/data/portfolio_state.json
+# Portfolio state (contains personal holdings)
+backend/data/portfolio_state.json
+
+# Keep directory structure
 !backend/data/raw/.gitkeep
 !backend/data/processed/.gitkeep
 

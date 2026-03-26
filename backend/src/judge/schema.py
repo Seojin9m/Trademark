@@ -50,12 +50,32 @@ class ConstraintCheck(BaseModel):
     violations: list[str] = Field(default_factory=list)
 
 
+class PastDecision(BaseModel):
+    ticker: str
+    action: str
+    decision_date: str
+    score_decile: int | None = None
+    outcome_1m: str | None = None  # GOOD / BAD / NEUTRAL
+    excess_return_1m: float | None = None
+    excess_return_3m: float | None = None
+    sub_sector: str | None = None
+
+
+class HistoricalContext(BaseModel):
+    similar_decisions: list[PastDecision] = Field(default_factory=list)
+    overall_win_rate: float | None = None
+    sector_win_rate: float | None = None
+    sector_name: str | None = None
+    pattern_alerts: list[str] = Field(default_factory=list)
+
+
 class JudgeInput(BaseModel):
     evaluation_context: EvaluationContext
     proposed_trade: ProposedTrade
     signal_context: SignalContext
     constraint_check: ConstraintCheck
     strategy_rules_summary: str
+    historical_context: HistoricalContext | None = None
 
 
 class JudgeOutput(BaseModel):

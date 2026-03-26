@@ -21,9 +21,11 @@ from src.judge.schema import (
     SignalContext,
     FactorScores,
     ConstraintCheck,
+    HistoricalContext,
+    PastDecision,
     Verdict,
 )
-from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULES_SUMMARY
+from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULES_SUMMARY, HISTORICAL_CONTEXT_TEMPLATE
 
 
 def _init_judge_log_db() -> None:
@@ -130,6 +132,65 @@ def build_judge_input(proposal: dict, portfolio_value: float, pnl: dict) -> Judg
     )
 
 
+def _build_historical_section(proposal: dict) -> str:
+    """Build the historical context section for the judge prompt."""
+    try:
+        from src.learning.pattern_detector import find_similar_decisions, get_patterns, get_alerts
+
+        ticker = proposal["ticker"]
+        signal_data = proposal.get("signal_data", {})
+        score_decile = signal_data.get("decile", 5)
+
+        # Load universe for sub_sector lookup
+        import pandas as pd
+        universe = pd.read_csv(settings.paths.universe_path)
+        sub_sector_row = universe.loc[universe["ticker"] == ticker, "sub_sector"]
+        sub_sector = sub_sector_row.iloc[0] if not sub_sector_row.empty else None
+
+        similar = find_similar_decisions(ticker, score_decile, sub_sector, limit=5)
+        patterns = get_patterns()
+        alerts = get_alerts()
+
+        if not similar and not patterns:
+            return ""
+
+        # Format similar decisions
+        similar_lines = []
+        for d in similar:
+            outcome = d.get("outcome_1m", "pending")
+            excess = d.get("excess_return_1m")
+            excess_str = f"{excess:+.1%}" if excess is not None else "n/a"
+            similar_lines.append(
+                f"- {d['ticker']} {d['action']} on {d.get('decision_date', '?')}: "
+                f"decile {d.get('score_decile', '?')}, outcome={outcome}, excess 1m={excess_str}"
+            )
+
+        # Find overall and sector win rates from patterns
+        overall_wr = "n/a"
+        sector_wr = "n/a"
+        for p in patterns:
+            if p["dimension"] == "overall":
+                overall_wr = f"{p['win_rate']:.0%}" if p.get("win_rate") is not None else "n/a"
+            if p["dimension"] == "sub_sector" and p["dimension_value"] == sub_sector:
+                sector_wr = f"{p['win_rate']:.0%}" if p.get("win_rate") is not None else "n/a"
+
+        alert_lines = [a.get("alert_message", "") for a in alerts if a.get("alert_message")]
+        alerts_section = ""
+        if alert_lines:
+            alerts_section = "Pattern alerts:\n" + "\n".join(f"- {a}" for a in alert_lines)
+
+        return HISTORICAL_CONTEXT_TEMPLATE.format(
+            overall_win_rate=overall_wr,
+            sector_name=sub_sector or "unknown",
+            sector_win_rate=sector_wr,
+            similar_decisions="\n".join(similar_lines) if similar_lines else "No similar past decisions found.",
+            alerts_section=alerts_section,
+        )
+    except Exception:
+        # Don't fail the judge evaluation if learning module has issues
+        return ""
+
+
 def evaluate_proposal(proposal: dict, portfolio_value: float, pnl: dict, news=None) -> JudgeOutput:
     """Send a trade proposal to Claude for evaluation.
 
@@ -141,6 +202,9 @@ def evaluate_proposal(proposal: dict, portfolio_value: float, pnl: dict, news=No
     judge_input = build_judge_input(proposal, portfolio_value, pnl)
     input_json = judge_input.model_dump_json(indent=2)
     input_hash = hashlib.sha256(input_json.encode()).hexdigest()[:16]
+
+    # Build historical context section from self-learning data
+    historical_section = _build_historical_section(proposal)
 
     # Build news context section
     news_section = ""
@@ -160,6 +224,7 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
     prompt = JUDGE_PROMPT_TEMPLATE.format(
         proposal_json=input_json,
         strategy_rules=STRATEGY_RULES_SUMMARY,
+        historical_section=historical_section,
     ) + news_section
 
     model = settings.judge.model
