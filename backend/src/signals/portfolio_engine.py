@@ -14,10 +14,32 @@ from config.settings import settings
 from src.db.schema import get_connection
 
 
+# Map brokerage tickers to our universe tickers where they differ
+_TICKER_MAP = {
+    "GOOG": "GOOGL",   # Wealthsimple uses Class C; our universe tracks Class A
+}
+
+
+def _extract_ticker(ticker_val) -> str:
+    """Normalize a ticker value that may be a string or a SnapTrade symbol dict."""
+    if isinstance(ticker_val, str):
+        t = ticker_val.split(".")[0] if "." in ticker_val else ticker_val
+    elif isinstance(ticker_val, dict):
+        # SnapTrade symbol object: {"symbol": "GOOG", "raw_symbol": "GOOG", ...}
+        raw = ticker_val.get("symbol") or ticker_val.get("raw_symbol") or ""
+        t = str(raw).split(".")[0] if raw else str(ticker_val)
+    else:
+        t = str(ticker_val)
+    return _TICKER_MAP.get(t, t)
+
+
 def load_portfolio_state() -> dict:
-    """Load the current portfolio state from JSON."""
+    """Load the current portfolio state from JSON, normalizing ticker values."""
     with open(settings.paths.portfolio_state_path) as f:
-        return json.load(f)
+        portfolio = json.load(f)
+    for pos in portfolio.get("positions", []):
+        pos["ticker"] = _extract_ticker(pos.get("ticker", ""))
+    return portfolio
 
 
 def get_current_prices(tickers: list[str]) -> dict[str, float]:
@@ -209,18 +231,21 @@ def store_proposals(proposals: list[dict]) -> None:
     for p in proposals:
         con.execute("""
             INSERT INTO trade_proposals
-            (proposal_id, created_at, ticker, action, shares,
-             signal_data, constraint_check, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            (proposal_id, run_id, created_at, ticker, action, shares,
+             signal_data, constraint_check, status, human_decision, human_notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         """, [
             p["proposal_id"],
+            p.get("run_id"),
             p["created_at"],
             p["ticker"],
             p["action"],
             p["shares"],
-            json.dumps(p["signal_data"]),
-            json.dumps(p["constraint_check"]),
+            json.dumps(p["signal_data"]) if isinstance(p["signal_data"], dict) else p["signal_data"],
+            json.dumps(p["constraint_check"]) if isinstance(p["constraint_check"], dict) else p["constraint_check"],
             p["status"],
+            p.get("human_decision"),
+            p.get("human_notes"),
         ])
     con.close()
     print(f"Stored {len(proposals)} trade proposals")

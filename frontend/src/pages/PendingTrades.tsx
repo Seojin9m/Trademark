@@ -6,9 +6,8 @@ import { PageHeader } from "@/components/layout/page-header"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DataTable } from "@/components/ui/data-table"
 import { MetricCard } from "@/components/ui/metric-card"
-import { Check, X, ChevronDown, ChevronUp } from "lucide-react"
+import { Check, X, ChevronDown, ChevronUp, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/contexts/toast-context"
 
@@ -16,6 +15,7 @@ function statusVariant(status: string): "profit" | "loss" | "warn" | "muted" | "
   switch (status) {
     case "APPROVED":
     case "JUDGE_APPROVED":
+    case "EXECUTED":
       return "profit"
     case "REJECTED":
     case "JUDGE_REJECTED":
@@ -34,6 +34,21 @@ function tryParseJson(val: unknown): Record<string, unknown> | null {
     try { return JSON.parse(val) } catch { return null }
   }
   return null
+}
+
+function formatTimestamp(ts: string): string {
+  try {
+    const d = new Date(ts)
+    return d.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+  } catch {
+    return ts
+  }
 }
 
 function TradeCard({
@@ -55,94 +70,117 @@ function TradeCard({
   const canAct = ["PENDING", "JUDGE_APPROVED", "NEEDS_REVIEW"].includes(proposal.status)
 
   return (
-    <Card>
-      <div className="px-6 pt-5 pb-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "inline-flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold",
-                proposal.action === "BUY"
-                  ? "bg-profit/15 text-profit"
-                  : "bg-loss/15 text-loss",
-              )}
-            >
-              {proposal.action}
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-base font-semibold">{proposal.ticker}</span>
-                <span className="text-sm text-muted-foreground">
-                  {proposal.shares} shares
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">{proposal.created_at}</p>
+    <div className="rounded-lg border border-border/40 bg-card/50 px-5 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold",
+              proposal.action === "BUY" || proposal.action === "ADD"
+                ? "bg-profit/15 text-profit"
+                : "bg-loss/15 text-loss",
+            )}
+          >
+            {proposal.action}
+          </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold">{proposal.ticker}</span>
+              <span className="text-sm text-muted-foreground">
+                {proposal.shares} shares
+              </span>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Badge variant={statusVariant(proposal.status)}>{proposal.status}</Badge>
-            {canAct && (
-              <div className="flex gap-1.5">
-                <Button
-                  size="sm"
-                  onClick={onApprove}
-                  disabled={approving}
-                >
-                  <Check className="h-3.5 w-3.5 mr-1" />
-                  Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={onReject}
-                  disabled={rejecting}
-                >
-                  <X className="h-3.5 w-3.5 mr-1" />
-                  Reject
-                </Button>
-              </div>
+            {proposal.human_decision && (
+              <p className="text-xs text-muted-foreground">{proposal.human_decision}</p>
             )}
           </div>
         </div>
 
-        {(signal || judge) && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {expanded ? "Hide details" : "Show details"}
-          </button>
-        )}
-
-        {expanded && (
-          <div className="mt-3 space-y-3">
-            {signal && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Signal Data
-                </p>
-                <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
-                  <pre className="text-muted-foreground">{JSON.stringify(signal, null, 2)}</pre>
-                </div>
-              </div>
-            )}
-            {judge && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Judge Response
-                </p>
-                <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
-                  <pre className="text-muted-foreground">{JSON.stringify(judge, null, 2)}</pre>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          <Badge variant={statusVariant(proposal.status)}>{proposal.status}</Badge>
+          {canAct && (
+            <div className="flex gap-1.5">
+              <Button
+                size="sm"
+                onClick={onApprove}
+                disabled={approving}
+              >
+                <Check className="h-3.5 w-3.5 mr-1" />
+                Approve
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={onReject}
+                disabled={rejecting}
+              >
+                <X className="h-3.5 w-3.5 mr-1" />
+                Reject
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
-    </Card>
+
+      {(signal || judge) && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {expanded ? "Hide details" : "Show details"}
+        </button>
+      )}
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {signal && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Signal Data
+              </p>
+              <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
+                <pre className="text-muted-foreground">{JSON.stringify(signal, null, 2)}</pre>
+              </div>
+            </div>
+          )}
+          {judge && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Judge Response
+              </p>
+              <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
+                <pre className="text-muted-foreground">{JSON.stringify(judge, null, 2)}</pre>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
+}
+
+interface RunGroup {
+  run_id: string
+  timestamp: string
+  proposals: Proposal[]
+}
+
+function groupByRun(proposals: Proposal[]): RunGroup[] {
+  const groups = new Map<string, Proposal[]>()
+  for (const p of proposals) {
+    const key = p.run_id || "unknown"
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(p)
+  }
+  // Sort groups by most recent proposal timestamp
+  return Array.from(groups.entries())
+    .map(([run_id, proposals]) => ({
+      run_id,
+      timestamp: proposals[0]?.created_at || "",
+      proposals,
+    }))
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 }
 
 export default function PendingTrades() {
@@ -151,7 +189,7 @@ export default function PendingTrades() {
   const [filter, setFilter] = useState("All")
   const { data: proposals, isLoading } = useQuery<Proposal[]>({
     queryKey: ["proposals"],
-    queryFn: () => api.getProposals(undefined, 50),
+    queryFn: () => api.getProposals(undefined, 100),
   })
 
   const approveMut = useMutation({
@@ -186,20 +224,23 @@ export default function PendingTrades() {
   }
 
   const all = proposals || []
-  const statuses = ["All", ...new Set(all.map((p) => p.status))]
+  const statuses = ["All", ...Array.from(new Set(all.map((p) => p.status)))]
   const filtered = filter === "All" ? all : all.filter((p) => p.status === filter)
+  const runGroups = groupByRun(filtered)
 
   const pending = all.filter((p) => ["PENDING", "NEEDS_REVIEW"].includes(p.status)).length
   const approved = all.filter((p) => ["APPROVED", "JUDGE_APPROVED"].includes(p.status)).length
+  const executed = all.filter((p) => p.status === "EXECUTED").length
   const rejected = all.filter((p) => ["REJECTED", "JUDGE_REJECTED"].includes(p.status)).length
 
   return (
     <>
-      <PageHeader title="Pending Trades" description={`${all.length} total proposals`} />
+      <PageHeader title="Trades" description={`${all.length} total proposals`} />
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-6">
         <MetricCard label="Pending Review" value={String(pending)} />
         <MetricCard label="Approved" value={String(approved)} />
+        <MetricCard label="Executed" value={String(executed)} />
         <MetricCard label="Rejected" value={String(rejected)} />
       </div>
 
@@ -216,7 +257,7 @@ export default function PendingTrades() {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {runGroups.length === 0 ? (
         <Card>
           <CardContent>
             <p className="text-sm text-muted-foreground py-12 text-center">
@@ -225,16 +266,43 @@ export default function PendingTrades() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((p) => (
-            <TradeCard
-              key={p.proposal_id}
-              proposal={p}
-              onApprove={() => approveMut.mutate(p.proposal_id)}
-              onReject={() => rejectMut.mutate(p.proposal_id)}
-              approving={approveMut.isPending}
-              rejecting={rejectMut.isPending}
-            />
+        <div className="space-y-6">
+          {runGroups.map((group) => (
+            <Card key={group.run_id}>
+              <div className="px-6 pt-4 pb-2 border-b border-border/40">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">
+                      Pipeline Run{" "}
+                      <span className="font-mono text-muted-foreground">
+                        {group.run_id === "unknown" ? "—" : group.run_id}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">
+                      {formatTimestamp(group.timestamp)}
+                    </span>
+                    <Badge variant="muted">{group.proposals.length} trade{group.proposals.length !== 1 ? "s" : ""}</Badge>
+                  </div>
+                </div>
+              </div>
+              <CardContent>
+                <div className="space-y-2 pt-2">
+                  {group.proposals.map((p) => (
+                    <TradeCard
+                      key={p.proposal_id}
+                      proposal={p}
+                      onApprove={() => approveMut.mutate(p.proposal_id)}
+                      onReject={() => rejectMut.mutate(p.proposal_id)}
+                      approving={approveMut.isPending}
+                      rejecting={rejectMut.isPending}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

@@ -18,6 +18,8 @@ class APIKeys(BaseSettings):
     simfin_api_key: str = Field(default="")
     fred_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
+    snaptrade_client_id: str = Field(default="")
+    snaptrade_consumer_key: str = Field(default="")
 
 
 class PathSettings(BaseSettings):

@@ -60,6 +60,63 @@ Similar past decisions:
 If similar past decisions have a low win rate or negative excess returns, lower your confidence accordingly. Historical underperformance in a sector or pattern is a risk flag worth noting."""
 
 
+PORTFOLIO_REVIEW_PROMPT = """You are reviewing the ENTIRE portfolio, not just a single trade. The quantitative model decided to HOLD all current positions with no new trades today. Your job is to evaluate whether you AGREE or DISAGREE with that decision.
+
+## Current Portfolio
+{portfolio_json}
+
+## Factor Scores (Top 10 + Current Holdings)
+{scores_json}
+
+## Market Regime
+{regime_json}
+
+## Recent News
+{news_json}
+{price_section}
+{historical_section}
+## Strategy Rules
+{strategy_rules}
+
+## Your Task
+Review the portfolio holistically. For each current holding AND for the top-scoring stocks not in the portfolio, provide your assessment. Then give an overall portfolio verdict.
+
+Return ONLY valid JSON (no markdown, no code fences):
+{{
+  "overall_verdict": "agree" | "disagree",
+  "confidence": <float 0.0 to 1.0>,
+  "market_assessment": "<1-2 sentence market view>",
+  "holdings_review": [
+    {{
+      "ticker": "<ticker>",
+      "action": "hold" | "sell" | "trim" | "add",
+      "conviction": <float 0.0 to 1.0>,
+      "reason": "<1 sentence>"
+    }}
+  ],
+  "missed_opportunities": [
+    {{
+      "ticker": "<ticker>",
+      "action": "buy",
+      "conviction": <float 0.0 to 1.0>,
+      "reason": "<1 sentence>"
+    }}
+  ],
+  "risk_flags": ["<portfolio-level risks>"],
+  "recommendations": ["<actionable next steps>"]
+}}
+
+Rules:
+- "agree" = the model's HOLD decision is correct, no changes needed
+- "disagree" = you think at least one trade SHOULD be made
+- Be decisive. If you disagree, specify exactly which trades you'd make.
+- Only suggest sells/trims for holdings with genuinely deteriorating fundamentals or excessive risk, not minor score dips.
+- Only suggest buys for top-decile stocks with strong conviction, not speculative ideas.
+- Consider news context: negative sentiment on a holding is a real risk flag.
+- Consider the market regime: in BEAR + HIGH_VOL, be more conservative with position sizes, but bear markets also present buying opportunities for high-quality stocks at discounted prices.
+- IMPORTANT: ALL cash in this portfolio is earmarked for investment — the user has separate savings. Any idle cash is money that SHOULD be deployed into stocks. If there is ANY cash available, you MUST suggest buy opportunities to deploy it fully. Spread it across the best top-scoring stocks. Even in bear markets, dollar-cost-averaging into high-quality discounted names is the strategy. If you suggest sells/trims, also suggest buys to redeploy that freed-up cash — never leave cash sitting idle."""
+
+
 STRATEGY_RULES_SUMMARY = """Momentum-quality hybrid factor strategy on a 75-ticker US tech stock universe.
 - Rebalance: biweekly (every 2 weeks on Friday), but manual pipeline runs can occur any day
 - Factors: 12M-1M momentum, EPS growth YoY, revenue growth YoY, gross margin trend, relative P/S valuation (equal weight 20% each)

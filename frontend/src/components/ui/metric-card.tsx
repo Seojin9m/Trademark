@@ -4,12 +4,13 @@ import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 interface MetricCardProps {
   label: string
   value: string
+  valueNode?: React.ReactNode
   delta?: string
   deltaValue?: number
   className?: string
 }
 
-export function MetricCard({ label, value, delta, deltaValue, className }: MetricCardProps) {
+export function MetricCard({ label, value, valueNode, delta, deltaValue, className }: MetricCardProps) {
   const TrendIcon =
     deltaValue && deltaValue > 0
       ? TrendingUp
@@ -28,7 +29,7 @@ export function MetricCard({ label, value, delta, deltaValue, className }: Metri
       <p className="relative text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
-      <p className="relative mt-1 text-xl font-medium tracking-tight">{value}</p>
+      <p className="relative mt-1 text-xl font-medium tracking-tight">{valueNode ?? value}</p>
       {delta && (
         <div className="relative mt-1 flex items-center gap-1.5">
           {deltaValue !== undefined && (

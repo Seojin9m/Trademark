@@ -58,13 +58,13 @@ def compute_factor_ic(lookback_days: int = 126) -> dict:
     con = get_connection()
 
     # Get factor scores with dates
-    scores = con.execute("""
+    scores = con.execute(f"""
         SELECT ticker, date, momentum_12m1m, eps_growth_yoy, revenue_growth_yoy,
                gross_margin_trend, relative_valuation, composite_score, score_decile
         FROM factor_scores
-        WHERE date >= (SELECT MAX(date) - INTERVAL ? DAY FROM factor_scores)
+        WHERE date >= (SELECT MAX(date) - INTERVAL '{lookback_days}' DAY FROM factor_scores)
         ORDER BY date, ticker
-    """, [lookback_days]).fetchdf()
+    """).fetchdf()
 
     if scores.empty or len(scores) < MIN_IC_LOOKBACK:
         con.close()
@@ -87,7 +87,7 @@ def compute_factor_ic(lookback_days: int = 126) -> dict:
 
     # Compute 21-day forward returns for each ticker at each score date
     price_pivot = prices.pivot(index="date", columns="ticker", values="adj_close")
-    fwd_returns = price_pivot.pct_change(periods=21).shift(-21)  # 21-day forward return
+    fwd_returns = price_pivot.pct_change(periods=21, fill_method=None).shift(-21)  # 21-day forward return
 
     # Compute IC per factor per cross-section date
     ic_by_factor = {col: [] for col in FACTOR_COLUMNS}
@@ -427,13 +427,13 @@ def compute_vol_adjusted_weights(
     tickers = list(target_weights.keys())
 
     # Get recent returns for volatility computation
-    vol_data = con.execute("""
+    vol_data = con.execute(f"""
         WITH recent_prices AS (
             SELECT ticker, date, adj_close,
                    LAG(adj_close) OVER (PARTITION BY ticker ORDER BY date) as prev_close
             FROM prices
             WHERE ticker = ANY($1)
-              AND date >= (SELECT MAX(date) - INTERVAL ? DAY FROM prices)
+              AND date >= (SELECT MAX(date) - INTERVAL '{lookback_days}' DAY FROM prices)
               AND adj_close > 0
         )
         SELECT ticker, STDDEV(LN(adj_close / prev_close)) * SQRT(252) as ann_vol
@@ -441,7 +441,7 @@ def compute_vol_adjusted_weights(
         WHERE prev_close > 0
         GROUP BY ticker
         HAVING COUNT(*) >= 20
-    """, [tickers, lookback_days]).fetchdf()
+    """, [tickers]).fetchdf()
     con.close()
 
     if vol_data.empty:
@@ -585,11 +585,12 @@ def _store_adaptive_state(constraints: dict) -> None:
     """)
 
     state_json = json.dumps(constraints, default=str)
+    now = datetime.now().isoformat()
     con.execute("""
         INSERT INTO adaptive_state (key, value, updated_at)
-        VALUES ('latest', $1, CURRENT_TIMESTAMP)
-        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP
-    """, [state_json])
+        VALUES ('latest', $1, $2)
+        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = $2
+    """, [state_json, now])
     con.close()
 
 

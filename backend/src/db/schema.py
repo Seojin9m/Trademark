@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS factor_scores (
 -- Trade proposals
 CREATE TABLE IF NOT EXISTS trade_proposals (
     proposal_id VARCHAR PRIMARY KEY,
+    run_id VARCHAR,
     created_at TIMESTAMP,
     ticker VARCHAR,
     action VARCHAR,
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS news_research (
 -- Decision outcomes (Phase 7 - Self-Learning)
 CREATE TABLE IF NOT EXISTS decision_outcomes (
     proposal_id VARCHAR PRIMARY KEY,
+    execution_id VARCHAR,
     ticker VARCHAR NOT NULL,
     action VARCHAR NOT NULL,
     decision_date DATE NOT NULL,
@@ -126,6 +128,45 @@ CREATE TABLE IF NOT EXISTS decision_outcomes (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Trade executions (actual executed trades with full audit trail)
+CREATE TABLE IF NOT EXISTS trade_executions (
+    execution_id VARCHAR PRIMARY KEY,
+    proposal_id VARCHAR NOT NULL,
+    run_id VARCHAR,
+    ticker VARCHAR NOT NULL,
+    action VARCHAR NOT NULL,
+    shares INTEGER NOT NULL,
+    execution_price DOUBLE NOT NULL,
+    total_value DOUBLE NOT NULL,
+    execution_source VARCHAR NOT NULL,
+    pre_cash DOUBLE,
+    post_cash DOUBLE,
+    pre_position_shares INTEGER DEFAULT 0,
+    post_position_shares INTEGER DEFAULT 0,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    failure_reason TEXT,
+    executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Portfolio value snapshots (daily time series)
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    snapshot_id VARCHAR PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    total_value DOUBLE NOT NULL,
+    cash DOUBLE NOT NULL,
+    positions_value DOUBLE NOT NULL,
+    n_positions INTEGER NOT NULL,
+    total_cost_basis DOUBLE,
+    unrealized_pnl DOUBLE,
+    total_return_pct DOUBLE,
+    benchmark_value DOUBLE,
+    benchmark_return_pct DOUBLE,
+    snapshot_source VARCHAR NOT NULL DEFAULT 'pipeline',
+    positions_detail JSON,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (snapshot_date, snapshot_source)
+);
+
 -- Decision patterns (Phase 7 - Self-Learning)
 CREATE TABLE IF NOT EXISTS decision_patterns (
     pattern_id VARCHAR PRIMARY KEY,
@@ -154,6 +195,22 @@ def init_db() -> None:
     """Create all tables if they don't exist."""
     con = get_connection()
     con.execute(SCHEMA_SQL)
+
+    # Migrations: add columns that may not exist on older databases
+    migrations = [
+        ("decision_outcomes", "execution_id", "VARCHAR"),
+        ("trade_proposals", "run_id", "VARCHAR"),
+    ]
+    for table, col, col_type in migrations:
+        try:
+            con.execute(f"SELECT {col} FROM {table} LIMIT 0")
+        except Exception:
+            try:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                print(f"  Migration: added {col} to {table}")
+            except Exception:
+                pass
+
     con.close()
     print(f"Database initialized at {settings.paths.duckdb_path}")
 

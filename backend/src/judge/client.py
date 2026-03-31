@@ -25,7 +25,7 @@ from src.judge.schema import (
     PastDecision,
     Verdict,
 )
-from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULES_SUMMARY, HISTORICAL_CONTEXT_TEMPLATE
+from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULES_SUMMARY, HISTORICAL_CONTEXT_TEMPLATE, PORTFOLIO_REVIEW_PROMPT
 
 
 def _init_judge_log_db() -> None:
@@ -206,6 +206,16 @@ def evaluate_proposal(proposal: dict, portfolio_value: float, pnl: dict, news=No
     # Build historical context section from self-learning data
     historical_section = _build_historical_section(proposal)
 
+    # Build price & technical context
+    price_section = ""
+    try:
+        from src.judge.market_context import get_price_context, format_price_section
+        price_ctx = get_price_context(proposal["ticker"])
+        if price_ctx:
+            price_section = "\n\n## Price & Technical Context\n" + format_price_section(price_ctx)
+    except Exception:
+        pass
+
     # Build news context section
     news_section = ""
     if news and news.ai_summary and news.confidence > 0:
@@ -225,7 +235,7 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
         proposal_json=input_json,
         strategy_rules=STRATEGY_RULES_SUMMARY,
         historical_section=historical_section,
-    ) + news_section
+    ) + price_section + news_section
 
     model = settings.judge.model
     client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
@@ -332,6 +342,165 @@ def evaluate_all_proposals(
         results.append((p, output))
 
     return results
+
+
+def evaluate_portfolio_review(
+    portfolio: dict,
+    scores_df,
+    pnl: dict,
+    portfolio_value: float,
+    research_map: dict | None = None,
+    regime: dict | None = None,
+) -> dict:
+    """Run a full portfolio review even when no trades are proposed.
+
+    The judge evaluates all holdings, top-scoring stocks, and the overall
+    portfolio to decide whether it agrees with the model's HOLD decision
+    or thinks trades should be made.
+
+    Returns the parsed judge response dict.
+    """
+    import pandas as pd
+
+    research_map = research_map or {}
+
+    # Build portfolio summary
+    cash = portfolio.get("cash", 0)
+    cash_pct = (cash / portfolio_value * 100) if portfolio_value > 0 else 0
+    portfolio_summary = {
+        "cash": cash,
+        "cash_pct_of_portfolio": round(cash_pct, 1),
+        "total_portfolio_value": round(portfolio_value, 2),
+        "positions": [],
+    }
+    for pos in portfolio.get("positions", []):
+        portfolio_summary["positions"].append({
+            "ticker": pos["ticker"],
+            "shares": pos["shares"],
+            "cost_basis": pos.get("cost_basis_per_share", 0),
+        })
+
+    # Build scores summary: current holdings + top 10 by composite score
+    scores_summary = []
+    if scores_df is not None and not scores_df.empty:
+        held_tickers = {pos["ticker"] for pos in portfolio.get("positions", [])}
+        top10 = scores_df.head(10)
+        held_scores = scores_df[scores_df["ticker"].isin(held_tickers)]
+        combined = pd.concat([top10, held_scores]).drop_duplicates(subset="ticker")
+
+        for _, row in combined.iterrows():
+            entry = {
+                "ticker": row.get("ticker", ""),
+                "composite_score": round(row.get("composite_score", 0), 3),
+                "decile": int(row.get("score_decile", 5)),
+                "in_portfolio": row.get("ticker", "") in held_tickers,
+            }
+            # Add individual factors if available
+            for col in ["momentum_12m1m", "eps_growth_yoy", "revenue_growth_yoy",
+                        "gross_margin_trend", "relative_valuation"]:
+                if col in row and pd.notna(row[col]):
+                    entry[col] = round(float(row[col]), 3)
+            scores_summary.append(entry)
+
+    # Build news summary
+    news_summary = []
+    for ticker, research in research_map.items():
+        if research and hasattr(research, "ai_summary") and research.ai_summary:
+            news_summary.append({
+                "ticker": ticker,
+                "sentiment": research.sentiment,
+                "summary": research.ai_summary[:300],
+                "risk_factors": research.risk_factors[:3] if research.risk_factors else [],
+            })
+
+    # Build historical context
+    historical_section = ""
+    try:
+        from src.learning.pattern_detector import get_patterns, get_alerts
+        patterns = get_patterns()
+        alerts = get_alerts()
+
+        overall_wr = "n/a"
+        for p in patterns:
+            if p["dimension"] == "overall" and p.get("win_rate") is not None:
+                overall_wr = f"{p['win_rate']:.0%}"
+
+        alert_lines = [a.get("alert_message", "") for a in alerts if a.get("alert_message")]
+        if overall_wr != "n/a" or alert_lines:
+            historical_section = f"\n## Historical Context\nOverall win rate: {overall_wr}\n"
+            if alert_lines:
+                historical_section += "Alerts:\n" + "\n".join(f"- {a}" for a in alert_lines)
+    except Exception:
+        pass
+
+    # Build price & technical context for all tickers
+    price_section = ""
+    try:
+        from src.judge.market_context import get_batch_price_context, format_portfolio_price_section
+        all_review_tickers = list(set(
+            [pos["ticker"] for pos in portfolio.get("positions", [])]
+            + [s["ticker"] for s in scores_summary[:10]]
+        ))
+        price_contexts = get_batch_price_context(all_review_tickers)
+        if price_contexts:
+            price_section = "\n" + format_portfolio_price_section(price_contexts)
+    except Exception:
+        pass
+
+    # Build the prompt
+    prompt = PORTFOLIO_REVIEW_PROMPT.format(
+        portfolio_json=json.dumps(portfolio_summary, indent=2),
+        scores_json=json.dumps(scores_summary, indent=2),
+        regime_json=json.dumps(regime or {}, indent=2),
+        news_json=json.dumps(news_summary, indent=2),
+        price_section=price_section,
+        historical_section=historical_section,
+        strategy_rules=STRATEGY_RULES_SUMMARY,
+    )
+
+    model = settings.judge.model
+    client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            temperature=settings.judge.temperature,
+            system="You are a systematic trading portfolio reviewer. Evaluate the entire portfolio and provide actionable feedback. Be decisive — agree or disagree with clear reasoning.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw_text = response.content[0].text.strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        result = json.loads(raw_text)
+
+    except (json.JSONDecodeError, Exception) as e:
+        result = {
+            "overall_verdict": "agree",
+            "confidence": 0.0,
+            "market_assessment": f"Judge parse error: {e}",
+            "holdings_review": [],
+            "missed_opportunities": [],
+            "risk_flags": ["LLM response parsing failed"],
+            "recommendations": [],
+        }
+
+    # Log to audit trail
+    _log_judge_call(
+        proposal_id="portfolio-review",
+        ticker="PORTFOLIO",
+        action="REVIEW",
+        input_payload=prompt[:5000],
+        output_payload=json.dumps(result, default=str),
+        verdict=result.get("overall_verdict", "agree"),
+        confidence=result.get("confidence", 0),
+        model_used=model,
+        input_hash=hashlib.sha256(prompt.encode()).hexdigest()[:16],
+    )
+
+    return result
 
 
 def get_judge_log(limit: int = 50) -> list[dict]:

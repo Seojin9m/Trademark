@@ -196,6 +196,9 @@ backend/logs/*.log
 # Portfolio state (contains personal holdings)
 backend/data/portfolio_state.json
 
+# SnapTrade credentials (contains user secret)
+backend/data/snaptrade_state.json
+
 # Keep directory structure
 !backend/data/raw/.gitkeep
 !backend/data/processed/.gitkeep

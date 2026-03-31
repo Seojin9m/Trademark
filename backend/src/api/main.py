@@ -28,6 +28,44 @@ from src.signals.portfolio_engine import (
 from src.simulation.pnl import compute_pnl
 from src.judge.client import get_judge_log
 
+
+def get_live_prices(tickers: list[str], portfolio: dict | None = None) -> dict[str, float]:
+    """Get current prices. Priority: Wealthsimple (from last sync) → yfinance → DuckDB."""
+    if not tickers:
+        return {}
+
+    prices: dict[str, float] = {}
+
+    # 1. Use prices stored during last Wealthsimple sync
+    if portfolio:
+        for pos in portfolio.get("positions", []):
+            lp = pos.get("last_price")
+            if lp and lp > 0 and pos["ticker"] in tickers:
+                prices[pos["ticker"]] = lp
+
+    # 2. For any still missing, try yfinance
+    missing = [t for t in tickers if t not in prices]
+    if missing:
+        try:
+            import yfinance as yf
+            data = yf.download(
+                missing, period="2d", progress=False, auto_adjust=True, threads=True
+            )
+            close = data["Close"] if len(missing) > 1 else data[["Close"]]
+            row = close.dropna(how="all").iloc[-1]
+            for t in missing:
+                if t in row and not pd.isna(row[t]):
+                    prices[t] = float(row[t])
+        except Exception:
+            pass
+
+    # 3. Final fallback: DuckDB
+    still_missing = [t for t in tickers if t not in prices]
+    if still_missing:
+        prices.update(get_current_prices(still_missing))
+
+    return prices
+
 logger = logging.getLogger("trade4me")
 logging.basicConfig(
     level=logging.INFO,
@@ -73,7 +111,95 @@ def startup():
 
 
 # ============================================================
-# Auto mode endpoints
+# Brokerage integration endpoints (SnapTrade)
+# ============================================================
+
+@app.get("/api/brokerage/status")
+def brokerage_status():
+    """Check brokerage connection status."""
+    try:
+        from src.ingest.brokerage import get_connection_status
+        return get_connection_status()
+    except Exception as e:
+        logger.error(f"Brokerage status check failed: {e}")
+        return {"connected": False, "status": f"error: {e}", "accounts": []}
+
+
+@app.post("/api/brokerage/connect")
+def brokerage_connect(broker: str = "WEALTHSIMPLETRADE"):
+    """Generate a connection URL for the SnapTrade Connection Portal.
+
+    The user opens this URL in a new tab to log into their brokerage.
+    """
+    try:
+        from src.ingest.brokerage import get_connect_url
+        return get_connect_url(broker)
+    except Exception as e:
+        logger.error(f"Brokerage connect failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/brokerage/sync")
+def brokerage_sync(account_id: str | None = None):
+    """Fetch positions and balances from brokerage → update portfolio_state.json."""
+    try:
+        from src.ingest.brokerage import sync_portfolio
+        return sync_portfolio(account_id)
+    except Exception as e:
+        logger.error(f"Brokerage sync failed: {e}", exc_info=True)
+        err = str(e)
+        body = getattr(e, "body", None)
+        if isinstance(body, dict):
+            code = body.get("code") or body.get("status_code")
+            detail = body.get("detail", "")
+        else:
+            code = None
+            detail = err
+        status = int(getattr(e, "status", 500) or 500)
+        if status == 503 or code == "1149":
+            raise HTTPException(status_code=503, detail="SnapTrade is under maintenance. Please try again later.")
+        raise HTTPException(status_code=status, detail=detail or err)
+
+
+@app.get("/api/brokerage/debug")
+def brokerage_debug():
+    """Raw SnapTrade account data for debugging."""
+    try:
+        from src.ingest.brokerage import _get_client, _load_state
+        state = _load_state()
+        client = _get_client()
+        accounts = client.account_information.list_user_accounts(
+            user_id=state["user_id"],
+            user_secret=state["user_secret"],
+        )
+        return {"raw_accounts": [dict(acc) for acc in accounts.body]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/brokerage/partner-info")
+def brokerage_partner_info():
+    """Check SnapTrade partner info — which brokerages are allowed for this Client ID."""
+    try:
+        from src.ingest.brokerage import get_partner_info
+        return get_partner_info()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/brokerage/disconnect")
+def brokerage_disconnect():
+    """Disconnect brokerage and delete SnapTrade user."""
+    try:
+        from src.ingest.brokerage import delete_user
+        return delete_user()
+    except Exception as e:
+        logger.error(f"Brokerage disconnect failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Auto mode / reset endpoints
 # ============================================================
 
 @app.post("/api/reset")
@@ -89,6 +215,8 @@ def reset_trading_data(keep_prices: bool = True):
 
     # Tables to always clear (trading activity)
     always_clear = [
+        "trade_executions",
+        "portfolio_snapshots",
         "trade_proposals",
         "decision_outcomes",
         "decision_patterns",
@@ -177,7 +305,7 @@ def get_portfolio():
     try:
         portfolio = load_portfolio_state()
         tickers = [p["ticker"] for p in portfolio["positions"]]
-        prices = get_current_prices(tickers)
+        prices = get_live_prices(tickers, portfolio)
         pnl = compute_pnl(portfolio, prices)
         weights = compute_portfolio_weights(portfolio, prices)
 
@@ -233,15 +361,39 @@ def get_proposals(status: str | None = None, limit: int = 50):
 
 @app.post("/api/proposals/{proposal_id}/approve")
 def approve_proposal(proposal_id: str, notes: str = ""):
-    """Human approves a proposal."""
+    """Human approves and immediately executes a proposal."""
+    from src.simulation.executor import execute_trade, save_portfolio_state
+
     con = get_connection()
+    row = con.execute(
+        "SELECT * FROM trade_proposals WHERE proposal_id = ?", [proposal_id]
+    ).fetchone()
+    if not row:
+        con.close()
+        return {"status": "not_found", "proposal_id": proposal_id}
+
+    proposal = dict(zip([d[0] for d in con.execute("SELECT * FROM trade_proposals LIMIT 0").description], row))
+
+    # Mark approved first
     con.execute("""
         UPDATE trade_proposals
         SET status = 'APPROVED', human_decision = 'APPROVED', human_notes = ?
         WHERE proposal_id = ?
-    """, [notes, proposal_id])
+    """, [notes or "Human approved", proposal_id])
     con.close()
-    return {"status": "approved", "proposal_id": proposal_id}
+
+    # Execute the trade immediately
+    try:
+        portfolio = load_portfolio_state()
+        price = get_current_prices([proposal["ticker"]]).get(proposal["ticker"], 0)
+        if price > 0:
+            portfolio = execute_trade(portfolio, proposal, price, "human_approved", proposal.get("run_id"))
+            save_portfolio_state(portfolio)
+            return {"status": "executed", "proposal_id": proposal_id, "price": price}
+        else:
+            return {"status": "approved_no_price", "proposal_id": proposal_id}
+    except Exception as e:
+        return {"status": "approved_execution_failed", "proposal_id": proposal_id, "error": str(e)}
 
 
 @app.post("/api/proposals/{proposal_id}/reject")
@@ -261,6 +413,78 @@ def reject_proposal(proposal_id: str, notes: str = ""):
 def get_judge_log_endpoint(limit: int = 50):
     """Recent LLM judge decisions."""
     return get_judge_log(limit)
+
+
+@app.get("/api/judge/portfolio-review")
+def get_portfolio_review():
+    """Get the latest portfolio review from the judge log."""
+    logs = get_judge_log(20)
+    for log in logs:
+        if log.get("action") == "REVIEW" and log.get("ticker") == "PORTFOLIO":
+            try:
+                import json
+                return json.loads(log.get("output_payload", "{}"))
+            except Exception:
+                return log
+    return {"message": "No portfolio review yet. Run the pipeline."}
+
+
+@app.get("/api/executions")
+def get_executions(limit: int = 100):
+    """Trade execution history — actual trades that were applied to the portfolio."""
+    con = get_connection()
+    try:
+        df = con.execute("""
+            SELECT * FROM trade_executions
+            ORDER BY executed_at DESC
+            LIMIT $1
+        """, [limit]).fetchdf()
+        con.close()
+        if df.empty:
+            return []
+        return json.loads(df.to_json(orient="records", date_format="iso"))
+    except Exception:
+        con.close()
+        return []
+
+
+@app.get("/api/portfolio/history")
+def get_portfolio_history(days: int = 90):
+    """Portfolio value time series from snapshots."""
+    con = get_connection()
+    try:
+        df = con.execute("""
+            SELECT snapshot_date, total_value, cash, positions_value,
+                   n_positions, unrealized_pnl, total_return_pct,
+                   benchmark_value, positions_detail
+            FROM portfolio_snapshots
+            WHERE snapshot_source = 'pipeline'
+            ORDER BY snapshot_date DESC
+            LIMIT $1
+        """, [days]).fetchdf()
+        con.close()
+        if df.empty:
+            return []
+        return json.loads(df.to_json(orient="records", date_format="iso"))
+    except Exception:
+        con.close()
+        return []
+
+
+@app.get("/api/exchange-rate")
+def get_exchange_rate(from_currency: str = "USD", to_currency: str = "CAD"):
+    """Get current exchange rate using yfinance."""
+    try:
+        import yfinance as yf
+        pair = f"{from_currency}{to_currency}=X"
+        ticker = yf.Ticker(pair)
+        hist = ticker.history(period="1d")
+        if not hist.empty:
+            rate = float(hist["Close"].iloc[-1])
+            return {"from": from_currency, "to": to_currency, "rate": round(rate, 4)}
+        return {"from": from_currency, "to": to_currency, "rate": 1.38}  # fallback
+    except Exception:
+        return {"from": from_currency, "to": to_currency, "rate": 1.38}
 
 
 @app.get("/api/risk")
@@ -507,6 +731,8 @@ def _run_pipeline_thread(run_id: str) -> None:
         from src.signals.portfolio_engine import build_trade_proposals, store_proposals
         universe = pd.read_csv(settings.paths.universe_path)
         proposals = build_trade_proposals(actionable, portfolio, prices, universe)
+        for p in proposals:
+            p["run_id"] = run_id
         store_proposals(proposals)
 
         passed = [p for p in proposals if p["constraint_check"]["passed"]]
@@ -547,8 +773,11 @@ def _run_pipeline_thread(run_id: str) -> None:
     else:
         _emit(run_id, "research", "skipped", "No tickers to research")
 
-    # Step 6: Judge evaluation (now enriched with news context)
+    # Step 6: Judge evaluation — ALWAYS runs
+    # If there are proposals: evaluate each one (approve/reject)
+    # If no proposals: run a full portfolio review (agree/disagree with HOLDs)
     judge_results = []
+    portfolio_review = None
     if len(passed_proposals) > 0:
         _emit(run_id, "judge", "running", f"Evaluating {len(passed_proposals)} proposals with LLM judge...")
         try:
@@ -558,7 +787,38 @@ def _run_pipeline_thread(run_id: str) -> None:
         except Exception as e:
             _emit(run_id, "judge", "done", f"Judge evaluation skipped: {e}")
     else:
-        _emit(run_id, "judge", "skipped", "No proposals to evaluate")
+        _emit(run_id, "judge", "running", "No proposals — running full portfolio review...")
+        try:
+            from src.judge.client import evaluate_portfolio_review
+            regime_data = adaptive_result.get("regime") if 'adaptive_result' in dir() else None
+            portfolio_review = evaluate_portfolio_review(
+                portfolio, scores, pnl, portfolio_value,
+                research_map=research_map, regime=regime_data,
+            )
+            verdict = portfolio_review.get("overall_verdict", "?")
+            confidence = portfolio_review.get("confidence", 0)
+            assessment = portfolio_review.get("market_assessment", "")
+            holdings = portfolio_review.get("holdings_review", [])
+            missed = portfolio_review.get("missed_opportunities", [])
+            risks = portfolio_review.get("risk_flags", [])
+
+            # Build summary message
+            actions = [h for h in holdings if h.get("action") != "hold"]
+            msg_parts = [f"Judge {verdict}s with model ({confidence:.0%} confidence)"]
+            if assessment:
+                msg_parts.append(assessment)
+            if actions:
+                action_str = ", ".join(f"{a['action'].upper()} {a['ticker']}" for a in actions[:3])
+                msg_parts.append(f"Suggests: {action_str}")
+            if missed:
+                miss_str = ", ".join(f"BUY {m['ticker']}" for m in missed[:3])
+                msg_parts.append(f"Missed: {miss_str}")
+            if risks:
+                msg_parts.append(f"Risks: {', '.join(risks[:2])}")
+
+            _emit(run_id, "judge", "done", " | ".join(msg_parts))
+        except Exception as e:
+            _emit(run_id, "judge", "done", f"Portfolio review skipped: {e}")
 
     # Step 6b: Auto-execution (only when auto mode is enabled)
     if _auto_mode["enabled"] and judge_results:
@@ -566,28 +826,28 @@ def _run_pipeline_thread(run_id: str) -> None:
         try:
             from src.simulation.executor import execute_proposals, save_portfolio_state
 
-            # Auto-approve all judge-approved proposals
+            # Auto-approve all judge-approved proposals (judge_results is list[tuple[dict, JudgeOutput]])
             con = get_connection()
             approved_count = 0
             rejected_count = 0
-            for result in judge_results:
-                pid = result.get("proposal_id", "")
-                verdict = result.get("verdict", "REJECT")
-                if verdict == "APPROVE":
+            for proposal_dict, judge_output in judge_results:
+                pid = proposal_dict.get("proposal_id", "")
+                verdict = judge_output.verdict.value  # "approve", "reject", "needs_review"
+                if verdict == "approve":
                     con.execute("""
                         UPDATE trade_proposals
                         SET status = 'APPROVED', human_decision = 'AUTO_APPROVED',
                             human_notes = 'Auto-approved by auto mode'
-                        WHERE proposal_id = ?
+                        WHERE proposal_id = $1
                     """, [pid])
                     approved_count += 1
                 else:
                     con.execute("""
                         UPDATE trade_proposals
                         SET status = 'REJECTED', human_decision = 'AUTO_REJECTED',
-                            human_notes = 'Auto-rejected by auto mode (judge verdict: ' || ? || ')'
-                        WHERE proposal_id = ?
-                    """, [verdict, pid])
+                            human_notes = $1
+                        WHERE proposal_id = $2
+                    """, [f"Auto-rejected by auto mode (judge verdict: {verdict})", pid])
                     rejected_count += 1
 
             # Fetch approved proposals for execution
@@ -605,7 +865,10 @@ def _run_pipeline_thread(run_id: str) -> None:
                 exec_tickers = list(set(pos_tickers + [p["ticker"] for p in approved_list]))
                 exec_prices = get_current_prices(exec_tickers)
 
-                portfolio, exec_log = execute_proposals(portfolio, approved_list, exec_prices)
+                portfolio, exec_log = execute_proposals(
+                    portfolio, approved_list, exec_prices,
+                    execution_source="auto_pipeline", run_id=run_id,
+                )
                 save_portfolio_state(portfolio)
 
                 executed = [e for e in exec_log if e.get("executed")]
@@ -618,8 +881,135 @@ def _run_pipeline_thread(run_id: str) -> None:
                       f"AUTO MODE: {approved_count} approved, {rejected_count} rejected, 0 to execute")
         except Exception as e:
             _emit(run_id, "execution", "error", f"Auto-execution failed: {e}")
+    elif portfolio_review and portfolio_review.get("overall_verdict") == "disagree":
+        # Judge disagrees with HOLD — create proposals from suggestions
+        try:
+            from src.simulation.executor import execute_trade, save_portfolio_state
+            from src.signals.portfolio_engine import store_proposals
+
+            portfolio = load_portfolio_state()
+            all_tickers = list(set(
+                [pos["ticker"] for pos in portfolio["positions"]]
+                + [h["ticker"] for h in portfolio_review.get("holdings_review", []) if h.get("action") != "hold"]
+                + [m["ticker"] for m in portfolio_review.get("missed_opportunities", [])]
+            ))
+            exec_prices = get_current_prices(all_tickers)
+
+            judge_proposals = []
+
+            # Process holdings suggestions (sell/trim)
+            for h in portfolio_review.get("holdings_review", []):
+                if h.get("action") in ("sell", "trim") and h.get("conviction", 0) >= 0.6:
+                    ticker = h["ticker"]
+                    price = exec_prices.get(ticker, 0)
+                    if price <= 0:
+                        continue
+
+                    pos = next((p for p in portfolio["positions"] if p["ticker"] == ticker), None)
+                    if not pos:
+                        continue
+
+                    if h["action"] == "sell":
+                        shares = pos["shares"]
+                    else:  # trim
+                        shares = max(1, pos["shares"] // 3)
+
+                    judge_proposals.append({
+                        "proposal_id": f"judge-{ticker}-{uuid.uuid4().hex[:6]}",
+                        "run_id": run_id,
+                        "ticker": ticker,
+                        "action": h["action"].upper(),
+                        "shares": shares,
+                        "status": "APPROVED" if _auto_mode["enabled"] else "NEEDS_REVIEW",
+                        "signal_data": {"source": "judge_review", "reason": h.get("reason", ""), "conviction": h.get("conviction", 0)},
+                        "constraint_check": {"passed": True},
+                        "human_decision": "JUDGE_INITIATED" if _auto_mode["enabled"] else None,
+                        "human_notes": f"Judge portfolio review: {h.get('reason', '')}",
+                        "created_at": datetime.now().isoformat(),
+                    })
+
+            # Process missed opportunities (buy)
+            # Distribute available cash across all buy suggestions proportionally by conviction
+            buy_candidates = [
+                m for m in portfolio_review.get("missed_opportunities", [])
+                if m.get("conviction", 0) >= 0.6
+            ]
+            # Start with current cash, plus estimated proceeds from any sell/trim proposals
+            sell_proceeds = sum(
+                p["shares"] * exec_prices.get(p["ticker"], 0)
+                for p in judge_proposals if p["action"] in ("SELL", "TRIM")
+            )
+            remaining_cash = portfolio["cash"] + sell_proceeds
+
+            for m in buy_candidates:
+                if remaining_cash < 10:
+                    break
+
+                ticker = m["ticker"]
+                price = exec_prices.get(ticker, 0)
+                if price <= 0:
+                    continue
+
+                # Allocate cash: split evenly across remaining candidates, deploy all of it
+                candidates_left = len(buy_candidates) - buy_candidates.index(m)
+                alloc = remaining_cash / candidates_left
+                shares = max(1, int(alloc / price))
+                cost = shares * price
+                if cost > remaining_cash:
+                    shares = int(remaining_cash / price)
+                if shares <= 0:
+                    continue
+                remaining_cash -= shares * price
+
+                judge_proposals.append({
+                    "proposal_id": f"judge-{ticker}-{uuid.uuid4().hex[:6]}",
+                    "run_id": run_id,
+                    "ticker": ticker,
+                    "action": "BUY",
+                    "shares": shares,
+                    "status": "APPROVED" if _auto_mode["enabled"] else "NEEDS_REVIEW",
+                    "signal_data": {"source": "judge_review", "reason": m.get("reason", ""), "conviction": m.get("conviction", 0)},
+                    "constraint_check": {"passed": True},
+                    "human_decision": "JUDGE_INITIATED" if _auto_mode["enabled"] else None,
+                    "human_notes": f"Judge portfolio review: {m.get('reason', '')}",
+                    "created_at": datetime.now().isoformat(),
+                })
+
+            # Store all proposals
+            if judge_proposals:
+                store_proposals(judge_proposals)
+                proposals_str = ", ".join(f"{p['action']} {p['shares']} {p['ticker']}" for p in judge_proposals)
+
+            # Execute if auto mode, otherwise just show as pending
+            if _auto_mode["enabled"] and judge_proposals:
+                _emit(run_id, "execution", "running", "AUTO MODE: Executing judge-initiated trades...")
+                executed_trades = []
+                for proposal in judge_proposals:
+                    ticker = proposal["ticker"]
+                    price = exec_prices.get(ticker, 0)
+                    if price > 0:
+                        portfolio = execute_trade(portfolio, proposal, price, "judge_initiated", run_id)
+                        executed_trades.append(f"{proposal['action']} {proposal['shares']} {ticker} @ ${price:.2f}")
+
+                if executed_trades:
+                    save_portfolio_state(portfolio)
+                    trades_str = ", ".join(executed_trades)
+                    _emit(run_id, "execution", "done",
+                          f"AUTO MODE (judge-initiated): {len(executed_trades)} trades executed: {trades_str} | "
+                          f"Cash: ${portfolio['cash']:,.2f}, Positions: {len(portfolio['positions'])}")
+                else:
+                    _emit(run_id, "execution", "done",
+                          "AUTO MODE: Judge disagreed but no trades could be executed")
+            elif judge_proposals:
+                _emit(run_id, "execution", "done",
+                      f"Judge disagrees — {len(judge_proposals)} proposals created for review: {proposals_str}")
+            else:
+                _emit(run_id, "execution", "done",
+                      "Judge disagreed but no trades met conviction threshold (>=60%)")
+        except Exception as e:
+            _emit(run_id, "execution", "error", f"Judge-initiated proposals failed: {e}")
     elif _auto_mode["enabled"]:
-        _emit(run_id, "execution", "skipped", "AUTO MODE: No judge results to execute")
+        _emit(run_id, "execution", "skipped", "AUTO MODE: Judge agrees with model — no trades needed")
 
     # Step 7: P&L report
     _emit(run_id, "pnl", "running", "Computing P&L...")
@@ -636,6 +1026,17 @@ def _run_pipeline_thread(run_id: str) -> None:
         )
     except Exception as e:
         _emit(run_id, "pnl", "done", f"P&L report skipped: {e}")
+
+    # Step 7b: Portfolio snapshot
+    try:
+        from src.simulation.executor import snapshot_portfolio
+        portfolio = load_portfolio_state()
+        pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
+        snap_prices = get_current_prices(pos_tickers)
+        pnl_for_snap = pnl_data if 'pnl_data' in dir() else {"total_return_pct": 0}
+        snapshot_portfolio(portfolio, pnl_for_snap, snap_prices, source="pipeline")
+    except Exception as e:
+        logger.warning(f"Portfolio snapshot failed: {e}")
 
     # Step 8: Self-Learning — outcome tracking + pattern detection
     _emit(run_id, "learning", "running", "Running self-learning analysis...")

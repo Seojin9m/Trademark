@@ -33,7 +33,7 @@ export function DataTable<T>({ columns, data, rowKey, emptyMessage = "No data", 
               <th
                 key={col.key}
                 className={cn(
-                  "pb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground",
+                  "pb-3 px-3 first:pl-0 last:pr-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground",
                   col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
                   col.className,
                 )}
@@ -53,7 +53,7 @@ export function DataTable<T>({ columns, data, rowKey, emptyMessage = "No data", 
                 <td
                   key={col.key}
                   className={cn(
-                    compact ? "py-1.5" : "py-2.5",
+                    compact ? "py-1.5 px-3 first:pl-0 last:pr-0" : "py-2.5 px-3 first:pl-0 last:pr-0",
                     col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
                     col.className,
                   )}

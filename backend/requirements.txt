@@ -29,6 +29,9 @@ plotly>=5.18.0
 # LLM Judge
 anthropic>=0.40.0
 
+# Brokerage integration
+snaptrade-python-sdk>=11.0.0
+
 # Scheduling
 apscheduler>=3.10.0
 

@@ -11,6 +11,7 @@ import {
   Workflow,
   Newspaper,
   Brain,
+  Wallet,
 } from "lucide-react"
 
 const navItems = [
@@ -22,6 +23,7 @@ const navItems = [
   { to: "/research", icon: Newspaper, label: "Research" },
   { to: "/learning", icon: Brain, label: "Learning" },
   { to: "/backtest", icon: FlaskConical, label: "Backtest" },
+  { to: "/brokerage", icon: Wallet, label: "Brokerage" },
   { to: "/pipeline", icon: Workflow, label: "Pipeline" },
 ]
 
