@@ -10,6 +10,7 @@ import PipelineControl from "@/pages/PipelineControl"
 import NewsResearch from "@/pages/NewsResearch"
 import LearningDashboard from "@/pages/LearningDashboard"
 import Brokerage from "@/pages/Brokerage"
+import AnalystReview from "@/pages/AnalystReview"
 
 function Layout() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="learning" element={<LearningDashboard />} />
         <Route path="pipeline" element={<PipelineControl />} />
         <Route path="brokerage" element={<Brokerage />} />
+        <Route path="analyst" element={<AnalystReview />} />
       </Route>
     </Routes>
   )

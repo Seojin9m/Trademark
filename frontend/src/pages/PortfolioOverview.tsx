@@ -159,7 +159,7 @@ function FlashCell({ value, children, className }: { value: number; children: Re
 }
 
 export default function PortfolioOverview() {
-  const [currency, setCurrency] = useState<"USD" | "CAD">("USD")
+  const [currency, setCurrency] = useState<"USD" | "CAD">("CAD")
   const queryClient = useQueryClient()
 
   const { toast } = useToast()
@@ -396,7 +396,7 @@ export default function PortfolioOverview() {
           <Card>
             <CardTitle>P&L by Position</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
+              <ResponsiveContainer width="100%" height={Math.max(160, pnlChartData.length * 36)}>
                 <BarChart data={pnlChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
                   <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
                   <XAxis
@@ -412,6 +412,7 @@ export default function PortfolioOverview() {
                     type="category"
                     dataKey="ticker"
                     width={50}
+                    interval={0}
                     tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
                     axisLine={false}
                     tickLine={false}
@@ -491,7 +492,7 @@ export default function PortfolioOverview() {
           <Card className="col-span-2">
             <CardTitle>Position Value Breakdown</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
+              <ResponsiveContainer width="100%" height={Math.max(160, valueChartData.length * 36)}>
                 <BarChart data={valueChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
                   <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
                   <XAxis
@@ -505,6 +506,7 @@ export default function PortfolioOverview() {
                     type="category"
                     dataKey="ticker"
                     width={50}
+                    interval={0}
                     tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
                     axisLine={false}
                     tickLine={false}

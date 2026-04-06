@@ -299,11 +299,29 @@ def set_auto_mode(enabled: bool):
 # Portfolio endpoints
 # ============================================================
 
+def _get_usdcad_rate() -> float:
+    """Fetch live USD/CAD rate. Returns 1.38 as fallback."""
+    try:
+        import yfinance as yf
+        hist = yf.Ticker("USDCAD=X").history(period="1d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
+    return 1.38
+
+
 @app.get("/api/portfolio")
 def get_portfolio():
     """Current portfolio state with P&L."""
     try:
         portfolio = load_portfolio_state()
+
+        # Cash from Wealthsimple TFSA is in CAD — convert to USD for P&L
+        if portfolio.get("currency") == "CAD" and portfolio.get("cash", 0) > 0:
+            rate = _get_usdcad_rate()
+            portfolio = {**portfolio, "cash": round(portfolio["cash"] / rate, 2)}
+
         tickers = [p["ticker"] for p in portfolio["positions"]]
         prices = get_live_prices(tickers, portfolio)
         pnl = compute_pnl(portfolio, prices)
@@ -361,9 +379,7 @@ def get_proposals(status: str | None = None, limit: int = 50):
 
 @app.post("/api/proposals/{proposal_id}/approve")
 def approve_proposal(proposal_id: str, notes: str = ""):
-    """Human approves and immediately executes a proposal."""
-    from src.simulation.executor import execute_trade, save_portfolio_state
-
+    """Human approves a proposal for self-learning tracking. Does not execute a real trade."""
     con = get_connection()
     row = con.execute(
         "SELECT * FROM trade_proposals WHERE proposal_id = ?", [proposal_id]
@@ -372,9 +388,6 @@ def approve_proposal(proposal_id: str, notes: str = ""):
         con.close()
         return {"status": "not_found", "proposal_id": proposal_id}
 
-    proposal = dict(zip([d[0] for d in con.execute("SELECT * FROM trade_proposals LIMIT 0").description], row))
-
-    # Mark approved first
     con.execute("""
         UPDATE trade_proposals
         SET status = 'APPROVED', human_decision = 'APPROVED', human_notes = ?
@@ -382,18 +395,7 @@ def approve_proposal(proposal_id: str, notes: str = ""):
     """, [notes or "Human approved", proposal_id])
     con.close()
 
-    # Execute the trade immediately
-    try:
-        portfolio = load_portfolio_state()
-        price = get_current_prices([proposal["ticker"]]).get(proposal["ticker"], 0)
-        if price > 0:
-            portfolio = execute_trade(portfolio, proposal, price, "human_approved", proposal.get("run_id"))
-            save_portfolio_state(portfolio)
-            return {"status": "executed", "proposal_id": proposal_id, "price": price}
-        else:
-            return {"status": "approved_no_price", "proposal_id": proposal_id}
-    except Exception as e:
-        return {"status": "approved_execution_failed", "proposal_id": proposal_id, "error": str(e)}
+    return {"status": "approved", "proposal_id": proposal_id}
 
 
 @app.post("/api/proposals/{proposal_id}/reject")
@@ -469,6 +471,86 @@ def get_portfolio_history(days: int = 90):
     except Exception:
         con.close()
         return []
+
+
+# ============================================================
+# Analyst endpoints
+# ============================================================
+
+@app.post("/api/analyst/review")
+def request_analyst_review():
+    """Run an on-demand portfolio review by the LLM quantitative analyst."""
+    try:
+        from src.analyst.review import run_analyst_review
+        portfolio = load_portfolio_state()
+        tickers = [p["ticker"] for p in portfolio["positions"]]
+        prices = get_live_prices(tickers, portfolio)
+
+        # Convert CAD cash to USD for consistent reporting
+        if portfolio.get("currency") == "CAD" and portfolio.get("cash", 0) > 0:
+            rate = _get_usdcad_rate()
+            portfolio = {**portfolio, "cash": round(portfolio["cash"] / rate, 2)}
+
+        from src.simulation.pnl import compute_pnl
+        pnl = compute_pnl(portfolio, prices)
+
+        # Load scores if available
+        scores_df = None
+        try:
+            from src.db.schema import get_connection
+            con = get_connection()
+            import pandas as pd
+            scores_df = con.execute("""
+                WITH latest AS (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                    FROM factor_scores
+                )
+                SELECT * FROM latest WHERE rn = 1 ORDER BY composite_score DESC
+            """).fetchdf()
+            con.close()
+        except Exception:
+            pass
+
+        # Load regime if available
+        regime = {}
+        try:
+            from src.learning.adaptive import AdaptiveStrategyEngine
+            engine = AdaptiveStrategyEngine()
+            state = engine.load_state()
+            if state and state.get("regime"):
+                regime = state["regime"]
+        except Exception:
+            pass
+
+        review = run_analyst_review(portfolio, pnl, scores_df=scores_df, regime=regime)
+        return review
+    except Exception as e:
+        logger.error(f"Analyst review failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analyst/review")
+def get_analyst_review():
+    """Get the latest analyst review."""
+    try:
+        from src.analyst.review import load_review
+        review = load_review()
+        if not review:
+            return {"review": None}
+        return {"review": review}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/analyst/apply")
+def apply_analyst_review(apply: bool = True):
+    """Mark the analyst review to be applied (or unapplied) in the next pipeline run."""
+    try:
+        from src.analyst.review import set_apply_to_pipeline
+        review = set_apply_to_pipeline(apply)
+        return {"apply_to_pipeline": review["apply_to_pipeline"], "review_id": review["review_id"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/exchange-rate")
@@ -778,6 +860,15 @@ def _run_pipeline_thread(run_id: str) -> None:
     # If no proposals: run a full portfolio review (agree/disagree with HOLDs)
     judge_results = []
     portfolio_review = None
+
+    # Check if analyst guidance is active and log it
+    try:
+        from src.analyst.review import get_pipeline_guidance
+        guidance = get_pipeline_guidance()
+        if guidance:
+            _emit(run_id, "judge", "running", "Analyst guidance active — injecting into judge prompts...")
+    except Exception:
+        pass
     if len(passed_proposals) > 0:
         _emit(run_id, "judge", "running", f"Evaluating {len(passed_proposals)} proposals with LLM judge...")
         try:
@@ -820,68 +911,7 @@ def _run_pipeline_thread(run_id: str) -> None:
         except Exception as e:
             _emit(run_id, "judge", "done", f"Portfolio review skipped: {e}")
 
-    # Step 6b: Auto-execution (only when auto mode is enabled)
-    if _auto_mode["enabled"] and judge_results:
-        _emit(run_id, "execution", "running", "AUTO MODE: Executing approved trades...")
-        try:
-            from src.simulation.executor import execute_proposals, save_portfolio_state
-
-            # Auto-approve all judge-approved proposals (judge_results is list[tuple[dict, JudgeOutput]])
-            con = get_connection()
-            approved_count = 0
-            rejected_count = 0
-            for proposal_dict, judge_output in judge_results:
-                pid = proposal_dict.get("proposal_id", "")
-                verdict = judge_output.verdict.value  # "approve", "reject", "needs_review"
-                if verdict == "approve":
-                    con.execute("""
-                        UPDATE trade_proposals
-                        SET status = 'APPROVED', human_decision = 'AUTO_APPROVED',
-                            human_notes = 'Auto-approved by auto mode'
-                        WHERE proposal_id = $1
-                    """, [pid])
-                    approved_count += 1
-                else:
-                    con.execute("""
-                        UPDATE trade_proposals
-                        SET status = 'REJECTED', human_decision = 'AUTO_REJECTED',
-                            human_notes = $1
-                        WHERE proposal_id = $2
-                    """, [f"Auto-rejected by auto mode (judge verdict: {verdict})", pid])
-                    rejected_count += 1
-
-            # Fetch approved proposals for execution
-            approved_df = con.execute("""
-                SELECT * FROM trade_proposals
-                WHERE status = 'APPROVED' AND human_decision = 'AUTO_APPROVED'
-                  AND created_at >= CURRENT_DATE
-            """).fetchdf()
-            con.close()
-
-            if not approved_df.empty:
-                approved_list = approved_df.to_dict(orient="records")
-                portfolio = load_portfolio_state()
-                pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
-                exec_tickers = list(set(pos_tickers + [p["ticker"] for p in approved_list]))
-                exec_prices = get_current_prices(exec_tickers)
-
-                portfolio, exec_log = execute_proposals(
-                    portfolio, approved_list, exec_prices,
-                    execution_source="auto_pipeline", run_id=run_id,
-                )
-                save_portfolio_state(portfolio)
-
-                executed = [e for e in exec_log if e.get("executed")]
-                _emit(run_id, "execution", "done",
-                      f"AUTO MODE: {approved_count} approved, {rejected_count} rejected, "
-                      f"{len(executed)} trades executed | "
-                      f"Cash: ${portfolio['cash']:,.2f}, Positions: {len(portfolio['positions'])}")
-            else:
-                _emit(run_id, "execution", "done",
-                      f"AUTO MODE: {approved_count} approved, {rejected_count} rejected, 0 to execute")
-        except Exception as e:
-            _emit(run_id, "execution", "error", f"Auto-execution failed: {e}")
-    elif portfolio_review and portfolio_review.get("overall_verdict") == "disagree":
+    if portfolio_review and portfolio_review.get("overall_verdict") == "disagree":
         # Judge disagrees with HOLD — create proposals from suggestions
         try:
             from src.simulation.executor import execute_trade, save_portfolio_state

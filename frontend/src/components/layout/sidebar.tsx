@@ -12,10 +12,12 @@ import {
   Newspaper,
   Brain,
   Wallet,
+  BrainCircuit,
 } from "lucide-react"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Portfolio" },
+  { to: "/analyst", icon: BrainCircuit, label: "Analyst" },
   { to: "/signals", icon: BarChart3, label: "Signals" },
   { to: "/trades", icon: ArrowLeftRight, label: "Trades" },
   { to: "/decisions", icon: ClipboardList, label: "Decisions" },

@@ -199,6 +199,12 @@ backend/data/portfolio_state.json
 # SnapTrade credentials (contains user secret)
 backend/data/snaptrade_state.json
 
+# Analyst review (contains personal portfolio analysis)
+backend/data/analyst_review.json
+
+# Runtime JSON data files
+backend/data/*.json
+
 # Keep directory structure
 !backend/data/raw/.gitkeep
 !backend/data/processed/.gitkeep

@@ -231,11 +231,21 @@ Binary events: {', '.join(e.description for e in news.binary_events) if news.bin
 
 Consider this news context when evaluating. If a binary event (earnings, regulatory) is within 7 days, set binary_event_warning=true."""
 
+    # Inject analyst guidance if one is marked to apply
+    analyst_section = ""
+    try:
+        from src.analyst.review import get_pipeline_guidance
+        guidance = get_pipeline_guidance()
+        if guidance:
+            analyst_section = f"\n\n{guidance}"
+    except Exception:
+        pass
+
     prompt = JUDGE_PROMPT_TEMPLATE.format(
         proposal_json=input_json,
         strategy_rules=STRATEGY_RULES_SUMMARY,
         historical_section=historical_section,
-    ) + price_section + news_section
+    ) + price_section + news_section + analyst_section
 
     model = settings.judge.model
     client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
@@ -447,6 +457,16 @@ def evaluate_portfolio_review(
     except Exception:
         pass
 
+    # Inject analyst guidance if one is marked to apply
+    analyst_section = ""
+    try:
+        from src.analyst.review import get_pipeline_guidance
+        guidance = get_pipeline_guidance()
+        if guidance:
+            analyst_section = f"\n\n{guidance}"
+    except Exception:
+        pass
+
     # Build the prompt
     prompt = PORTFOLIO_REVIEW_PROMPT.format(
         portfolio_json=json.dumps(portfolio_summary, indent=2),
@@ -467,7 +487,7 @@ def evaluate_portfolio_review(
             max_tokens=2048,
             temperature=settings.judge.temperature,
             system="You are a systematic trading portfolio reviewer. Evaluate the entire portfolio and provide actionable feedback. Be decisive — agree or disagree with clear reasoning.",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": prompt + analyst_section}],
         )
 
         raw_text = response.content[0].text.strip()
