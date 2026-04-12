@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useState, useEffect, useRef } from "react"
 import { api } from "@/lib/api"
 import type { AnalystReview as AnalystReviewType } from "@/lib/api"
 import { PageHeader } from "@/components/layout/page-header"
@@ -214,6 +215,143 @@ function ReviewDisplay({ review, onApplyToggle, applyPending }: {
   )
 }
 
+const THINKING_STEPS = [
+  "Loading portfolio positions and live prices...",
+  "Computing factor scores across universe tickers...",
+  "Evaluating momentum, valuation, and earnings quality...",
+  "Assessing current market regime and volatility...",
+  "Reviewing sector concentration and risk exposure...",
+  "Generating position-by-position conviction scores...",
+  "Cross-referencing historical pattern performance...",
+  "Formulating pipeline guidance recommendations...",
+  "Drafting portfolio health assessment...",
+  "Finalising quantitative review — almost there...",
+]
+
+function AnalysisLoadingState() {
+  const [visibleCount, setVisibleCount] = useState(1)
+  const [cursorVisible, setCursorVisible] = useState(true)
+  const logRef = useRef<HTMLDivElement>(null)
+
+  // Advance one step every ~1.8 s, then hold on the last one
+  useEffect(() => {
+    const id = setInterval(() => {
+      setVisibleCount((n) => (n < THINKING_STEPS.length ? n + 1 : n))
+    }, 1800)
+    return () => clearInterval(id)
+  }, [])
+
+  // Blink the cursor
+  useEffect(() => {
+    const id = setInterval(() => setCursorVisible((v) => !v), 530)
+    return () => clearInterval(id)
+  }, [])
+
+  // Auto-scroll the log as new lines appear
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [visibleCount])
+
+  return (
+    <div className="space-y-4">
+      {/* Thinking terminal */}
+      <div className="rounded-xl border border-primary/20 bg-[#0a0a10] overflow-hidden">
+        {/* Terminal titlebar */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-primary/10 bg-primary/5">
+          <div className="flex gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500/60" />
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-500/60" />
+            <span className="h-2.5 w-2.5 rounded-full bg-green-500/60" />
+          </div>
+          <div className="flex items-center gap-2 ml-2">
+            <BrainCircuit className="h-3.5 w-3.5 text-primary animate-pulse" />
+            <span className="text-xs font-mono text-primary/70">quant-analyst — analysing portfolio</span>
+          </div>
+        </div>
+
+        {/* Log lines */}
+        <div
+          ref={logRef}
+          className="px-4 py-3 space-y-1.5 font-mono text-xs overflow-y-auto"
+          style={{ minHeight: 180, maxHeight: 260 }}
+        >
+          {THINKING_STEPS.slice(0, visibleCount).map((step, i) => {
+            const isLast = i === visibleCount - 1
+            const isDone = i < visibleCount - 1
+            return (
+              <div
+                key={i}
+                className="flex items-start gap-2"
+                style={{
+                  animation: "analyst-step-in 0.25s ease-out both",
+                }}
+              >
+                <span className={cn("shrink-0 mt-px", isDone ? "text-emerald-500" : "text-primary")}>
+                  {isDone ? "✓" : "›"}
+                </span>
+                <span className={cn(isDone ? "text-muted-foreground" : "text-foreground/90")}>
+                  {step}
+                  {isLast && (
+                    <span
+                      className="inline-block w-1.5 h-3 ml-0.5 align-middle bg-primary rounded-sm"
+                      style={{ opacity: cursorVisible ? 1 : 0, transition: "opacity 0.1s" }}
+                    />
+                  )}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Ghost skeleton cards */}
+      <div className="rounded-xl border-2 border-border/30 p-5 opacity-30 animate-pulse">
+        <div className="flex items-start gap-3">
+          <div className="h-10 w-10 rounded-lg bg-muted/60" />
+          <div className="flex-1 space-y-2 pt-1">
+            <div className="h-3 w-24 rounded bg-muted/80" />
+            <div className="h-3 w-full rounded bg-muted/60" />
+            <div className="h-3 w-3/4 rounded bg-muted/60" />
+          </div>
+          <div className="h-8 w-32 rounded-lg bg-muted/60 shrink-0" />
+        </div>
+        <div className="mt-4 pt-4 border-t border-border/20 space-y-2">
+          <div className="h-2.5 w-28 rounded bg-muted/60" />
+          <div className="h-3 w-full rounded-full bg-muted/40" />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border/30 p-4 opacity-20 animate-pulse space-y-2">
+        {[85, 100, 70, 90, 60].map((w, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="h-3 w-12 rounded bg-muted/80" />
+            <div className="h-3 w-10 rounded bg-muted/60" />
+            <div className="h-3 flex-1 rounded bg-muted/50" style={{ maxWidth: `${w}%` }} />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 opacity-20 animate-pulse">
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-xl border border-border/30 p-4 space-y-2">
+            <div className="h-2.5 w-20 rounded bg-muted/80" />
+            {[90, 75, 85].map((w, j) => (
+              <div key={j} className="h-3 rounded bg-muted/50" style={{ width: `${w}%` }} />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes analyst-step-in {
+          from { opacity: 0; transform: translateY(3px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 export default function AnalystReview() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
@@ -295,12 +433,7 @@ export default function AnalystReview() {
         </div>
       )}
 
-      {requestMutation.isPending && !review && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
-          <BrainCircuit className="h-10 w-10 animate-pulse text-primary" />
-          <p className="text-sm">Analysing your portfolio... this may take 15–30 seconds.</p>
-        </div>
-      )}
+      {requestMutation.isPending && <AnalysisLoadingState />}
 
       {!isLoading && !requestMutation.isPending && !review && (
         <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">

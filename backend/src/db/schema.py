@@ -1,5 +1,6 @@
 """DuckDB schema initialization for trade4me."""
 
+import time
 import duckdb
 
 from config.settings import settings
@@ -185,10 +186,21 @@ CREATE TABLE IF NOT EXISTS decision_patterns (
 """
 
 
-def get_connection() -> duckdb.DuckDBPyConnection:
-    """Get a DuckDB connection to the main database."""
+def get_connection(max_retries: int = 8, retry_delay: float = 0.3) -> duckdb.DuckDBPyConnection:
+    """Get a DuckDB connection, retrying on transient lock contention."""
     db_path = str(settings.paths.duckdb_path)
-    return duckdb.connect(db_path)
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return duckdb.connect(db_path)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if any(kw in msg for kw in ("lock", "busy", "already open", "cannot open")):
+                last_exc = exc
+                time.sleep(retry_delay * (attempt + 1))
+            else:
+                raise
+    raise RuntimeError(f"Could not acquire DuckDB connection after {max_retries} retries: {last_exc}")
 
 
 def init_db() -> None:

@@ -17,7 +17,7 @@ import pytz
 from config.settings import settings
 from src.db.schema import init_db
 from src.signals.ranker import rank_universe, store_scores, get_prior_deciles
-from src.signals.decision_rules import generate_signals, filter_actionable_signals
+from src.signals.decision_rules import generate_signals, filter_actionable_signals, get_recent_trades
 from src.signals.portfolio_engine import (
     load_portfolio_state,
     get_current_prices,
@@ -48,9 +48,9 @@ def run_eod_pipeline() -> dict:
         benchmarks = [settings.primary_benchmark, settings.secondary_benchmark]
         all_tickers = tickers + [b for b in benchmarks if b not in tickers]
 
-        already_exists, existing_count = check_eod_data_exists()
+        already_exists, existing_count, latest_date = check_eod_data_exists()
         if already_exists:
-            print(f"    Skipped - EOD data already exists ({existing_count} tickers)")
+            print(f"    Skipped — already have {existing_count} tickers for {latest_date}")
         else:
             eod_df = fetch_polygon_eod(all_tickers)
             if not eod_df.empty:
@@ -89,7 +89,8 @@ def run_eod_pipeline() -> dict:
     pnl = compute_pnl(portfolio, prices)
     drawdown = pnl["total_return_pct"] if pnl["total_return_pct"] < 0 else 0.0
 
-    signals = generate_signals(scores, current_weights, prior_deciles, drawdown)
+    recent_trades = get_recent_trades()
+    signals = generate_signals(scores, current_weights, prior_deciles, drawdown, recent_trades=recent_trades)
     actionable = filter_actionable_signals(signals)
 
     print(f"    Total signals: {len(signals)} ({len(actionable)} actionable)")
@@ -131,7 +132,7 @@ def run_eod_pipeline() -> dict:
     print("\n  [6/7] LLM judge review...")
     try:
         from src.judge.client import evaluate_all_proposals
-        judge_results = evaluate_all_proposals(passed, portfolio_value, pnl, research_map)
+        judge_results = evaluate_all_proposals(passed, portfolio_value, pnl, research_map, recent_trades=recent_trades)
         print(f"    Judge evaluated {len(judge_results)} proposals")
     except Exception as e:
         print(f"    WARNING: Judge failed: {e}")

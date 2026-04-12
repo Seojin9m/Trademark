@@ -28,6 +28,72 @@ from src.judge.schema import (
 from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULES_SUMMARY, HISTORICAL_CONTEXT_TEMPLATE, PORTFOLIO_REVIEW_PROMPT
 
 
+def _get_user_notes_data() -> dict:
+    """Get user notes data (text + images) from the API module.
+
+    Returns dict with 'text' and 'images' keys, or empty dict.
+    """
+    try:
+        from src.api.main import _user_notes
+        return _user_notes
+    except Exception:
+        return {}
+
+
+def _build_user_notes_section() -> str:
+    """Build the text portion of user notes for the judge prompt."""
+    notes = _get_user_notes_data()
+    text = notes.get("text", "").strip()
+    images = notes.get("images", [])
+    if not text and not images:
+        return ""
+    preamble = (
+        "\n\n## User-Provided Context\n"
+        "The portfolio owner has provided the following notes/context for this pipeline run. "
+        "Treat this as SUPPLEMENTARY information only. The user is a retail investor and their "
+        "analysis may contain biases, incomplete information, or emotional reasoning.\n\n"
+        "YOUR OBLIGATION: Evaluate these notes OBJECTIVELY. If the user's observations align with "
+        "the quantitative data and news research, give them appropriate weight. If they contradict "
+        "the data or appear to be driven by fear/greed/confirmation bias, note the disagreement "
+        "and trust the quantitative signals instead. Never approve or reject a trade solely because "
+        "the user wants it.\n\n"
+    )
+    parts = [preamble]
+    if text:
+        parts.append(f"User notes:\n{text}")
+    if images:
+        parts.append(f"\n[{len(images)} image(s) attached — see below]")
+    return "".join(parts)
+
+
+def _build_user_notes_image_blocks() -> list[dict]:
+    """Build Claude API image content blocks from user-uploaded images.
+
+    Returns list of dicts suitable for Claude's multimodal messages API:
+    [{"type": "image", "source": {"type": "base64", ...}}, ...]
+    """
+    notes = _get_user_notes_data()
+    images = notes.get("images", [])
+    if not images:
+        return []
+
+    blocks = []
+    for img in images[:5]:
+        data = img.get("data", "")
+        mime = img.get("mime", "image/png")
+        if not data:
+            continue
+        blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": mime,
+                "data": data,
+            },
+        })
+    return blocks
+
+
 def _init_judge_log_db() -> None:
     """Create the judge log SQLite database and table."""
     db_path = settings.paths.judge_log_path
@@ -216,6 +282,23 @@ def evaluate_proposal(proposal: dict, portfolio_value: float, pnl: dict, news=No
     except Exception:
         pass
 
+    # Build market regime section if available
+    regime = proposal.get("market_regime", {})
+    regime_section = ""
+    if regime:
+        vol = regime.get("vol_regime", "unknown")
+        rvol = regime.get("realized_vol", 0)
+        mom = regime.get("momentum_regime", "unknown")
+        mom_21d = regime.get("momentum_21d", 0)
+        regime_section = (
+            f"\n\n## Market Regime\n"
+            f"Volatility: {vol} (realized: {rvol:.1%})\n"
+            f"Trend: {mom} (21d momentum: {mom_21d:.1%})\n"
+            f"Consider: In HIGH volatility or BEAR trends, the bar for approving new trades should be higher. "
+            f"Holding existing positions is often the safer choice in turbulent markets."
+        )
+    price_section += regime_section
+
     # Build news context section
     news_section = ""
     if news and news.ai_summary and news.confidence > 0:
@@ -241,11 +324,35 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
     except Exception:
         pass
 
+    # Inject user notes (with objectivity framing)
+    user_notes_section = _build_user_notes_section()
+
+    # Build trade history section if available
+    trade_history_section = ""
+    recent_history = proposal.get("recent_trade_history", [])
+    if recent_history:
+        trade_history_section = (
+            "\n\n## Recent Trade History (Anti-Whipsaw Context)\n"
+            f"This ticker ({proposal['ticker']}) has been traded recently:\n"
+            + "\n".join(f"- {h}" for h in recent_history)
+            + "\nIMPORTANT: If this stock was bought recently and is now being proposed for sale, "
+            "this is a whipsaw signal and should be REJECTED unless there is overwhelming evidence "
+            "of a fundamental change (e.g., fraud, delisting, catastrophic earnings miss). "
+            "Short-term score fluctuations are not sufficient reason to reverse a recent trade."
+        )
+
     prompt = JUDGE_PROMPT_TEMPLATE.format(
         proposal_json=input_json,
         strategy_rules=STRATEGY_RULES_SUMMARY,
         historical_section=historical_section,
-    ) + price_section + news_section + analyst_section
+    ) + price_section + news_section + trade_history_section + analyst_section + user_notes_section
+
+    # Build message content — multimodal if user uploaded images
+    image_blocks = _build_user_notes_image_blocks()
+    if image_blocks:
+        message_content = [{"type": "text", "text": prompt}] + image_blocks
+    else:
+        message_content = prompt
 
     model = settings.judge.model
     client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
@@ -256,7 +363,7 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
             max_tokens=1024,
             temperature=settings.judge.temperature,
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": message_content}],
         )
 
         raw_text = response.content[0].text.strip()
@@ -313,15 +420,32 @@ def evaluate_all_proposals(
     portfolio_value: float,
     pnl: dict,
     research_map: dict | None = None,
+    recent_trades: list[dict] | None = None,
 ) -> list[tuple[dict, JudgeOutput]]:
     """Evaluate all proposals through the LLM judge.
 
     Args:
         research_map: Optional dict of ticker -> NewsResearch objects.
+        recent_trades: Recent executed trades for anti-whipsaw context.
 
     Returns list of (proposal, judge_output) tuples.
     """
     research_map = research_map or {}
+    recent_trades = recent_trades or []
+
+    # Build per-ticker trade history summary for judge context
+    _trade_history: dict[str, list[str]] = {}
+    for t in recent_trades:
+        ticker = t["ticker"]
+        if ticker not in _trade_history:
+            _trade_history[ticker] = []
+        executed = t["executed_at"]
+        if isinstance(executed, str):
+            date_str = executed[:10]
+        else:
+            date_str = executed.strftime("%Y-%m-%d") if hasattr(executed, "strftime") else str(executed)[:10]
+        _trade_history[ticker].append(f"{t['action']} {t['shares']} shares on {date_str}")
+
     results = []
     for p in proposals:
         if not p.get("constraint_check", {}).get("passed", True):
@@ -329,6 +453,11 @@ def evaluate_all_proposals(
             continue
 
         print(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
+        # Attach recent trade history for this ticker so the judge can see it
+        ticker_history = _trade_history.get(p["ticker"], [])
+        if ticker_history:
+            p["recent_trade_history"] = ticker_history
+
         news = research_map.get(p["ticker"])
         output = evaluate_proposal(p, portfolio_value, pnl, news=news)
         print(f"    Verdict: {output.verdict.value} (confidence: {output.confidence:.0%})")
@@ -467,6 +596,9 @@ def evaluate_portfolio_review(
     except Exception:
         pass
 
+    # Inject user notes (with objectivity framing)
+    user_notes_section = _build_user_notes_section()
+
     # Build the prompt
     prompt = PORTFOLIO_REVIEW_PROMPT.format(
         portfolio_json=json.dumps(portfolio_summary, indent=2),
@@ -478,16 +610,24 @@ def evaluate_portfolio_review(
         strategy_rules=STRATEGY_RULES_SUMMARY,
     )
 
+    # Build message content — multimodal if user uploaded images
+    review_prompt = prompt + analyst_section + user_notes_section
+    image_blocks = _build_user_notes_image_blocks()
+    if image_blocks:
+        review_content = [{"type": "text", "text": review_prompt}] + image_blocks
+    else:
+        review_content = review_prompt
+
     model = settings.judge.model
     client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
 
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=2048,
+            max_tokens=4096,
             temperature=settings.judge.temperature,
             system="You are a systematic trading portfolio reviewer. Evaluate the entire portfolio and provide actionable feedback. Be decisive — agree or disagree with clear reasoning.",
-            messages=[{"role": "user", "content": prompt + analyst_section}],
+            messages=[{"role": "user", "content": review_content}],
         )
 
         raw_text = response.content[0].text.strip()

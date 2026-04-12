@@ -2,14 +2,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/contexts/toast-context"
 import { api } from "@/lib/api"
-import type { PortfolioData } from "@/lib/api"
+import type { PortfolioData, PortfolioSnapshot } from "@/lib/api"
 import { formatPercent, pnlColor, cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw, Loader2 } from "lucide-react"
+import { RefreshCw, Loader2, TrendingUp } from "lucide-react"
 import {
   PieChart,
   Pie,
@@ -22,6 +22,8 @@ import {
   YAxis,
   ReferenceLine,
   CartesianGrid,
+  AreaChart,
+  Area,
 } from "recharts"
 
 const COLORS = [
@@ -158,6 +160,175 @@ function FlashCell({ value, children, className }: { value: number; children: Re
   )
 }
 
+function formatSnapshotDate(dateStr: string): string {
+  // Slice to "YYYY-MM-DD" first — pandas may return "2024-01-05T00:00:00.000"
+  const [year, month, day] = dateStr.slice(0, 10).split("-").map(Number)
+  const d = new Date(year, month - 1, day)
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+interface HistoryTooltipProps {
+  active?: boolean
+  payload?: Array<{ value: number; name: string; payload: Record<string, number | string> }>
+  label?: string
+  currency: string
+}
+
+// Values in chartData are already rate-converted, so format directly here
+function fmtConverted(value: number): string {
+  const abs = Math.abs(value)
+  const sign = value < 0 ? "-" : ""
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000) return `${sign}$${abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return `${sign}$${abs.toFixed(2)}`
+}
+
+function HistoryTooltip({ active, payload, label, currency }: HistoryTooltipProps) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload as PortfolioSnapshot & { displayDate: string; total_value: number; unrealized_pnl: number }
+  const returnPct = (d.total_return_pct ?? 0) * 100
+  return (
+    <div style={{ ...tooltipStyle, padding: "10px 14px", minWidth: 190 }}>
+      <p className="text-xs text-muted-foreground mb-2">{d.displayDate ?? label}</p>
+      <div className="space-y-1">
+        <div className="flex justify-between gap-6">
+          <span className="text-xs text-muted-foreground">Portfolio Value ({currency})</span>
+          <span className="text-xs font-semibold">{fmtConverted(d.total_value)}</span>
+        </div>
+        <div className="flex justify-between gap-6">
+          <span className="text-xs text-muted-foreground">Unrealized P&L</span>
+          <span className={cn("text-xs font-semibold", d.unrealized_pnl >= 0 ? "text-profit" : "text-loss")}>
+            {fmtConverted(d.unrealized_pnl)}
+          </span>
+        </div>
+        <div className="flex justify-between gap-6">
+          <span className="text-xs text-muted-foreground">Total Return</span>
+          <span className={cn("text-xs font-semibold", returnPct >= 0 ? "text-profit" : "text-loss")}>
+            {returnPct >= 0 ? "+" : ""}{returnPct.toFixed(2)}%
+          </span>
+        </div>
+        <div className="flex justify-between gap-6">
+          <span className="text-xs text-muted-foreground">Positions</span>
+          <span className="text-xs font-semibold">{d.n_positions}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PortfolioHistoryChart({ snapshots, rate, currency }: {
+  snapshots: PortfolioSnapshot[]
+  rate: number
+  currency: string
+}) {
+  // Reverse so oldest → newest left-to-right
+  const chartData = [...snapshots].reverse().map((s) => {
+    const [year, month, day] = s.snapshot_date.slice(0, 10).split("-").map(Number)
+    const d = new Date(year, month - 1, day)
+    return {
+      ...s,
+      displayDate: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      total_value: s.total_value * rate,
+      unrealized_pnl: s.unrealized_pnl * rate,
+      shortDate: formatSnapshotDate(s.snapshot_date),
+    }
+  })
+
+  const isEmpty = chartData.length === 0
+  const minVal = isEmpty ? 0 : Math.min(...chartData.map((d) => d.total_value))
+  const maxVal = isEmpty ? 0 : Math.max(...chartData.map((d) => d.total_value))
+  const domain: [number, number] = isEmpty ? [0, 1] : [minVal * 0.985, maxVal * 1.015]
+
+  const LINE_COLOR = "#22c55e"  // always green
+
+  return (
+    <Card className="mb-4">
+      <CardTitle>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            Portfolio History
+          </div>
+          {!isEmpty && (
+            <span className="text-xs font-normal text-muted-foreground">
+              {chartData.length} pipeline run{chartData.length !== 1 ? "s" : ""} · last {formatSnapshotDate(snapshots[0].snapshot_date)}
+            </span>
+          )}
+        </div>
+      </CardTitle>
+      <CardContent>
+        {isEmpty ? (
+          <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
+            <TrendingUp className="h-8 w-8 opacity-30" />
+            <p className="text-sm">No history yet — run the pipeline to start tracking.</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 10 }}>
+              <defs>
+                <linearGradient id="historyGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={LINE_COLOR} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={LINE_COLOR} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="shortDate"
+                tick={{ fontSize: 11, fill: "#71717a" }}
+                axisLine={{ stroke: "#27272a" }}
+                tickLine={false}
+                interval={chartData.length <= 10 ? 0 : Math.floor(chartData.length / 8)}
+                padding={{ left: 12, right: 12 }}
+              />
+              <YAxis
+                domain={domain}
+                tickFormatter={(v: number) => {
+                  const abs = Math.abs(v)
+                  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(1)}M`
+                  if (abs >= 1_000) return `$${(abs / 1_000).toFixed(1)}k`
+                  return `$${abs.toFixed(0)}`
+                }}
+                tick={{ fontSize: 11, fill: "#71717a", dy: -4 }}
+                axisLine={false}
+                tickLine={false}
+                width={62}
+              />
+              <Tooltip
+                content={<HistoryTooltip currency={currency} />}
+                cursor={{ stroke: LINE_COLOR, strokeWidth: 1, strokeDasharray: "4 2" }}
+              />
+              <Area
+                type="monotone"
+                dataKey="total_value"
+                stroke={LINE_COLOR}
+                strokeWidth={2}
+                fill="url(#historyGrad)"
+                dot={(props: { cx?: number; cy?: number; index?: number; key?: string }) => {
+                  const { cx = 0, cy = 0, index = 0, key } = props
+                  const isLast = index === chartData.length - 1
+                  if (!isLast && chartData.length > 15) return <g key={key} />
+                  return (
+                    <circle
+                      key={key}
+                      cx={cx}
+                      cy={cy}
+                      r={isLast ? 4 : 2.5}
+                      fill={LINE_COLOR}
+                      stroke="#111113"
+                      strokeWidth={2}
+                    />
+                  )
+                }}
+                activeDot={{ r: 5, fill: LINE_COLOR, stroke: "#111113", strokeWidth: 2 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function PortfolioOverview() {
   const [currency, setCurrency] = useState<"USD" | "CAD">("CAD")
   const queryClient = useQueryClient()
@@ -179,6 +350,12 @@ export default function PortfolioOverview() {
     queryKey: ["exchange-rate"],
     queryFn: () => api.getExchangeRate("USD", "CAD"),
     staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: historyData } = useQuery<PortfolioSnapshot[]>({
+    queryKey: ["portfolio-history"],
+    queryFn: () => api.getPortfolioHistory(180),
+    staleTime: 60 * 1000,
   })
 
   const rate = currency === "CAD" ? (rateData?.rate ?? 1.38) : 1
@@ -485,6 +662,9 @@ export default function PortfolioOverview() {
           />
         </CardContent>
       </Card>
+
+      {/* Portfolio History */}
+      <PortfolioHistoryChart snapshots={historyData ?? []} rate={rate} currency={currency} />
 
       {/* Value Breakdown + Allocation */}
       <div className="grid grid-cols-3 gap-4 mb-4">

@@ -7,7 +7,7 @@ import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MetricCard } from "@/components/ui/metric-card"
-import { Check, X, ChevronDown, ChevronUp, Clock } from "lucide-react"
+import { Check, X, ChevronDown, ChevronUp, Clock, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/contexts/toast-context"
 
@@ -23,6 +23,8 @@ function statusVariant(status: string): "profit" | "loss" | "warn" | "muted" | "
     case "PENDING":
     case "NEEDS_REVIEW":
       return "warn"
+    case "NO_ACTION":
+      return "muted"
     default:
       return "muted"
   }
@@ -160,6 +162,66 @@ function TradeCard({
   )
 }
 
+function StayCard({ proposal }: { proposal: Proposal }) {
+  const [expanded, setExpanded] = useState(false)
+  const judge = tryParseJson(proposal.judge_response)
+  const assessment = judge?.market_assessment as string | undefined
+  const confidence = judge?.confidence as number | undefined
+  const verdict = judge?.overall_verdict as string | undefined
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-card/50 px-5 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/15 text-blue-400">
+            <ShieldCheck className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold">No Trades</span>
+              <span className="text-sm text-muted-foreground">Pipeline declared HOLD</span>
+            </div>
+            {assessment && (
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">{assessment}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {verdict && (
+            <Badge variant={verdict === "agree" ? "muted" : "warn"}>
+              Judge {verdict === "agree" ? "agrees" : "disagrees"}
+              {confidence != null ? ` (${(confidence * 100).toFixed(0)}%)` : ""}
+            </Badge>
+          )}
+          <Badge variant="default" className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+            HOLD
+          </Badge>
+        </div>
+      </div>
+
+      {judge && (
+        <>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {expanded ? "Hide review" : "Show portfolio review"}
+          </button>
+
+          {expanded && (
+            <div className="mt-3">
+              <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
+                <pre className="text-muted-foreground">{JSON.stringify(judge, null, 2)}</pre>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 interface RunGroup {
   run_id: string
   timestamp: string
@@ -284,22 +346,32 @@ export default function PendingTrades() {
                     <span className="text-xs text-muted-foreground">
                       {formatTimestamp(group.timestamp)}
                     </span>
-                    <Badge variant="muted">{group.proposals.length} trade{group.proposals.length !== 1 ? "s" : ""}</Badge>
+                    <Badge variant="muted">
+                      {(() => {
+                        const trades = group.proposals.filter((p) => p.action !== "STAY")
+                        if (trades.length === 0) return "hold"
+                        return `${trades.length} trade${trades.length !== 1 ? "s" : ""}`
+                      })()}
+                    </Badge>
                   </div>
                 </div>
               </div>
               <CardContent>
                 <div className="space-y-2 pt-2">
-                  {group.proposals.map((p) => (
-                    <TradeCard
-                      key={p.proposal_id}
-                      proposal={p}
-                      onApprove={() => approveMut.mutate(p.proposal_id)}
-                      onReject={() => rejectMut.mutate(p.proposal_id)}
-                      approving={approveMut.isPending}
-                      rejecting={rejectMut.isPending}
-                    />
-                  ))}
+                  {group.proposals.map((p) =>
+                    p.action === "STAY" ? (
+                      <StayCard key={p.proposal_id} proposal={p} />
+                    ) : (
+                      <TradeCard
+                        key={p.proposal_id}
+                        proposal={p}
+                        onApprove={() => approveMut.mutate(p.proposal_id)}
+                        onReject={() => rejectMut.mutate(p.proposal_id)}
+                        approving={approveMut.isPending}
+                        rejecting={rejectMut.isPending}
+                      />
+                    ),
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -2,6 +2,7 @@
 
 import json
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +10,67 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
+from src.db.schema import get_connection
+
+
+def get_recent_trades(lookback_days: int = 60) -> list[dict]:
+    """Query trade_executions for recently executed trades.
+
+    Returns list of dicts with ticker, action, executed_at, shares.
+    """
+    try:
+        con = get_connection()
+        cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+        rows = con.execute("""
+            SELECT ticker, action, executed_at, shares
+            FROM trade_executions
+            WHERE executed_at >= CAST($1 AS TIMESTAMP)
+              AND success = TRUE
+            ORDER BY executed_at DESC
+        """, [cutoff]).fetchall()
+        con.close()
+        return [
+            {"ticker": r[0], "action": r[1], "executed_at": r[2], "shares": r[3]}
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def _build_trade_recency(recent_trades: list[dict]) -> dict[str, dict]:
+    """Build a per-ticker recency map from recent trade history.
+
+    Returns {ticker: {last_buy_days_ago, last_sell_days_ago, trade_count_30d}}.
+    """
+    now = datetime.now()
+    recency: dict[str, dict] = {}
+
+    for trade in recent_trades:
+        ticker = trade["ticker"]
+        if ticker not in recency:
+            recency[ticker] = {
+                "last_buy_days_ago": None,
+                "last_sell_days_ago": None,
+                "trade_count_30d": 0,
+            }
+
+        executed = trade["executed_at"]
+        if isinstance(executed, str):
+            executed = datetime.fromisoformat(executed)
+        days_ago = (now - executed).days
+
+        action = trade["action"].upper()
+        if action in ("BUY", "ADD"):
+            if recency[ticker]["last_buy_days_ago"] is None or days_ago < recency[ticker]["last_buy_days_ago"]:
+                recency[ticker]["last_buy_days_ago"] = days_ago
+        elif action in ("SELL", "TRIM"):
+            if recency[ticker]["last_sell_days_ago"] is None or days_ago < recency[ticker]["last_sell_days_ago"]:
+                recency[ticker]["last_sell_days_ago"] = days_ago
+
+        if days_ago <= 30:
+            recency[ticker]["trade_count_30d"] += 1
+
+    return recency
 
 
 def generate_signals(
@@ -17,6 +79,7 @@ def generate_signals(
     prior_deciles: dict[str, int],
     portfolio_drawdown: float = 0.0,
     adaptive_params: dict | None = None,
+    recent_trades: list[dict] | None = None,
 ) -> list[dict]:
     """Generate trade signals from ranked scores and current holdings.
 
@@ -26,6 +89,7 @@ def generate_signals(
         prior_deciles: {ticker: prior_score_decile}
         portfolio_drawdown: Current portfolio drawdown from peak (negative number)
         adaptive_params: Optional dict from adaptive constraint tuner overriding defaults
+        recent_trades: Recent executed trades for anti-whipsaw filtering
 
     Returns:
         List of signal dicts with: ticker, action, reason, score details
@@ -84,6 +148,11 @@ def generate_signals(
     else:
         gate_note = None
 
+    # --- Anti-whipsaw: build trade recency map ---
+    min_hold = settings.strategy.min_holding_days  # Hard floor: no sells within this window
+    cooldown_window = min_hold * 2  # Graduated zone: require larger decile change
+    trade_recency = _build_trade_recency(recent_trades or [])
+
     # --- Process current holdings ---
     sell_signals = []
     hold_signals = []
@@ -95,7 +164,35 @@ def generate_signals(
         prior_decile = prior_deciles.get(ticker, 5)
         decile_change = decile - prior_decile
 
-        if decile <= 2 and abs(decile_change) >= min_decile_change:
+        # Anti-whipsaw: check if this position was recently bought
+        recency = trade_recency.get(ticker, {})
+        last_buy_days = recency.get("last_buy_days_ago")
+        holding_protected = False
+        effective_min_decile = min_decile_change
+
+        if last_buy_days is not None and last_buy_days < min_hold:
+            # Hard protection: never sell within the minimum holding period
+            holding_protected = True
+        elif last_buy_days is not None and last_buy_days < cooldown_window:
+            # Graduated threshold: require double the decile change in cooldown zone
+            # Linearly interpolate: at min_hold days -> 2x threshold, at cooldown_window -> 1x
+            progress = (last_buy_days - min_hold) / max(cooldown_window - min_hold, 1)
+            multiplier = 2.0 - progress  # 2.0 at min_hold, 1.0 at cooldown_window
+            effective_min_decile = max(min_decile_change, int(min_decile_change * multiplier))
+
+        if holding_protected:
+            hold_signals.append({
+                "ticker": ticker,
+                "action": "HOLD",
+                "reason": f"Holding period: bought {last_buy_days}d ago (min hold {min_hold}d). Decile {decile} (was {prior_decile})",
+                "current_weight": current_weight,
+                "target_weight": current_weight,
+                "score_decile": decile,
+                "prior_decile": prior_decile,
+                "signal_data": info,
+                "gate_note": gate_note,
+            })
+        elif decile <= 2 and abs(decile_change) >= effective_min_decile:
             sell_signals.append({
                 "ticker": ticker,
                 "action": "SELL",
@@ -107,7 +204,7 @@ def generate_signals(
                 "signal_data": info,
                 "gate_note": gate_note,
             })
-        elif decile <= 4 and abs(decile_change) >= min_decile_change:
+        elif decile <= 4 and abs(decile_change) >= effective_min_decile:
             target = max(current_weight * 0.5, 0)  # Trim 50%
             sell_signals.append({
                 "ticker": ticker,
@@ -140,7 +237,7 @@ def generate_signals(
             hold_signals.append({
                 "ticker": ticker,
                 "action": "HOLD",
-                "reason": f"Hold: decile {decile} (was {prior_decile}), change {abs(decile_change)} < threshold {min_decile_change}",
+                "reason": f"Hold: decile {decile} (was {prior_decile}), change {abs(decile_change)} < threshold {effective_min_decile}",
                 "current_weight": current_weight,
                 "target_weight": current_weight,
                 "score_decile": decile,
@@ -162,6 +259,19 @@ def generate_signals(
             decile = int(row["score_decile"])
             prior_decile = prior_deciles.get(ticker, 5)
             decile_change = decile - prior_decile
+
+            # Anti-whipsaw: don't buy back a recently sold stock
+            recency = trade_recency.get(ticker, {})
+            last_sell_days = recency.get("last_sell_days_ago")
+            if last_sell_days is not None and last_sell_days < min_hold:
+                # Skip — sold too recently, avoid churn
+                continue
+
+            # Anti-churn: penalize tickers with high recent turnover
+            trade_count = recency.get("trade_count_30d", 0)
+            if trade_count >= 3:
+                # Traded 3+ times in 30 days = excessive churn, skip
+                continue
 
             if decile >= 9 and decile_change >= min_decile_change:
                 base_weight = 0.06
@@ -194,6 +304,11 @@ def generate_signals(
         weak_holdings = []
         for ticker, current_weight in current_holdings.items():
             if ticker in selling_tickers:
+                continue
+            # Anti-whipsaw: don't rotate out recently bought positions
+            recency = trade_recency.get(ticker, {})
+            last_buy_days = recency.get("last_buy_days_ago")
+            if last_buy_days is not None and last_buy_days < cooldown_window:
                 continue
             info = score_map.get(ticker, {})
             decile = info.get("decile", 5)

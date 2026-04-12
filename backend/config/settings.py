@@ -72,7 +72,7 @@ class StrategySettings(BaseSettings):
 
     # Turnover controls
     max_turnover_per_week_pct: float = 0.15
-    min_holding_days: int = 5
+    min_holding_days: int = 20
     min_decile_change_to_trade: int = 2
     max_new_positions_per_run: int = 3
     max_trades_per_run: int = 5
@@ -98,12 +98,20 @@ class JudgeSettings(BaseSettings):
     max_reject_rate_30d: float = 0.30  # investigate if >30% rejects
 
 
+class ChatbotSettings(BaseSettings):
+    model: str = "claude-sonnet-4-6"
+    temperature: float = 0.3
+    max_history: int = 50  # messages per session
+    session_ttl_minutes: int = 60
+
+
 class Settings(BaseSettings):
     api_keys: APIKeys = APIKeys()
     paths: PathSettings = PathSettings()
     strategy: StrategySettings = StrategySettings()
     schedule: ScheduleSettings = ScheduleSettings()
     judge: JudgeSettings = JudgeSettings()
+    chatbot: ChatbotSettings = ChatbotSettings()
 
     # Benchmarks
     primary_benchmark: str = "QQQ"

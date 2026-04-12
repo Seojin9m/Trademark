@@ -1,5 +1,6 @@
 import { Routes, Route, Outlet } from "react-router-dom"
 import { Sidebar } from "@/components/layout/sidebar"
+import { ChatWidget } from "@/components/chat/ChatWidget"
 import PortfolioOverview from "@/pages/PortfolioOverview"
 import SignalDashboard from "@/pages/SignalDashboard"
 import PendingTrades from "@/pages/PendingTrades"
@@ -21,6 +22,7 @@ function Layout() {
           <Outlet />
         </div>
       </main>
+      <ChatWidget />
     </div>
   )
 }

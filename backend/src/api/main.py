@@ -5,6 +5,7 @@ import json
 import logging
 import sys
 import threading
+import time
 import traceback
 import uuid
 from datetime import datetime
@@ -29,21 +30,45 @@ from src.simulation.pnl import compute_pnl
 from src.judge.client import get_judge_log
 
 
+# ─── In-memory caches (avoids repeated yfinance network calls) ────────────────
+_PRICE_CACHE: dict[str, tuple[float, float]] = {}  # ticker → (price, monotonic_ts)
+_PRICE_TTL = 60.0  # seconds — refresh prices at most once per minute
+
+_usdcad_ts: float = 0.0
+_usdcad_val: float = 1.38
+_USDCAD_TTL = 300.0  # 5 minutes — FX rate doesn't change fast
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def get_live_prices(tickers: list[str], portfolio: dict | None = None) -> dict[str, float]:
-    """Get current prices. Priority: Wealthsimple (from last sync) → yfinance → DuckDB."""
+    """Get current prices with per-ticker 60 s cache.
+
+    Priority: Wealthsimple stored price → in-memory cache → yfinance → DuckDB.
+    """
     if not tickers:
         return {}
 
+    now = time.monotonic()
     prices: dict[str, float] = {}
 
-    # 1. Use prices stored during last Wealthsimple sync
+    # 1. Wealthsimple stored prices (always fresh from last sync, skip cache)
     if portfolio:
         for pos in portfolio.get("positions", []):
             lp = pos.get("last_price")
             if lp and lp > 0 and pos["ticker"] in tickers:
                 prices[pos["ticker"]] = lp
 
-    # 2. For any still missing, try yfinance
+    # 2. In-memory cache for tickers not covered by Wealthsimple
+    cache_hits: list[str] = []
+    for t in tickers:
+        if t in prices:
+            continue
+        entry = _PRICE_CACHE.get(t)
+        if entry and (now - entry[1]) < _PRICE_TTL:
+            prices[t] = entry[0]
+            cache_hits.append(t)
+
+    # 3. yfinance for any remaining misses
     missing = [t for t in tickers if t not in prices]
     if missing:
         try:
@@ -55,14 +80,19 @@ def get_live_prices(tickers: list[str], portfolio: dict | None = None) -> dict[s
             row = close.dropna(how="all").iloc[-1]
             for t in missing:
                 if t in row and not pd.isna(row[t]):
-                    prices[t] = float(row[t])
+                    p = float(row[t])
+                    prices[t] = p
+                    _PRICE_CACHE[t] = (p, now)  # populate cache
         except Exception:
             pass
 
-    # 3. Final fallback: DuckDB
+    # 4. Final fallback: DuckDB
     still_missing = [t for t in tickers if t not in prices]
     if still_missing:
-        prices.update(get_current_prices(still_missing))
+        db_prices = get_current_prices(still_missing)
+        for t, p in db_prices.items():
+            prices[t] = p
+            _PRICE_CACHE[t] = (p, now)
 
     return prices
 
@@ -73,7 +103,14 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-app = FastAPI(title="trade4me API", version="2.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+app = FastAPI(title="trade4me API", version="2.0.0", lifespan=lifespan)
 
 
 @app.exception_handler(Exception)
@@ -104,10 +141,9 @@ _pipeline_locks: dict[str, threading.Event] = {}
 # Auto mode state: when enabled, pipeline auto-approves and executes judge-approved trades
 _auto_mode: dict = {"enabled": False}
 
-
-@app.on_event("startup")
-def startup():
-    init_db()
+# User notes: context the user provides before pipeline runs
+# The judge uses this as extra context but remains objective
+_user_notes: dict = {"text": "", "images": [], "updated_at": None}
 
 
 # ============================================================
@@ -261,16 +297,26 @@ def reset_trading_data(keep_prices: bool = True):
         except Exception:
             pass
 
-    # Reset portfolio state to clean slate
+    # Reset portfolio state — prefer re-syncing from Wealthsimple if connected
     import json
-    default_portfolio = {
-        "as_of_date": datetime.now().strftime("%Y-%m-%d"),
-        "cash": 100000.00,
-        "positions": [],
-    }
-    with open(settings.paths.portfolio_state_path, "w") as f:
-        json.dump(default_portfolio, f, indent=2)
-    cleared.append("portfolio_state.json (reset to $100k cash)")
+    portfolio_reset_msg = "portfolio_state.json (reset to $100k cash)"
+    try:
+        from src.ingest.brokerage import sync_portfolio, get_connection_status
+        status = get_connection_status()
+        if status.get("connected"):
+            sync_portfolio()
+            portfolio_reset_msg = "portfolio_state.json (re-synced from Wealthsimple)"
+        else:
+            raise RuntimeError("not connected")
+    except Exception:
+        default_portfolio = {
+            "as_of_date": datetime.now().strftime("%Y-%m-%d"),
+            "cash": 100000.00,
+            "positions": [],
+        }
+        with open(settings.paths.portfolio_state_path, "w") as f:
+            json.dump(default_portfolio, f, indent=2)
+    cleared.append(portfolio_reset_msg)
 
     logger.warning(f"RESET: Cleared {len(cleared)} data stores: {', '.join(cleared)}")
     return {
@@ -296,19 +342,62 @@ def set_auto_mode(enabled: bool):
 
 
 # ============================================================
+# User notes endpoints
+# ============================================================
+
+@app.get("/api/user-notes")
+def get_user_notes():
+    """Get current user notes for pipeline context."""
+    return _user_notes
+
+
+@app.post("/api/user-notes")
+async def set_user_notes(request: Request):
+    """Save user notes that will be injected into the next pipeline run.
+
+    Accepts JSON body with 'text' and optional 'images' array.
+    Each image: {name, data (base64), mime}.
+    """
+    body = await request.json()
+    text = body.get("text", "")
+    images = body.get("images", [])
+    _user_notes["text"] = text.strip()
+    _user_notes["images"] = images[:5]  # Cap at 5 images
+    has_content = text.strip() or len(images) > 0
+    _user_notes["updated_at"] = datetime.now().isoformat() if has_content else None
+    return _user_notes
+
+
+@app.delete("/api/user-notes")
+def clear_user_notes():
+    """Clear user notes."""
+    _user_notes["text"] = ""
+    _user_notes["images"] = []
+    _user_notes["updated_at"] = None
+    return _user_notes
+
+
+# ============================================================
 # Portfolio endpoints
 # ============================================================
 
 def _get_usdcad_rate() -> float:
-    """Fetch live USD/CAD rate. Returns 1.38 as fallback."""
+    """Fetch live USD/CAD rate, cached for 5 minutes. Returns 1.38 as fallback."""
+    global _usdcad_ts, _usdcad_val
+    now = time.monotonic()
+    if (now - _usdcad_ts) < _USDCAD_TTL:
+        return _usdcad_val
     try:
         import yfinance as yf
         hist = yf.Ticker("USDCAD=X").history(period="1d")
         if not hist.empty:
-            return float(hist["Close"].iloc[-1])
+            _usdcad_val = float(hist["Close"].iloc[-1])
+            _usdcad_ts = now
+            return _usdcad_val
     except Exception:
         pass
-    return 1.38
+    _usdcad_ts = now  # cache the fallback too so we don't retry immediately
+    return _usdcad_val
 
 
 @app.get("/api/portfolio")
@@ -499,7 +588,6 @@ def request_analyst_review():
         try:
             from src.db.schema import get_connection
             con = get_connection()
-            import pandas as pd
             scores_df = con.execute("""
                 WITH latest AS (
                     SELECT *, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
@@ -725,9 +813,9 @@ def _run_pipeline_thread(run_id: str) -> None:
         benchmarks = [settings.primary_benchmark, settings.secondary_benchmark]
         all_tickers = tickers + [b for b in benchmarks if b not in tickers]
 
-        already_exists, existing_count = check_eod_data_exists()
+        already_exists, existing_count, latest_date = check_eod_data_exists()
         if already_exists:
-            _emit(run_id, "ingestion", "done", f"Skipped - EOD data already exists ({existing_count} tickers)")
+            _emit(run_id, "ingestion", "done", f"Skipped — already have {existing_count} tickers for {latest_date}")
         else:
             eod_df = fetch_polygon_eod(all_tickers)
             if not eod_df.empty:
@@ -780,7 +868,7 @@ def _run_pipeline_thread(run_id: str) -> None:
     # Step 4: Signal generation
     _emit(run_id, "signals", "running", "Generating signals...")
     try:
-        from src.signals.decision_rules import generate_signals, filter_actionable_signals
+        from src.signals.decision_rules import generate_signals, filter_actionable_signals, get_recent_trades
 
         portfolio = load_portfolio_state()
         pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
@@ -793,7 +881,8 @@ def _run_pipeline_thread(run_id: str) -> None:
         pnl = compute_pnl(portfolio, prices)
         drawdown = pnl["total_return_pct"] if pnl["total_return_pct"] < 0 else 0.0
 
-        signals = generate_signals(scores, current_weights, prior_deciles, drawdown, adaptive_params=adaptive_params)
+        recent_trades = get_recent_trades()
+        signals = generate_signals(scores, current_weights, prior_deciles, drawdown, adaptive_params=adaptive_params, recent_trades=recent_trades)
         actionable = filter_actionable_signals(signals)
 
         if len(actionable) == 0:
@@ -821,7 +910,39 @@ def _run_pipeline_thread(run_id: str) -> None:
         blocked = [p for p in proposals if not p["constraint_check"]["passed"]]
 
         if len(proposals) == 0:
-            _emit(run_id, "proposals", "done", "No proposals created (all positions held)")
+            # Store a synthetic "STAY" record so it shows in the trade history
+            stay_proposal = {
+                "proposal_id": str(uuid.uuid4())[:8],
+                "run_id": run_id,
+                "created_at": datetime.now().isoformat(),
+                "ticker": "PORTFOLIO",
+                "action": "STAY",
+                "shares": 0,
+                "signal_data": json.dumps({"reason": "No actionable signals — all positions held"}),
+                "constraint_check": json.dumps({"passed": True, "violations": []}),
+                "status": "NO_ACTION",
+                "human_decision": None,
+                "human_notes": None,
+            }
+            try:
+                con = get_connection()
+                con.execute("""
+                    INSERT INTO trade_proposals
+                    (proposal_id, run_id, created_at, ticker, action, shares,
+                     signal_data, constraint_check, status, human_decision, human_notes)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                """, [
+                    stay_proposal["proposal_id"], stay_proposal["run_id"],
+                    stay_proposal["created_at"], stay_proposal["ticker"],
+                    stay_proposal["action"], stay_proposal["shares"],
+                    stay_proposal["signal_data"], stay_proposal["constraint_check"],
+                    stay_proposal["status"], stay_proposal["human_decision"],
+                    stay_proposal["human_notes"],
+                ])
+                con.close()
+            except Exception:
+                pass
+            _emit(run_id, "proposals", "done", "No proposals created — holding all positions")
         else:
             _emit(run_id, "proposals", "done", f"{len(passed)} proposals passed constraints, {len(blocked)} blocked")
     except Exception as e:
@@ -861,19 +982,27 @@ def _run_pipeline_thread(run_id: str) -> None:
     judge_results = []
     portfolio_review = None
 
-    # Check if analyst guidance is active and log it
+    # Check if analyst guidance is active, log it, then auto-clear after this run
+    _analyst_guidance_was_active = False
     try:
         from src.analyst.review import get_pipeline_guidance
         guidance = get_pipeline_guidance()
         if guidance:
+            _analyst_guidance_was_active = True
             _emit(run_id, "judge", "running", "Analyst guidance active — injecting into judge prompts...")
     except Exception:
         pass
+    # Inject market regime into proposals so the judge can see it
+    regime_data = regime if 'regime' in dir() else {}
+    if regime_data:
+        for p in passed_proposals:
+            p["market_regime"] = regime_data
+
     if len(passed_proposals) > 0:
         _emit(run_id, "judge", "running", f"Evaluating {len(passed_proposals)} proposals with LLM judge...")
         try:
             from src.judge.client import evaluate_all_proposals
-            judge_results = evaluate_all_proposals(passed_proposals, portfolio_value, pnl, research_map)
+            judge_results = evaluate_all_proposals(passed_proposals, portfolio_value, pnl, research_map, recent_trades=recent_trades)
             _emit(run_id, "judge", "done", f"Judge evaluated {len(judge_results)} proposals")
         except Exception as e:
             _emit(run_id, "judge", "done", f"Judge evaluation skipped: {e}")
@@ -881,10 +1010,9 @@ def _run_pipeline_thread(run_id: str) -> None:
         _emit(run_id, "judge", "running", "No proposals — running full portfolio review...")
         try:
             from src.judge.client import evaluate_portfolio_review
-            regime_data = adaptive_result.get("regime") if 'adaptive_result' in dir() else None
             portfolio_review = evaluate_portfolio_review(
                 portfolio, scores, pnl, portfolio_value,
-                research_map=research_map, regime=regime_data,
+                research_map=research_map, regime=regime_data or None,
             )
             verdict = portfolio_review.get("overall_verdict", "?")
             confidence = portfolio_review.get("confidence", 0)
@@ -908,8 +1036,28 @@ def _run_pipeline_thread(run_id: str) -> None:
                 msg_parts.append(f"Risks: {', '.join(risks[:2])}")
 
             _emit(run_id, "judge", "done", " | ".join(msg_parts))
+
+            # Update the STAY record with the judge's portfolio review
+            try:
+                con = get_connection()
+                con.execute("""
+                    UPDATE trade_proposals
+                    SET judge_response = $1
+                    WHERE run_id = $2 AND action = 'STAY'
+                """, [json.dumps(portfolio_review, default=str), run_id])
+                con.close()
+            except Exception:
+                pass
         except Exception as e:
             _emit(run_id, "judge", "done", f"Portfolio review skipped: {e}")
+
+    # Auto-clear analyst guidance now that it's been consumed by this pipeline run
+    if _analyst_guidance_was_active:
+        try:
+            from src.analyst.review import set_apply_to_pipeline
+            set_apply_to_pipeline(False)
+        except Exception:
+            pass
 
     if portfolio_review and portfolio_review.get("overall_verdict") == "disagree":
         # Judge disagrees with HOLD — create proposals from suggestions
@@ -1008,6 +1156,13 @@ def _run_pipeline_thread(run_id: str) -> None:
             # Store all proposals
             if judge_proposals:
                 store_proposals(judge_proposals)
+                # Remove the STAY record — the judge overrode the hold decision
+                try:
+                    con = get_connection()
+                    con.execute("DELETE FROM trade_proposals WHERE run_id = $1 AND action = 'STAY'", [run_id])
+                    con.close()
+                except Exception:
+                    pass
                 proposals_str = ", ".join(f"{p['action']} {p['shares']} {p['ticker']}" for p in judge_proposals)
 
             # Execute if auto mode, otherwise just show as pending
@@ -1041,32 +1196,34 @@ def _run_pipeline_thread(run_id: str) -> None:
     elif _auto_mode["enabled"]:
         _emit(run_id, "execution", "skipped", "AUTO MODE: Judge agrees with model — no trades needed")
 
-    # Step 7: P&L report
+    # Steps 7 + 7b: P&L report and portfolio snapshot — share the same portfolio/prices
     _emit(run_id, "pnl", "running", "Computing P&L...")
+    pnl_data = {"total_return_pct": 0}
     try:
         from src.simulation.pnl import compute_pnl as pnl_compute
-        portfolio = load_portfolio_state()
-        pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
-        prices = get_current_prices(pos_tickers)
-        pnl_data = pnl_compute(portfolio, prices)
+        from src.simulation.executor import snapshot_portfolio
+
+        snap_portfolio = load_portfolio_state()
+        # Convert CAD cash → USD once, used for both P&L and snapshot
+        if snap_portfolio.get("currency") == "CAD" and snap_portfolio.get("cash", 0) > 0:
+            snap_rate = _get_usdcad_rate()
+            snap_portfolio = {**snap_portfolio, "cash": round(snap_portfolio["cash"] / snap_rate, 2)}
+
+        snap_tickers = [pos["ticker"] for pos in snap_portfolio["positions"]]
+        # Live prices: Wealthsimple → yfinance → DuckDB
+        snap_prices = get_live_prices(snap_tickers, snap_portfolio)
+
+        pnl_data = pnl_compute(snap_portfolio, snap_prices)
         _emit(
             run_id, "pnl", "done",
             f"Portfolio value: ${pnl_data['total_portfolio_value']:,.2f}, "
             f"P&L: ${pnl_data['total_unrealized_pnl']:,.2f} ({pnl_data['total_return_pct']:.1%})"
         )
+
+        snapshot_portfolio(snap_portfolio, pnl_data, snap_prices, source="pipeline")
     except Exception as e:
         _emit(run_id, "pnl", "done", f"P&L report skipped: {e}")
-
-    # Step 7b: Portfolio snapshot
-    try:
-        from src.simulation.executor import snapshot_portfolio
-        portfolio = load_portfolio_state()
-        pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
-        snap_prices = get_current_prices(pos_tickers)
-        pnl_for_snap = pnl_data if 'pnl_data' in dir() else {"total_return_pct": 0}
-        snapshot_portfolio(portfolio, pnl_for_snap, snap_prices, source="pipeline")
-    except Exception as e:
-        logger.warning(f"Portfolio snapshot failed: {e}")
+        logger.warning(f"P&L / snapshot failed: {e}")
 
     # Step 8: Self-Learning — outcome tracking + pattern detection
     _emit(run_id, "learning", "running", "Running self-learning analysis...")
@@ -1078,7 +1235,6 @@ def _run_pipeline_thread(run_id: str) -> None:
         patterns = detect_patterns()
 
         seeded = outcome_result["seeded"]
-        measured = outcome_result["measurements"]
         summary = outcome_result["summary"]
         alerts = [p for p in patterns if p.get("is_alert")]
 
@@ -1134,6 +1290,39 @@ async def pipeline_status(run_id: str):
             await asyncio.sleep(0.3)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ============================================================
+# Chatbot endpoints
+# ============================================================
+
+@app.post("/api/chat")
+async def chat_endpoint(request: Request):
+    """SSE streaming chat endpoint. Accepts JSON body with 'message' and optional 'session_id'."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="'message' field is required")
+
+    session_id = body.get("session_id")
+
+    from src.chat.agent import stream_chat
+    return StreamingResponse(
+        stream_chat(session_id, message),
+        media_type="text/event-stream",
+    )
+
+
+@app.delete("/api/chat/{session_id}")
+def delete_chat_session(session_id: str):
+    """Delete a chat session and its history."""
+    from src.chat.agent import delete_session
+    deleted = delete_session(session_id)
+    return {"deleted": deleted, "session_id": session_id}
 
 
 if __name__ == "__main__":

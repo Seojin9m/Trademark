@@ -84,26 +84,31 @@ def fetch_yfinance_bulk(
     return result
 
 
-def check_eod_data_exists(date: str | None = None, min_tickers: int = 50) -> tuple[bool, int]:
-    """Check if EOD price data already exists in DuckDB for the given date.
+def check_eod_data_exists(min_tickers: int = 50) -> tuple[bool, int, str | None]:
+    """Check if recent EOD price data already exists in DuckDB.
 
-    Defaults to the most recent trading day (yesterday), matching
-    the date that fetch_polygon_eod would fetch.
+    Looks at the most recent date present in the prices table.
+    Considers data 'current' if:
+      - The most recent date is within the last 5 calendar days (covers weekends/holidays)
+      - At least min_tickers have data for that date
 
-    Returns (exists, ticker_count) where exists is True if at least
-    min_tickers have data for that date.
+    Returns (exists, ticker_count, latest_date).
     """
-    if date is None:
-        date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-
     con = get_connection()
-    row = con.execute(
-        "SELECT COUNT(DISTINCT ticker) FROM prices WHERE date = ?", [date]
-    ).fetchone()
+    row = con.execute("""
+        SELECT MAX(date) as latest_date, COUNT(DISTINCT ticker) as ticker_count
+        FROM prices
+        WHERE date >= CAST(CURRENT_DATE AS DATE) - INTERVAL '5 days'
+          AND date < CAST(CURRENT_DATE AS DATE)
+    """).fetchone()
     con.close()
 
-    count = row[0] if row else 0
-    return (count >= min_tickers, count)
+    if not row or row[0] is None:
+        return (False, 0, None)
+
+    latest_date = str(row[0])
+    count = int(row[1]) if row[1] else 0
+    return (count >= min_tickers, count, latest_date)
 
 
 def store_prices(df: pd.DataFrame) -> None:

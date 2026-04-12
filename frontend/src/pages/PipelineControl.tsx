@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/layout/page-header"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight, AlertTriangle, ShieldAlert, Zap, Trash2, RotateCcw } from "lucide-react"
+import { Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight, AlertTriangle, ShieldAlert, Zap, Trash2, RotateCcw, StickyNote, X, Save, ImagePlus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 
@@ -247,6 +247,226 @@ function AutoModeToggle() {
   )
 }
 
+function UserNotesPanel() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const [draft, setDraft] = useState("")
+  const [images, setImages] = useState<{ name: string; dataUrl: string }[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const { data: notes } = useQuery({
+    queryKey: ["user-notes"],
+    queryFn: api.getUserNotes,
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: { text: string; images: { name: string; data: string; mime: string }[] }) =>
+      api.setUserNotes(payload.text, payload.images),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["user-notes"], data)
+      toast("success", "Notes Saved", "Your context will be included in the next pipeline run")
+    },
+  })
+
+  const clearMutation = useMutation({
+    mutationFn: api.clearUserNotes,
+    onSuccess: (data) => {
+      queryClient.setQueryData(["user-notes"], data)
+      setDraft("")
+      setImages([])
+      toast("success", "Notes Cleared", "User context removed")
+    },
+  })
+
+  const hasNotes = !!(notes?.text) || !!(notes?.images?.length)
+
+  // Sync draft with server state when data loads
+  useEffect(() => {
+    if (notes?.text !== undefined && draft === "" && notes.text) {
+      setDraft(notes.text)
+    }
+    if (notes?.images?.length && images.length === 0) {
+      setImages(notes.images.map((img: { name: string; data: string }) => ({
+        name: img.name,
+        dataUrl: `data:image/png;base64,${img.data}`,
+      })))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes?.text, notes?.images])
+
+  const handleSave = () => {
+    const imagePayloads = images.map((img) => {
+      // Extract base64 data and mime type from dataUrl
+      const match = img.dataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
+      return {
+        name: img.name,
+        data: match ? match[2] : img.dataUrl,
+        mime: match ? match[1] : "image/png",
+      }
+    })
+    saveMutation.mutate({ text: draft, images: imagePayloads })
+  }
+
+  const handleClear = () => {
+    clearMutation.mutate()
+  }
+
+  const addImageFile = (file: File) => {
+    if (!file.type.startsWith("image/")) return
+    if (file.size > 5 * 1024 * 1024) {
+      toast("error", "Image Too Large", "Max 5MB per image")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setImages((prev) => [...prev, { name: file.name, dataUrl: reader.result as string }])
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    Array.from(files).forEach(addImageFile)
+    e.target.value = ""
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) addImageFile(file)
+      }
+    }
+  }
+
+  const removeImage = (idx: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border-2 p-4 transition-all",
+        hasNotes
+          ? "border-blue-500/40 bg-blue-500/5"
+          : "border-border/60 bg-card",
+      )}
+    >
+      <div
+        className="flex items-center justify-between gap-4 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "flex items-center justify-center h-9 w-9 rounded-lg",
+            hasNotes ? "bg-blue-500/15" : "bg-muted/60",
+          )}>
+            <StickyNote className={cn("h-5 w-5", hasNotes ? "text-blue-400" : "text-muted-foreground")} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold">Pipeline Notes</p>
+              {hasNotes && (
+                <Badge variant="default" className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
+                  ACTIVE
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {hasNotes
+                ? "Your notes will be reviewed by the judge"
+                : "Add context for the LLM judge — news, observations, links, images"}
+            </p>
+          </div>
+        </div>
+        <ArrowRight className={cn(
+          "h-4 w-4 text-muted-foreground transition-transform",
+          expanded && "rotate-90",
+        )} />
+      </div>
+
+      {expanded && (
+        <div className="mt-4 space-y-3">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={handlePaste}
+            placeholder={"Share context for the judge to consider...\n\nExamples:\n• \"NVDA earnings beat expectations, see: [link]\"\n• \"Tariff concerns in semiconductor sector\""}
+            className="w-full h-32 rounded-lg bg-[#0a0a0f] border border-border/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20"
+          />
+
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative group">
+                  <img
+                    src={img.dataUrl}
+                    alt={img.name}
+                    className="h-20 w-20 object-cover rounded-lg border border-border/60"
+                  />
+                  <button
+                    onClick={() => removeImage(idx)}
+                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <p className="text-[10px] text-muted-foreground truncate w-20 mt-0.5">{img.name}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleImageAdd}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              className="h-8 text-xs"
+            >
+              <ImagePlus className="h-3 w-3 mr-1" />
+              Add Image
+            </Button>
+            {hasNotes && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClear}
+                disabled={clearMutation.isPending}
+                className="border-red-500/30 text-red-400 hover:bg-red-500/10 h-8 text-xs"
+              >
+                {clearMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3 mr-1" />}
+                Clear
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={saveMutation.isPending || (!draft.trim() && images.length === 0)}
+              className="bg-blue-600 hover:bg-blue-700 text-white border-blue-600 h-8 text-xs"
+            >
+              {saveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Save className="h-3 w-3 mr-1" />}
+              Save Notes
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StartOverButton() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
@@ -297,7 +517,7 @@ function StartOverButton() {
                 <li>All judge evaluation logs</li>
                 <li>All news research data</li>
                 <li>Adaptive strategy state</li>
-                <li>Portfolio reset to $100k cash, no positions</li>
+                <li>Portfolio re-synced from Wealthsimple (or reset to $100k if disconnected)</li>
               </ul>
             </div>
 
@@ -424,8 +644,9 @@ export default function PipelineControl() {
         </div>
       )}
 
-      <div className="mb-4">
+      <div className="mb-4 space-y-3">
         <AutoModeToggle />
+        <UserNotesPanel />
       </div>
 
       <div className="grid grid-cols-3 gap-6">
