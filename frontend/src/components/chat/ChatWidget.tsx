@@ -8,7 +8,6 @@ import {
   ComposerPrimitive,
   type TextMessagePartComponent,
 } from "@assistant-ui/react"
-import { useAuiState } from "@assistant-ui/store"
 import { cn } from "@/lib/utils"
 import { ChatRuntimeProvider } from "./ChatRuntimeProvider"
 
@@ -60,31 +59,44 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
 })
 
 // Custom Text part component plugged into MessagePrimitive.Parts.
-// assistant-ui calls this only with the text that belongs to *this* part,
-// and re-renders only when that part's text changes — exactly the perf
-// optimization we need.
 //
-// Markdown parsing is O(n) per parse and runs on *every* re-render while the
-// text is growing — that's the real source of streaming lag. So while the
-// part is still running we render plain text (whitespace preserved) and only
-// flip to the full markdown renderer once the stream finishes. The final
-// markdown render runs exactly once per message.
+// Two render modes:
+//   - Streaming: plain text in a <div> (no markdown parse — essentially free).
+//     The adapter yields at ~30fps and the DOM just diffs a text node.
+//   - Finalized: full markdown. Renders once when the adapter's typewriter
+//     stops updating the text for 300ms.
+//
+// isFinalized is sticky — once set, the component stays in markdown mode
+// even if React re-runs the effect.
 const AssistantText: TextMessagePartComponent = ({ text }) => {
-  // Message-level running state — documented and reliably flips to false
-  // when the async generator in the adapter returns. Part-level status does
-  // not always flip back for LocalRuntime.
-  const isRunning = useAuiState(
-    (s: { message: { status: { type: string } } }) =>
-      s.message.status.type === "running",
-  )
-  if (isRunning) {
-    return (
-      <div className="whitespace-pre-wrap break-words leading-relaxed">
-        {text}
-      </div>
-    )
+  const [isFinalized, setIsFinalized] = useState(false)
+  const timerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (isFinalized) return
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+    }
+    timerRef.current = window.setTimeout(() => {
+      setIsFinalized(true)
+      timerRef.current = null
+    }, 300)
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [text, isFinalized])
+
+  if (isFinalized) {
+    return <MarkdownContent text={text} />
   }
-  return <MarkdownContent text={text} />
+  return (
+    <div className="whitespace-pre-wrap break-words leading-relaxed">
+      {text}
+    </div>
+  )
 }
 
 // ─── Message components ────────────────────────────────────────────────────
@@ -99,10 +111,26 @@ function UserMessage() {
   )
 }
 
+// Typing indicator shown while the assistant bubble has no content parts yet
+// (waiting on the first token from the backend). Three dots bouncing in
+// sequence — classic typing indicator.
+function ThinkingDots() {
+  return (
+    <div className="flex items-center gap-1 py-1" aria-label="Thinking">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce" />
+    </div>
+  )
+}
+
 function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="flex justify-start">
       <div className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-muted/80 text-foreground border border-border/30 break-words">
+        <MessagePrimitive.If hasContent={false}>
+          <ThinkingDots />
+        </MessagePrimitive.If>
         <MessagePrimitive.Parts components={{ Text: AssistantText }} />
       </div>
     </MessagePrimitive.Root>
@@ -196,7 +224,7 @@ function ChatPanel({
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold">Talk to My Data</span>
+          <span className="text-sm font-semibold">Talk to My Stock</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -274,7 +302,7 @@ export function ChatWidget() {
             "hover:bg-primary/90 hover:scale-105 active:scale-95",
             "transition-all duration-200",
           )}
-          title="Talk to My Data"
+          title="Talk to My Stock"
         >
           <MessageSquare className="h-5 w-5" />
         </button>

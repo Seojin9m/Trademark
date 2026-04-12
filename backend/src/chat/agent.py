@@ -30,6 +30,9 @@ You have access to real-time portfolio data, factor scores, trade proposals, exe
 - Summarize news research and sentiment for stocks
 - Review historical performance and learning outcomes
 - Explain the trading strategy, pipeline logic, and adaptive parameters
+- Search the web for up-to-date information (web_search) and fetch the text of
+  any link the user shares (fetch_url). Use these whenever the user asks about
+  current events, recent news, or shares a URL.
 
 ## Guidelines
 - Be concise and direct. Use numbers and data, not vague statements.
@@ -140,9 +143,21 @@ async def stream_chat(session_id: str | None, user_message: str):
         full_response = ""
         # Track whether a tool call happened since the last text chunk. When
         # the assistant emits text → tool_call → more text, we need to insert
-        # a paragraph break so the two text segments don't run together like
-        # "Let me pull up your portfolio now!Here's your GOOGL position".
+        # a paragraph break so the two text segments don't run together.
         saw_tool_since_last_text = False
+        # Batch outgoing text. Anthropic streams characters one at a time, so
+        # without batching a 3000-char response is ~1500 SSE events for the
+        # frontend to parse. Flushing at ~40 chars cuts that ~20×.
+        text_buffer = ""
+        BATCH_SIZE = 40
+
+        def flush_buffer():
+            nonlocal text_buffer
+            if not text_buffer:
+                return None
+            payload = f"data: {json.dumps({'type': 'token', 'content': text_buffer})}\n\n"
+            text_buffer = ""
+            return payload
 
         async for event in agent.astream_events(
             {"messages": messages},
@@ -151,6 +166,10 @@ async def stream_chat(session_id: str | None, user_message: str):
             kind = event.get("event", "")
 
             if kind == "on_tool_start":
+                # Flush any pending text before the tool boundary so events arrive in order
+                pending = flush_buffer()
+                if pending:
+                    yield pending
                 tool_name = event.get("name", "")
                 tool_input = event.get("data", {}).get("input", "")
                 yield f"data: {json.dumps({'type': 'tool_start', 'tool': tool_name, 'input': str(tool_input)[:200]})}\n\n"
@@ -173,10 +192,8 @@ async def stream_chat(session_id: str | None, user_message: str):
                 elif isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict):
-                            # Standard text block: {"type": "text", "text": "..."}
                             if block.get("type") == "text" and block.get("text"):
                                 text_pieces.append(block["text"])
-                            # Streaming partial text block
                             elif block.get("type") == "text_delta" and block.get("text"):
                                 text_pieces.append(block["text"])
                         elif isinstance(block, str) and block:
@@ -188,12 +205,20 @@ async def stream_chat(session_id: str | None, user_message: str):
                         and full_response
                         and not full_response.endswith("\n\n")
                     ):
-                        separator = "\n\n"
-                        full_response += separator
-                        yield f"data: {json.dumps({'type': 'token', 'content': separator})}\n\n"
+                        text_buffer += "\n\n"
+                        full_response += "\n\n"
                     saw_tool_since_last_text = False
+                    text_buffer += piece
                     full_response += piece
-                    yield f"data: {json.dumps({'type': 'token', 'content': piece})}\n\n"
+                    if len(text_buffer) >= BATCH_SIZE:
+                        pending = flush_buffer()
+                        if pending:
+                            yield pending
+
+        # Flush any remaining buffered text
+        pending = flush_buffer()
+        if pending:
+            yield pending
 
         # Save assistant response to history
         if full_response:

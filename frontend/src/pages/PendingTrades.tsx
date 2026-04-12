@@ -53,6 +53,271 @@ function formatTimestamp(ts: string): string {
   }
 }
 
+// ─── Pretty detail renderer ─────────────────────────────────────────────────
+// Turns signal/judge JSON payloads into human-readable key/value rows. Long
+// prose fields get their own wrapped block; numbers in 0..1 against known
+// percent-y keys render as percentages; identifier-ish keys render as badges.
+
+const PROSE_KEYS = new Set([
+  "reason",
+  "rationale",
+  "explanation",
+  "notes",
+  "summary",
+  "market_assessment",
+  "analysis",
+  "commentary",
+  "thesis",
+  "recommendation",
+])
+
+const BADGE_KEYS = new Set([
+  "source",
+  "overall_verdict",
+  "verdict",
+  "action",
+  "status",
+  "regime",
+])
+
+function isPercentKey(key: string): boolean {
+  const k = key.toLowerCase()
+  return (
+    k === "conviction" ||
+    k === "confidence" ||
+    k.endsWith("_score") ||
+    k.endsWith("_probability") ||
+    k.endsWith("_pct") ||
+    k.endsWith("_ratio")
+  )
+}
+
+function prettifyKey(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function percentColorClass(pct: number): string {
+  if (pct >= 0.75) return "text-profit"
+  if (pct >= 0.5) return "text-warn"
+  return "text-loss"
+}
+
+function actionBadgeClasses(action: string): string {
+  const a = action.toUpperCase()
+  if (a === "BUY" || a === "ADD" || a === "LONG") {
+    return "bg-profit/15 text-profit border-profit/30"
+  }
+  if (a === "SELL" || a === "TRIM" || a === "EXIT" || a === "SHORT") {
+    return "bg-loss/15 text-loss border-loss/30"
+  }
+  if (a === "HOLD" || a === "STAY") {
+    return "bg-blue-500/15 text-blue-400 border-blue-500/30"
+  }
+  return ""
+}
+
+function formatInlineValue(value: unknown, key: string): React.ReactNode {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground italic">—</span>
+  }
+  if (typeof value === "boolean") {
+    return (
+      <Badge variant={value ? "profit" : "muted"} className="font-normal">
+        {value ? "Yes" : "No"}
+      </Badge>
+    )
+  }
+  if (typeof value === "number") {
+    if (isPercentKey(key) && value >= 0 && value <= 1) {
+      return (
+        <span className={cn("font-semibold tabular-nums", percentColorClass(value))}>
+          {(value * 100).toFixed(0)}%
+        </span>
+      )
+    }
+    if (Number.isInteger(value)) {
+      return <span className="font-medium tabular-nums">{value.toLocaleString()}</span>
+    }
+    return <span className="font-medium tabular-nums">{value.toFixed(4)}</span>
+  }
+  if (typeof value === "string") {
+    if (BADGE_KEYS.has(key.toLowerCase())) {
+      const k = key.toLowerCase()
+      const isActionLike = k === "action" || k === "recommendation"
+      return (
+        <Badge
+          variant="muted"
+          className={cn("font-normal", isActionLike && actionBadgeClasses(value))}
+        >
+          {value}
+        </Badge>
+      )
+    }
+    return <span className="text-foreground">{value}</span>
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="text-muted-foreground italic">empty</span>
+    }
+    if (value.every((v) => typeof v === "string" || typeof v === "number")) {
+      return (
+        <div className="flex flex-wrap justify-end gap-1">
+          {value.map((v, i) => (
+            <Badge key={i} variant="muted" className="font-normal">
+              {String(v)}
+            </Badge>
+          ))}
+        </div>
+      )
+    }
+  }
+  return null
+}
+
+function DetailField({ fieldKey, value }: { fieldKey: string; value: unknown }) {
+  const label = prettifyKey(fieldKey)
+  const keyLower = fieldKey.toLowerCase()
+
+  const isProse =
+    typeof value === "string" &&
+    (PROSE_KEYS.has(keyLower) || value.length > 80)
+
+  const isNestedObject =
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+
+  const isComplexArray =
+    Array.isArray(value) &&
+    value.length > 0 &&
+    !value.every((v) => typeof v === "string" || typeof v === "number")
+
+  if (isProse) {
+    return (
+      <div className="space-y-1">
+        <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+          {value as string}
+        </p>
+      </div>
+    )
+  }
+
+  if (isNestedObject) {
+    return (
+      <div className="space-y-1.5">
+        <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <div className="border-l-2 border-border/50 pl-3">
+          <DetailList data={value as Record<string, unknown>} />
+        </div>
+      </div>
+    )
+  }
+
+  if (isComplexArray) {
+    return (
+      <div className="space-y-2">
+        <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <div className="space-y-2.5">
+          {(value as unknown[]).map((item, i) => (
+            <NestedItemCard key={i} item={item} />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-4 py-0.5">
+      <span className="text-xs text-muted-foreground pt-0.5 shrink-0">
+        {label}
+      </span>
+      <div className="text-sm text-right min-w-0 break-words">
+        {formatInlineValue(value, fieldKey)}
+      </div>
+    </div>
+  )
+}
+
+// Array items (e.g. holdings_review entries) get their own card with the
+// ticker / name pulled out as a header so it's obvious which rows belong to
+// which item.
+function NestedItemCard({ item }: { item: unknown }) {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) {
+    return (
+      <div className="rounded-md bg-background/50 border border-border/50 px-3 py-2 text-sm">
+        {String(item)}
+      </div>
+    )
+  }
+
+  const obj = item as Record<string, unknown>
+  const headlineKey = ["ticker", "symbol", "name", "id"].find(
+    (k) => typeof obj[k] === "string" && (obj[k] as string).length > 0,
+  )
+  const headline = headlineKey ? (obj[headlineKey] as string) : null
+
+  // Pull an action/verdict field out as a small subtitle badge if present
+  const subtitleKey = ["action", "verdict", "status", "recommendation"].find(
+    (k) => typeof obj[k] === "string",
+  )
+  const subtitle = subtitleKey ? (obj[subtitleKey] as string) : null
+
+  const rest = Object.fromEntries(
+    Object.entries(obj).filter(
+      ([k]) => k !== headlineKey && k !== subtitleKey,
+    ),
+  )
+
+  return (
+    <div className="rounded-lg bg-background/50 border border-border/60 overflow-hidden">
+      {headline && (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2 border-b border-border/40 bg-background/60">
+          <span className="text-sm font-semibold tracking-tight">
+            {headline}
+          </span>
+          {subtitle && (
+            <Badge
+              variant="muted"
+              className={cn(
+                "font-normal uppercase tracking-wide text-[10px]",
+                actionBadgeClasses(subtitle),
+              )}
+            >
+              {subtitle}
+            </Badge>
+          )}
+        </div>
+      )}
+      <div className="px-3.5 py-2.5">
+        <DetailList data={rest} />
+      </div>
+    </div>
+  )
+}
+
+function DetailList({ data }: { data: Record<string, unknown> }) {
+  const entries = Object.entries(data)
+  if (entries.length === 0) {
+    return <p className="text-xs text-muted-foreground italic">No details</p>
+  }
+  return (
+    <div className="space-y-2.5">
+      {entries.map(([key, value]) => (
+        <DetailField key={key} fieldKey={key} value={value} />
+      ))}
+    </div>
+  )
+}
+
 function TradeCard({
   proposal,
   onApprove,
@@ -135,24 +400,24 @@ function TradeCard({
       )}
 
       {expanded && (
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 space-y-4">
           {signal && (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Signal Data
               </p>
-              <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
-                <pre className="text-muted-foreground">{JSON.stringify(signal, null, 2)}</pre>
+              <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
+                <DetailList data={signal} />
               </div>
             </div>
           )}
           {judge && (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Judge Response
               </p>
-              <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
-                <pre className="text-muted-foreground">{JSON.stringify(judge, null, 2)}</pre>
+              <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
+                <DetailList data={judge} />
               </div>
             </div>
           )}
@@ -211,8 +476,8 @@ function StayCard({ proposal }: { proposal: Proposal }) {
 
           {expanded && (
             <div className="mt-3">
-              <div className="rounded-lg bg-muted/50 border border-border/40 p-3 text-xs font-mono overflow-x-auto">
-                <pre className="text-muted-foreground">{JSON.stringify(judge, null, 2)}</pre>
+              <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
+                <DetailList data={judge} />
               </div>
             </div>
           )}

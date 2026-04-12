@@ -343,6 +343,135 @@ def get_stock_price(ticker: str) -> str:
         return json.dumps({"error": str(e)})
 
 
+# ─── 14. Fetch URL ───────────────────────────────────────────────────────────
+
+@tool
+def fetch_url(url: str) -> str:
+    """Fetch the content of a URL and return the readable text.
+
+    Use this whenever the user shares a link, asks about the contents of a
+    specific webpage, or references an article. Returns up to ~8000 chars of
+    extracted text (scripts, styles, and markup are stripped).
+    """
+    import urllib.request
+    import urllib.error
+    from html.parser import HTMLParser
+
+    class _TextExtractor(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self._skip_depth = 0
+            self._parts: list[str] = []
+            self._title: str | None = None
+            self._in_title = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style", "noscript", "svg"):
+                self._skip_depth += 1
+            elif tag == "title":
+                self._in_title = True
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "noscript", "svg"):
+                self._skip_depth = max(0, self._skip_depth - 1)
+            elif tag == "title":
+                self._in_title = False
+            elif tag in ("p", "br", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
+                self._parts.append("\n")
+
+        def handle_data(self, data):
+            if self._skip_depth > 0:
+                return
+            stripped = data.strip()
+            if not stripped:
+                return
+            if self._in_title and self._title is None:
+                self._title = stripped
+            self._parts.append(stripped + " ")
+
+        def get_text(self) -> tuple[str | None, str]:
+            raw = "".join(self._parts)
+            lines = [line.strip() for line in raw.splitlines()]
+            lines = [line for line in lines if line]
+            return self._title, "\n".join(lines)
+
+    try:
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; Trade4MeBot/1.0; "
+                    "+https://github.com/trade4me)"
+                ),
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            raw = response.read(2_000_000)  # cap at 2MB
+            charset = response.headers.get_content_charset() or "utf-8"
+            html_text = raw.decode(charset, errors="replace")
+
+        parser = _TextExtractor()
+        parser.feed(html_text)
+        title, text = parser.get_text()
+
+        max_chars = 8000
+        truncated = False
+        if len(text) > max_chars:
+            text = text[:max_chars]
+            truncated = True
+
+        return json.dumps({
+            "url": url,
+            "title": title,
+            "content": text,
+            "truncated": truncated,
+        })
+    except urllib.error.HTTPError as e:
+        return json.dumps({"error": f"HTTP {e.code} fetching {url}: {e.reason}"})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to fetch {url}: {e}"})
+
+
+# ─── 15. Web search ──────────────────────────────────────────────────────────
+
+@tool
+def web_search(query: str, max_results: int = 5) -> str:
+    """Search the web (DuckDuckGo) for up-to-date information.
+
+    Use this for questions about current events, recent news, market updates,
+    or anything that requires information more recent than your training data.
+    Returns a JSON list of {title, url, snippet}.
+    """
+    try:
+        from ddgs import DDGS  # type: ignore
+    except ImportError:
+        try:
+            from duckduckgo_search import DDGS  # type: ignore
+        except ImportError:
+            return json.dumps({
+                "error": "Web search unavailable: install 'ddgs' in requirements.txt."
+            })
+
+    try:
+        capped = max(1, min(max_results, 10))
+        with DDGS() as ddgs:
+            raw_results = list(ddgs.text(query, max_results=capped))
+        cleaned = [
+            {
+                "title": r.get("title"),
+                "url": r.get("href") or r.get("url"),
+                "snippet": r.get("body") or r.get("snippet"),
+            }
+            for r in raw_results
+        ]
+        return json.dumps({"query": query, "results": cleaned})
+    except Exception as e:
+        return json.dumps({"error": f"Search failed: {e}"})
+
+
 # ─── Export all tools ────────────────────────────────────────────────────────
 
 ALL_TOOLS = [
@@ -359,4 +488,6 @@ ALL_TOOLS = [
     get_adaptive_state,
     get_portfolio_history,
     get_stock_price,
+    fetch_url,
+    web_search,
 ]

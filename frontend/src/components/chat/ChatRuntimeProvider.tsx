@@ -18,9 +18,10 @@ import {
  *   data: {"type": "done"}
  *   data: {"type": "error", "message": "..."}
  *
- * The adapter only sends the *latest* user message — backend session state lives
- * server-side and is keyed by session_id. assistant-ui still keeps a client copy
- * for rendering, but server context is the source of truth for the model.
+ * Rendering strategy: decouple network arrival from display via a paced
+ * typewriter. A background reader appends incoming tokens to a shared buffer
+ * as fast as they arrive, and a yield loop reveals characters at ~30fps. The
+ * adapter never yields in bursts — updates are always smooth.
  */
 function buildAdapter(
   sessionIdRef: RefObject<string | null>,
@@ -30,7 +31,6 @@ function buildAdapter(
       messages,
       abortSignal,
     }: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult, void> {
-      // Extract the last user message text
       const lastMessage = messages[messages.length - 1]
       if (!lastMessage || lastMessage.role !== "user") return
 
@@ -55,106 +55,114 @@ function buildAdapter(
         throw new Error(`Chat request failed: ${res.status}`)
       }
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let accumulated = ""
-      const toolNames: string[] = []
-      let lastYieldedText = ""
-      let lastYieldTime = 0
-      // Throttle token yields. Every yield triggers a full re-parse of the
-      // growing message by ReactMarkdown, which is the real source of the
-      // streaming lag. At ~12 yields/sec the user still sees smooth growth
-      // but we do ~10× less work.
-      const MIN_YIELD_INTERVAL_MS = 80
+      // Shared state between the reader task and the yield loop
+      let fullText = ""
+      let streamDone = false
+      let streamError: Error | null = null
 
-      // Helper that builds the current ChatModelRunResult content array.
-      // Tool calls are rendered as a small prefix in the text since assistant-ui's
-      // tool-call rendering pipeline expects a different protocol — keeping it as
-      // text gives us a single render path and matches our existing UX.
-      const buildResult = (): ChatModelRunResult => {
-        const toolPrefix = toolNames.length
-          ? toolNames.map((t) => `🔧 ${t.replace(/^get_/, "").replace(/_/g, " ")}`).join("\n") + "\n\n"
-          : ""
-        return {
-          content: [{ type: "text", text: toolPrefix + accumulated }],
+      // Background task: read the SSE stream as fast as the network delivers
+      // and append tokens to `fullText`. No yielding here — rendering pace is
+      // controlled entirely by the yield loop below.
+      const readerTask = (async () => {
+        const reader = res.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split("\n")
+            buffer = lines.pop() || ""
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue
+              const jsonStr = line.slice(6).trim()
+              if (!jsonStr) continue
+
+              let event: {
+                type: string
+                session_id?: string
+                tool?: string
+                content?: string
+                message?: string
+              }
+              try {
+                event = JSON.parse(jsonStr)
+              } catch {
+                continue
+              }
+
+              if (event.type === "session" && event.session_id) {
+                sessionIdRef.current = event.session_id
+              } else if (event.type === "token" && event.content) {
+                fullText += event.content
+              } else if (event.type === "error") {
+                streamError = new Error(event.message || "Stream error")
+                return
+              }
+              // tool_start / tool_end / done: ignored — display is driven by
+              // fullText growth only.
+            }
+          }
+        } catch (e) {
+          if ((e as Error).name !== "AbortError") {
+            streamError = e as Error
+          }
+        } finally {
+          try {
+            reader.releaseLock()
+          } catch {
+            /* noop */
+          }
+          streamDone = true
         }
-      }
+      })()
+
+      // Paced yield loop: ~30fps. Each frame reveals enough chars to catch
+      // up within ~500ms (15 frames), so if the network is ahead the reveal
+      // speeds up; if it's keeping pace the reveal stays smooth. After the
+      // stream ends, the remaining buffer drains in the same ~500ms.
+      const FRAME_MS = 33
+      const CATCH_UP_FRAMES = 15
+      let displayed = 0
+      let lastYielded = ""
 
       try {
         while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
+          if (streamError) throw streamError
+          if (abortSignal.aborted) break
 
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split("\n")
-          buffer = lines.pop() || ""
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue
-            const jsonStr = line.slice(6).trim()
-            if (!jsonStr) continue
-
-            let event: {
-              type: string
-              session_id?: string
-              tool?: string
-              content?: string
-              message?: string
-            }
-            try {
-              event = JSON.parse(jsonStr)
-            } catch {
-              continue
-            }
-
-            switch (event.type) {
-              case "session":
-                if (event.session_id) {
-                  sessionIdRef.current = event.session_id
-                }
-                break
-
-              case "tool_start":
-                if (event.tool && !toolNames.includes(event.tool)) {
-                  toolNames.push(event.tool)
-                  yield buildResult()
-                }
-                break
-
-              case "token":
-                if (event.content) {
-                  accumulated += event.content
-                  // Throttle: skip the yield if we yielded recently.
-                  // The finally block below guarantees the final state ships,
-                  // so dropped intermediate yields never lose data.
-                  const now = performance.now()
-                  if (
-                    accumulated !== lastYieldedText &&
-                    now - lastYieldTime >= MIN_YIELD_INTERVAL_MS
-                  ) {
-                    lastYieldedText = accumulated
-                    lastYieldTime = now
-                    yield buildResult()
-                  }
-                }
-                break
-
-              case "error":
-                throw new Error(event.message || "Stream error")
-
-              case "tool_end":
-              case "done":
-                break
+          const remaining = fullText.length - displayed
+          if (remaining > 0) {
+            const advance = Math.max(2, Math.ceil(remaining / CATCH_UP_FRAMES))
+            displayed = Math.min(fullText.length, displayed + advance)
+            const slice = fullText.slice(0, displayed)
+            if (slice !== lastYielded) {
+              lastYielded = slice
+              yield { content: [{ type: "text", text: slice }] }
             }
           }
+
+          if (streamDone && displayed >= fullText.length) break
+
+          await new Promise((resolve) => setTimeout(resolve, FRAME_MS))
+        }
+
+        // Wait for the reader to fully finish (usually already done)
+        await readerTask
+
+        if (streamError) throw streamError
+
+        // Final yield to ensure the full text is committed exactly once
+        if (fullText !== lastYielded) {
+          yield { content: [{ type: "text", text: fullText }] }
         }
       } finally {
-        reader.releaseLock?.()
+        // Ensure the reader task is settled even if we threw
+        await readerTask.catch(() => {})
       }
-
-      // Final yield to make sure the last accumulated text is committed
-      yield buildResult()
     },
   }
 }
