@@ -36,9 +36,9 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
         "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2",
         "[&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:opacity-80",
-        "[&_table]:my-1.5 [&_table]:border-collapse [&_table]:text-xs",
-        "[&_th]:border [&_th]:border-border/50 [&_th]:px-1.5 [&_th]:py-0.5 [&_th]:font-semibold [&_th]:text-left",
-        "[&_td]:border [&_td]:border-border/50 [&_td]:px-1.5 [&_td]:py-0.5",
+        "[&_table]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_table]:table-fixed",
+        "[&_th]:border [&_th]:border-border/50 [&_th]:px-1.5 [&_th]:py-0.5 [&_th]:font-semibold [&_th]:text-left [&_th]:break-words",
+        "[&_td]:border [&_td]:border-border/50 [&_td]:px-1.5 [&_td]:py-0.5 [&_td]:break-words [&_td]:align-top",
         "[&_hr]:my-2 [&_hr]:border-border/40",
       )}
     >
@@ -49,6 +49,15 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
             <a href={href} target="_blank" rel="noopener noreferrer">
               {children}
             </a>
+          ),
+          // Wrap tables so wide ones scroll horizontally inside the bubble
+          // instead of pushing the message past the panel edge.
+          table: ({ children }) => (
+            <div className="my-1.5 w-full max-w-full overflow-x-auto">
+              <table className="w-full border-collapse text-xs table-fixed">
+                {children}
+              </table>
+            </div>
           ),
         }}
       >
@@ -104,7 +113,7 @@ const AssistantText: TextMessagePartComponent = ({ text }) => {
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="flex justify-end">
-      <div className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-primary text-primary-foreground whitespace-pre-wrap break-words">
+      <div className="max-w-[90%] min-w-0 rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-primary text-primary-foreground whitespace-pre-wrap break-words">
         <MessagePrimitive.Parts />
       </div>
     </MessagePrimitive.Root>
@@ -127,7 +136,7 @@ function ThinkingDots() {
 function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="flex justify-start">
-      <div className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-muted/80 text-foreground border border-border/30 break-words">
+      <div className="max-w-[90%] min-w-0 rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-muted/80 text-foreground border border-border/30 break-words">
         <MessagePrimitive.If hasContent={false}>
           <ThinkingDots />
         </MessagePrimitive.If>
@@ -214,7 +223,7 @@ function ChatPanel({
     <div
       className={cn(
         "fixed bottom-5 right-5 z-40",
-        "flex flex-col w-[400px] h-[560px]",
+        "flex flex-col w-[480px] h-[680px] max-w-[calc(100vw-2.5rem)] max-h-[calc(100vh-2.5rem)]",
         "rounded-2xl border border-border/60 bg-background",
         "shadow-2xl shadow-black/20",
         "animate-fade-in",

@@ -131,13 +131,13 @@ Rules:
 - IMPORTANT: ALL cash in this portfolio is earmarked for investment — the user has separate savings. Any idle cash is money that SHOULD be deployed into stocks. If there is ANY cash available, you MUST suggest buy opportunities to deploy it fully. Spread it across the best top-scoring stocks. Even in bear markets, dollar-cost-averaging into high-quality discounted names is the strategy. If you suggest sells/trims, also suggest buys to redeploy that freed-up cash — never leave cash sitting idle."""
 
 
-STRATEGY_RULES_SUMMARY = """Momentum-quality hybrid factor strategy on a 75-ticker US tech stock universe.
+STRATEGY_RULES_SUMMARY = """Momentum-quality hybrid factor strategy on a ~220-ticker diversified US equity universe spanning all 11 GICS sectors (tech, healthcare, financials, consumer, industrials, energy, utilities, REITs, materials, comm services, staples). Benchmarked against SPY (primary) and QQQ (secondary tech-tilt).
 - Rebalance: biweekly (every 2 weeks on Friday), but manual pipeline runs can occur any day
-- Factors: 12M-1M momentum, EPS growth YoY, revenue growth YoY, gross margin trend, relative P/S valuation (equal weight 20% each)
+- Factors: 12M-1M momentum, EPS growth YoY, revenue growth YoY, gross margin trend, relative P/S valuation (equal weight 20% each). Relative valuation is computed within sub-sector to keep cross-sector P/S comparisons honest.
 - Entry: only top-decile (9-10) stocks, must have decile change >= 2 from prior
 - Exit: decile drops to 1-4 with change >= 2
 - Max single position: 10% of portfolio
-- Max sub-sector (semis, cloud, etc.): 30-35%
+- Max sub-sector concentration: 10-30% depending on sub-sector (cyclicals like autos/restaurants/midstream are tighter; broad sub-sectors like semis/retail are looser)
 - Max positions: 25
 - Drawdown gate: block new buys at -15%, require human confirmation at -20%
 - Transaction cost budget: 10 bps round-trip for large-cap

@@ -11,8 +11,8 @@ from config.settings import settings
 
 
 def test_settings_load():
-    assert settings.primary_benchmark == "QQQ"
-    assert settings.secondary_benchmark == "XLK"
+    assert settings.primary_benchmark == "SPY"
+    assert settings.secondary_benchmark == "QQQ"
 
 
 def test_paths_exist():
@@ -24,10 +24,16 @@ def test_paths_exist():
 def test_universe_csv():
     import pandas as pd
     df = pd.read_csv(settings.paths.universe_path)
-    assert len(df) >= 70
+    assert len(df) >= 200
     assert "ticker" in df.columns
     assert "sub_sector" in df.columns
     assert df["ticker"].duplicated().sum() == 0
+    # Every sub_sector in the universe must have a concentration cap so the
+    # portfolio engine never falls back to its default for an unknown bucket.
+    sub_sectors = set(df["sub_sector"].dropna().unique())
+    capped = set(settings.strategy.max_subsector_weight.keys())
+    missing = sub_sectors - capped
+    assert not missing, f"sub_sectors missing from max_subsector_weight: {missing}"
 
 
 def test_factor_weights():

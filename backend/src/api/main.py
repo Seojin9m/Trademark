@@ -1004,6 +1004,28 @@ def _run_pipeline_thread(run_id: str) -> None:
             from src.judge.client import evaluate_all_proposals
             judge_results = evaluate_all_proposals(passed_proposals, portfolio_value, pnl, research_map, recent_trades=recent_trades)
             _emit(run_id, "judge", "done", f"Judge evaluated {len(judge_results)} proposals")
+
+            # Persist judge verdicts back to the proposals rows. store_proposals
+            # was called before the judge ran, so those rows currently have a
+            # NULL judge_response — the UI was silently rendering nothing.
+            try:
+                con = get_connection()
+                for proposal, output in judge_results:
+                    con.execute(
+                        """
+                        UPDATE trade_proposals
+                        SET judge_response = $1, status = $2
+                        WHERE proposal_id = $3
+                        """,
+                        [
+                            output.model_dump_json(),
+                            proposal.get("status", "NEEDS_REVIEW"),
+                            proposal.get("proposal_id"),
+                        ],
+                    )
+                con.close()
+            except Exception as e:
+                _emit(run_id, "judge", "done", f"Judge persist warning: {e}")
         except Exception as e:
             _emit(run_id, "judge", "done", f"Judge evaluation skipped: {e}")
     else:

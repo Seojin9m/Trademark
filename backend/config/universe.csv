@@ -75,3 +75,151 @@ APPN,Appian Corp,enterprise_software,mid
 CWAN,Clearwater Analytics,fintech,mid
 VERX,Vertex Inc,enterprise_software,mid
 TSM,Taiwan Semiconductor Manufacturing,semiconductors,mega
+JNJ,Johnson & Johnson,pharma,mega
+LLY,Eli Lilly and Co,pharma,mega
+MRK,Merck & Co,pharma,large
+PFE,Pfizer Inc,pharma,large
+ABBV,AbbVie Inc,pharma,mega
+BMY,Bristol-Myers Squibb,pharma,large
+NVO,Novo Nordisk,pharma,mega
+AZN,AstraZeneca PLC,pharma,large
+VRTX,Vertex Pharmaceuticals,biotech,large
+REGN,Regeneron Pharmaceuticals,biotech,large
+GILD,Gilead Sciences,biotech,large
+AMGN,Amgen Inc,biotech,large
+MRNA,Moderna Inc,biotech,mid
+ABT,Abbott Laboratories,healthcare_equipment,mega
+TMO,Thermo Fisher Scientific,healthcare_equipment,mega
+DHR,Danaher Corp,healthcare_equipment,large
+MDT,Medtronic PLC,healthcare_equipment,large
+SYK,Stryker Corp,healthcare_equipment,large
+BSX,Boston Scientific,healthcare_equipment,large
+ISRG,Intuitive Surgical,healthcare_equipment,large
+EW,Edwards Lifesciences,healthcare_equipment,mid
+ZTS,Zoetis Inc,healthcare_equipment,large
+UNH,UnitedHealth Group,managed_care,mega
+ELV,Elevance Health,managed_care,large
+CI,The Cigna Group,managed_care,large
+HUM,Humana Inc,managed_care,large
+CVS,CVS Health,healthcare_services,large
+HCA,HCA Healthcare,healthcare_services,large
+IDXX,IDEXX Laboratories,healthcare_services,mid
+JPM,JPMorgan Chase,banks,mega
+BAC,Bank of America,banks,mega
+WFC,Wells Fargo,banks,large
+C,Citigroup Inc,banks,large
+USB,U.S. Bancorp,banks,large
+PNC,PNC Financial Services,banks,large
+TFC,Truist Financial,banks,large
+SCHW,Charles Schwab Corp,capital_markets,large
+BLK,BlackRock Inc,capital_markets,large
+GS,Goldman Sachs,capital_markets,large
+MS,Morgan Stanley,capital_markets,large
+BX,Blackstone Inc,capital_markets,large
+KKR,KKR & Co,capital_markets,large
+ICE,Intercontinental Exchange,capital_markets,large
+CME,CME Group,capital_markets,large
+SPGI,S&P Global Inc,capital_markets,large
+PGR,Progressive Corp,insurance,large
+CB,Chubb Ltd,insurance,large
+AIG,American International Group,insurance,large
+MET,MetLife Inc,insurance,large
+ALL,The Allstate Corp,insurance,large
+TRV,Travelers Companies,insurance,large
+V,Visa Inc,payments,mega
+MA,Mastercard Inc,payments,mega
+AXP,American Express,payments,large
+PYPL,PayPal Holdings,payments,large
+FIS,Fidelity National Info Services,payments,large
+DIS,Walt Disney Co,media_entertainment,large
+NFLX,Netflix Inc,media_entertainment,large
+CMCSA,Comcast Corp,media_entertainment,large
+WBD,Warner Bros Discovery,media_entertainment,mid
+SPOT,Spotify Technology,media_entertainment,large
+EA,Electronic Arts,media_entertainment,large
+TTWO,Take-Two Interactive,media_entertainment,mid
+T,AT&T Inc,telecom,large
+VZ,Verizon Communications,telecom,large
+TMUS,T-Mobile US,telecom,large
+HD,The Home Depot,retail,mega
+LOW,Lowe's Companies,retail,large
+COST,Costco Wholesale,retail,mega
+WMT,Walmart Inc,retail,mega
+TGT,Target Corp,retail,large
+NKE,Nike Inc,retail,large
+LULU,Lululemon Athletica,retail,large
+ROST,Ross Stores,retail,large
+TJX,The TJX Companies,retail,large
+BBY,Best Buy Co,retail,mid
+MCD,McDonald's Corp,restaurants,mega
+SBUX,Starbucks Corp,restaurants,large
+CMG,Chipotle Mexican Grill,restaurants,large
+YUM,Yum! Brands,restaurants,large
+QSR,Restaurant Brands International,restaurants,mid
+F,Ford Motor Co,autos,mid
+GM,General Motors,autos,large
+STLA,Stellantis NV,autos,large
+KO,Coca-Cola Co,food_beverage,mega
+PEP,PepsiCo Inc,food_beverage,mega
+PM,Philip Morris International,food_beverage,large
+MDLZ,Mondelez International,food_beverage,large
+MO,Altria Group,food_beverage,large
+KHC,Kraft Heinz,food_beverage,mid
+PG,Procter & Gamble,household_products,mega
+CL,Colgate-Palmolive,household_products,large
+KMB,Kimberly-Clark,household_products,large
+CHD,Church & Dwight,household_products,mid
+EL,Estee Lauder Companies,household_products,mid
+BA,Boeing Co,aerospace_defense,large
+LMT,Lockheed Martin,aerospace_defense,large
+RTX,RTX Corp,aerospace_defense,large
+NOC,Northrop Grumman,aerospace_defense,large
+GD,General Dynamics,aerospace_defense,large
+CAT,Caterpillar Inc,industrial_machinery,large
+DE,Deere & Co,industrial_machinery,large
+ETN,Eaton Corp,industrial_machinery,large
+EMR,Emerson Electric,industrial_machinery,large
+HON,Honeywell International,industrial_machinery,large
+ROK,Rockwell Automation,industrial_machinery,large
+ITW,Illinois Tool Works,industrial_machinery,large
+PH,Parker Hannifin,industrial_machinery,large
+UPS,United Parcel Service,transports,large
+FDX,FedEx Corp,transports,large
+UNP,Union Pacific,transports,large
+CSX,CSX Corp,transports,large
+NSC,Norfolk Southern,transports,large
+DAL,Delta Air Lines,transports,mid
+UAL,United Airlines Holdings,transports,mid
+LUV,Southwest Airlines,transports,mid
+XOM,Exxon Mobil,energy_majors,mega
+CVX,Chevron Corp,energy_majors,mega
+COP,ConocoPhillips,energy_majors,large
+OXY,Occidental Petroleum,energy_majors,large
+EOG,EOG Resources,energy_majors,large
+PSX,Phillips 66,energy_majors,large
+KMI,Kinder Morgan,midstream,large
+EPD,Enterprise Products Partners,midstream,large
+WMB,Williams Companies,midstream,large
+SLB,Schlumberger NV,oil_services,large
+HAL,Halliburton Co,oil_services,mid
+BKR,Baker Hughes,oil_services,mid
+NEE,NextEra Energy,utilities,large
+DUK,Duke Energy,utilities,large
+SO,Southern Co,utilities,large
+AEP,American Electric Power,utilities,large
+EXC,Exelon Corp,utilities,large
+D,Dominion Energy,utilities,large
+PLD,Prologis Inc,reits,large
+AMT,American Tower,reits,large
+EQIX,Equinix Inc,reits,large
+CCI,Crown Castle,reits,large
+SPG,Simon Property Group,reits,large
+O,Realty Income,reits,large
+WELL,Welltower Inc,reits,large
+PSA,Public Storage,reits,large
+LIN,Linde PLC,materials,mega
+APD,Air Products and Chemicals,materials,large
+SHW,Sherwin-Williams,materials,large
+ECL,Ecolab Inc,materials,large
+FCX,Freeport-McMoRan,materials,large
+NUE,Nucor Corp,materials,large

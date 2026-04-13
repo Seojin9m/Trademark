@@ -16,6 +16,7 @@ load_dotenv(REPO_ROOT / ".env")
 class APIKeys(BaseSettings):
     polygon_api_key: str = Field(default="")
     simfin_api_key: str = Field(default="")
+    tiingo_api_key: str = Field(default="")
     fred_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
     snaptrade_client_id: str = Field(default="")
@@ -54,16 +55,51 @@ class StrategySettings(BaseSettings):
     min_positions: int = 8
     max_positions: int = 25
 
-    # Sub-sector concentration limits
+    # Sub-sector concentration limits. Caps tightened relative to the
+    # tech-only era because the universe now spans 11 GICS sectors, so
+    # leaning 35% into semis or cloud would defeat the diversification.
     max_subsector_weight: dict[str, float] = {
-        "semiconductors": 0.35,
-        "cloud_software": 0.35,
-        "internet_platforms": 0.30,
-        "hardware": 0.25,
-        "enterprise_software": 0.30,
-        "cybersecurity": 0.20,
-        "fintech": 0.20,
-        "ai_infrastructure": 0.30,
+        # Tech
+        "semiconductors": 0.30,
+        "cloud_software": 0.25,
+        "internet_platforms": 0.25,
+        "hardware": 0.20,
+        "enterprise_software": 0.25,
+        "cybersecurity": 0.15,
+        "fintech": 0.15,
+        "ai_infrastructure": 0.20,
+        # Healthcare
+        "pharma": 0.20,
+        "biotech": 0.15,
+        "healthcare_equipment": 0.20,
+        "managed_care": 0.15,
+        "healthcare_services": 0.10,
+        # Financials
+        "banks": 0.20,
+        "capital_markets": 0.20,
+        "insurance": 0.15,
+        "payments": 0.15,
+        # Communication services
+        "media_entertainment": 0.15,
+        "telecom": 0.15,
+        # Consumer
+        "retail": 0.20,
+        "restaurants": 0.10,
+        "autos": 0.10,
+        "food_beverage": 0.20,
+        "household_products": 0.15,
+        # Industrials
+        "aerospace_defense": 0.15,
+        "industrial_machinery": 0.20,
+        "transports": 0.15,
+        # Energy
+        "energy_majors": 0.20,
+        "midstream": 0.10,
+        "oil_services": 0.10,
+        # Utilities / REITs / Materials
+        "utilities": 0.15,
+        "reits": 0.15,
+        "materials": 0.15,
     }
 
     # Drawdown controls
@@ -79,6 +115,15 @@ class StrategySettings(BaseSettings):
 
     # Winsorization
     winsorize_std: float = 3.0
+
+    # Sector-neutral z-scoring blend.
+    #   1.0 = factors are z-scored within each sub-sector (no sector tilts)
+    #   0.0 = factors are z-scored across the whole universe (legacy behavior)
+    # Anything in between is a linear blend of the two scores. Sub-sectors
+    # smaller than sector_neutral_min_group_size always fall back to global
+    # because z-scores on n<5 are too noisy to be meaningful.
+    sector_neutral_blend: float = 1.0
+    sector_neutral_min_group_size: int = 5
 
     # Transaction cost assumptions (bps)
     round_trip_cost_bps_large: int = 10  # >$5B market cap
@@ -113,9 +158,10 @@ class Settings(BaseSettings):
     judge: JudgeSettings = JudgeSettings()
     chatbot: ChatbotSettings = ChatbotSettings()
 
-    # Benchmarks
-    primary_benchmark: str = "QQQ"
-    secondary_benchmark: str = "XLK"
+    # Benchmarks. Primary is broad-market SPY now that the universe spans
+    # all GICS sectors; QQQ kept as the tech-tilt secondary for context.
+    primary_benchmark: str = "SPY"
+    secondary_benchmark: str = "QQQ"
 
 
 # Singleton

@@ -39,12 +39,60 @@ def winsorize(series: pd.Series, n_std: float = 3.0) -> pd.Series:
 
 
 def cross_sectional_zscore(series: pd.Series) -> pd.Series:
-    """Z-score a series cross-sectionally (mean=0, std=1)."""
+    """Z-score a series cross-sectionally (mean=0, std=1). NaN inputs stay NaN."""
     mean = series.mean()
     std = series.std()
     if std == 0 or pd.isna(std):
-        return pd.Series(0.0, index=series.index)
+        return pd.Series(np.nan, index=series.index, dtype=float)
     return (series - mean) / std
+
+
+def sector_neutral_zscore(
+    values: pd.Series,
+    sectors: pd.Series,
+    blend: float,
+    min_group_size: int,
+) -> pd.Series:
+    """Blend of within-sector and global z-scores.
+
+    Within-sector z-scoring strips out cross-sector tilts so we don't
+    systematically over-rank whichever sector is hot. The blend parameter
+    keeps an escape hatch: at 0.0 the result equals the global z-score,
+    at 1.0 it's fully sector-neutral. Sub-sectors smaller than
+    min_group_size always fall back to global because z-stats on n<5 are
+    too noisy to mean anything.
+    """
+    global_z = cross_sectional_zscore(values)
+    if blend == 0.0:
+        return global_z
+
+    sector_z = pd.Series(np.nan, index=values.index, dtype=float)
+    df = pd.DataFrame({"v": values, "s": sectors})
+    for sector_name, group in df.groupby("s", dropna=False):
+        idx = group.index
+        if len(group) < min_group_size or pd.isna(sector_name):
+            sector_z.loc[idx] = global_z.loc[idx]
+            continue
+        present = group["v"].notna()
+        if present.sum() < 2:
+            sector_z.loc[idx] = global_z.loc[idx]
+            continue
+        mean = group.loc[present, "v"].mean()
+        std = group.loc[present, "v"].std()
+        if std == 0 or pd.isna(std):
+            # Degenerate sector (all present values identical). Assign 0.0
+            # only to the rows that had a real value — NaN inputs must stay
+            # NaN so the composite re-normalization doesn't count them as a
+            # present-but-zero factor.
+            sector_z.loc[group.index[present.values]] = 0.0
+        else:
+            sector_z.loc[idx] = (group["v"] - mean) / std
+
+    if blend == 1.0:
+        return sector_z
+    # Linear blend. Where one side is NaN (e.g. global is NaN because the
+    # ticker has no value at all) the result stays NaN — handled downstream.
+    return blend * sector_z + (1.0 - blend) * global_z
 
 
 def compute_composite_scores(as_of_date: str | None = None) -> pd.DataFrame:
@@ -84,28 +132,55 @@ def compute_composite_scores(as_of_date: str | None = None) -> pd.DataFrame:
     if factors.empty:
         return pd.DataFrame()
 
+    # Merge in sub_sector so we can z-score within sector groups. Tickers
+    # without a sub_sector mapping (e.g. benchmarks like SPY/QQQ that slipped
+    # into the price table) fall back to the global pool inside the helper.
+    universe = pd.read_csv(settings.paths.universe_path)
+    factors = factors.merge(
+        universe[["ticker", "sub_sector"]], on="ticker", how="left"
+    )
+
     # Step 3: Winsorize each factor
     win_std = settings.strategy.winsorize_std
     for col in FACTOR_COLUMNS:
         if col in factors.columns:
             factors[col] = winsorize(factors[col].astype(float), n_std=win_std)
 
-    # Step 4: Z-score each factor cross-sectionally
+    # Step 4: Sector-neutral z-score each factor. Tickers missing a factor
+    # value (e.g. banks have no Gross Profit, foreign names have no Simfin
+    # fundamentals) keep NaN here — they're handled in step 5.
+    blend = settings.strategy.sector_neutral_blend
+    min_group = settings.strategy.sector_neutral_min_group_size
     z_cols = {}
     for col in FACTOR_COLUMNS:
         if col in factors.columns:
-            z_cols[col] = cross_sectional_zscore(factors[col])
+            z_cols[col] = sector_neutral_zscore(
+                factors[col], factors["sub_sector"], blend=blend, min_group_size=min_group
+            )
         else:
-            z_cols[col] = pd.Series(0.0, index=factors.index)
+            z_cols[col] = pd.Series(np.nan, index=factors.index)
 
-    # Step 5: Weighted sum
+    # Step 5: Weighted average of present factors. Re-normalizing by the sum
+    # of present weights means a ticker with only momentum is scored purely
+    # on momentum (on the same scale as a fully-covered ticker), instead of
+    # collapsing to 0 and getting parked in the middle decile forever. The
+    # judge layer is responsible for catching cases where thin coverage
+    # produces a misleading top-decile rank.
     weights = settings.strategy.factor_weights
-    factors["composite_score"] = sum(
-        z_cols[col] * weights.get(col, 0.0) for col in FACTOR_COLUMNS
-    )
+    weighted_sum = pd.Series(0.0, index=factors.index)
+    weight_total = pd.Series(0.0, index=factors.index)
+    for col in FACTOR_COLUMNS:
+        w = weights.get(col, 0.0)
+        if w == 0.0 or col not in z_cols:
+            continue
+        z = z_cols[col]
+        present = z.notna()
+        weighted_sum = weighted_sum + (z.where(present, 0.0) * w)
+        weight_total = weight_total + present.astype(float) * w
 
-    # Fill NaN composite scores with 0 (neutral)
-    factors["composite_score"] = factors["composite_score"].fillna(0.0)
+    factors["composite_score"] = (
+        weighted_sum / weight_total.replace(0.0, np.nan)
+    ).fillna(0.0)
 
     # Step 6: Assign deciles (1=worst, 10=best)
     # Use rank-based percentile to avoid qcut bin-edge issues

@@ -54,10 +54,21 @@ def _compute_ttm(df: pd.DataFrame, column: str) -> pd.Series:
     )
 
 
-def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute EPS growth (TTM YoY) for all tickers.
+# Minimum quarters needed to compute YoY at all (Q0 vs Q-4 requires 5 rows).
+# Threshold for switching from single-quarter YoY to TTM-on-TTM smoothing.
+_MIN_QUARTERS_SINGLE_Q = 5
+_MIN_QUARTERS_TTM = 8
 
-    TTM EPS now / TTM EPS 4 quarters ago - 1.
+
+def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
+    """Compute EPS growth YoY for all tickers.
+
+    Uses TTM-on-TTM (sum of last 4q vs prior 4q) when 8+ quarters are
+    available — smoother and resistant to one-off quarterly noise. Falls
+    back to single-quarter YoY (Q0 vs Q-4) when only 5-7 quarters exist,
+    which is the case for yfinance-sourced tickers (Yahoo only exposes ~6q).
+    Same underlying measurement (same calendar quarter year-over-year),
+    just noisier without the TTM smoothing.
     """
     con = get_connection()
     if as_of_date is None:
@@ -68,26 +79,29 @@ def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
     if fund.empty:
         return pd.DataFrame(columns=["ticker", "date", "eps_growth_yoy"])
 
-    # Need at least 8 quarters (4 for current TTM + 4 for prior TTM)
     fund = fund.sort_values(["ticker", "fiscal_period_end"])
 
     results = []
     for ticker, group in fund.groupby("ticker"):
-        if len(group) < 8:
-            continue
+        n = len(group)
+        growth = None
 
-        # TTM EPS = sum of last 4 quarters' net_income / latest shares
-        recent_4 = group.tail(4)
-        prior_4 = group.head(4)
+        if n >= _MIN_QUARTERS_TTM:
+            recent_4 = group.tail(4)
+            prior_4 = group.head(4)
+            ttm_now = recent_4["eps_diluted"].sum()
+            ttm_prior = prior_4["eps_diluted"].sum()
+            if pd.notna(ttm_prior) and abs(ttm_prior) > 0.01:
+                growth = (ttm_now / ttm_prior) - 1.0
+        elif n >= _MIN_QUARTERS_SINGLE_Q:
+            q0 = group.iloc[-1]["eps_diluted"]
+            q_prior = group.iloc[-5]["eps_diluted"]
+            if pd.notna(q0) and pd.notna(q_prior) and abs(q_prior) > 0.01:
+                growth = (q0 / q_prior) - 1.0
 
-        ttm_eps_now = recent_4["eps_diluted"].sum()
-        ttm_eps_prior = prior_4["eps_diluted"].sum()
-
-        if ttm_eps_prior is not None and abs(ttm_eps_prior) > 0.01:
-            eps_growth = (ttm_eps_now / ttm_eps_prior) - 1.0
-            # Cap extreme values
-            eps_growth = np.clip(eps_growth, -5.0, 10.0)
-            results.append({"ticker": ticker, "eps_growth_yoy": eps_growth})
+        if growth is not None:
+            growth = float(np.clip(growth, -5.0, 10.0))
+            results.append({"ticker": ticker, "eps_growth_yoy": growth})
 
     if not results:
         return pd.DataFrame(columns=["ticker", "date", "eps_growth_yoy"])
@@ -98,7 +112,11 @@ def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
 
 
 def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute revenue growth (TTM YoY) for all tickers."""
+    """Compute revenue growth YoY for all tickers.
+
+    Same TTM-or-single-Q hybrid logic as compute_eps_growth — see that
+    docstring for the rationale.
+    """
     con = get_connection()
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
@@ -112,19 +130,25 @@ def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
 
     results = []
     for ticker, group in fund.groupby("ticker"):
-        if len(group) < 8:
-            continue
+        n = len(group)
+        growth = None
 
-        recent_4 = group.tail(4)
-        prior_4 = group.head(4)
+        if n >= _MIN_QUARTERS_TTM:
+            recent_4 = group.tail(4)
+            prior_4 = group.head(4)
+            ttm_now = recent_4["revenue"].sum()
+            ttm_prior = prior_4["revenue"].sum()
+            if pd.notna(ttm_prior) and ttm_prior > 0:
+                growth = (ttm_now / ttm_prior) - 1.0
+        elif n >= _MIN_QUARTERS_SINGLE_Q:
+            q0 = group.iloc[-1]["revenue"]
+            q_prior = group.iloc[-5]["revenue"]
+            if pd.notna(q0) and pd.notna(q_prior) and q_prior > 0:
+                growth = (q0 / q_prior) - 1.0
 
-        ttm_rev_now = recent_4["revenue"].sum()
-        ttm_rev_prior = prior_4["revenue"].sum()
-
-        if ttm_rev_prior is not None and ttm_rev_prior > 0:
-            rev_growth = (ttm_rev_now / ttm_rev_prior) - 1.0
-            rev_growth = np.clip(rev_growth, -2.0, 10.0)
-            results.append({"ticker": ticker, "revenue_growth_yoy": rev_growth})
+        if growth is not None:
+            growth = float(np.clip(growth, -2.0, 10.0))
+            results.append({"ticker": ticker, "revenue_growth_yoy": growth})
 
     if not results:
         return pd.DataFrame(columns=["ticker", "date", "revenue_growth_yoy"])
@@ -135,9 +159,12 @@ def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
 
 
 def compute_gross_margin_trend(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute gross margin trend: current TTM gross margin minus prior year TTM.
+    """Compute gross margin trend: current gross margin minus year-ago margin.
 
     Positive = margin expanding (good). Negative = margin compressing.
+    Uses TTM gross margins when 8+ quarters available, otherwise single
+    quarter gross margins (Q0 vs Q-4). Banks and insurance don't report
+    gross profit, so this stays NaN for them — handled downstream.
     """
     con = get_connection()
     if as_of_date is None:
@@ -152,22 +179,33 @@ def compute_gross_margin_trend(as_of_date: str | None = None) -> pd.DataFrame:
 
     results = []
     for ticker, group in fund.groupby("ticker"):
-        if len(group) < 8:
-            continue
+        n = len(group)
+        gm_trend = None
 
-        recent_4 = group.tail(4)
-        prior_4 = group.head(4)
+        if n >= _MIN_QUARTERS_TTM:
+            recent_4 = group.tail(4)
+            prior_4 = group.head(4)
+            rev_now = recent_4["revenue"].sum()
+            gp_now = recent_4["gross_profit"].sum()
+            rev_prior = prior_4["revenue"].sum()
+            gp_prior = prior_4["gross_profit"].sum()
+            if (pd.notna(gp_now) and pd.notna(gp_prior)
+                    and rev_now > 0 and rev_prior > 0):
+                gm_trend = (gp_now / rev_now) - (gp_prior / rev_prior)
+        elif n >= _MIN_QUARTERS_SINGLE_Q:
+            q0 = group.iloc[-1]
+            q_prior = group.iloc[-5]
+            rev_now = q0["revenue"]
+            gp_now = q0["gross_profit"]
+            rev_prior = q_prior["revenue"]
+            gp_prior = q_prior["gross_profit"]
+            if (pd.notna(gp_now) and pd.notna(gp_prior)
+                    and pd.notna(rev_now) and pd.notna(rev_prior)
+                    and rev_now > 0 and rev_prior > 0):
+                gm_trend = (gp_now / rev_now) - (gp_prior / rev_prior)
 
-        rev_now = recent_4["revenue"].sum()
-        gp_now = recent_4["gross_profit"].sum()
-        rev_prior = prior_4["revenue"].sum()
-        gp_prior = prior_4["gross_profit"].sum()
-
-        if rev_now > 0 and rev_prior > 0:
-            gm_now = gp_now / rev_now
-            gm_prior = gp_prior / rev_prior
-            gm_trend = gm_now - gm_prior  # In percentage points
-            gm_trend = np.clip(gm_trend, -0.5, 0.5)
+        if gm_trend is not None:
+            gm_trend = float(np.clip(gm_trend, -0.5, 0.5))
             results.append({"ticker": ticker, "gross_margin_trend": gm_trend})
 
     if not results:

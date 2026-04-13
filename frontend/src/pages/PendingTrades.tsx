@@ -80,8 +80,23 @@ const BADGE_KEYS = new Set([
   "regime",
 ])
 
+// Keys that are z-scores, not 0..1 probabilities. Our factor pipeline outputs
+// standardized factor values (~-3..+3) and a weighted-average composite_score
+// on the same scale — rendering them as "85%" (the old behavior) was wrong
+// and actively misleading.
+const FACTOR_KEYS = new Set([
+  "momentum_12m1m",
+  "eps_growth_yoy",
+  "revenue_growth_yoy",
+  "gross_margin_trend",
+  "relative_valuation",
+])
+
+const ZSCORE_KEYS = new Set([...FACTOR_KEYS, "composite_score"])
+
 function isPercentKey(key: string): boolean {
   const k = key.toLowerCase()
+  if (ZSCORE_KEYS.has(k)) return false
   return (
     k === "conviction" ||
     k === "confidence" ||
@@ -90,6 +105,17 @@ function isPercentKey(key: string): boolean {
     k.endsWith("_pct") ||
     k.endsWith("_ratio")
   )
+}
+
+// Map a z-score to a qualitative label. Thresholds are loose — the intent is
+// to give a retail reader a quick "is this strong or weak" read without them
+// having to translate standard deviations in their head.
+function zScoreLabel(z: number): { label: string; className: string } {
+  if (z >= 1.25) return { label: "Very strong", className: "text-profit" }
+  if (z >= 0.5) return { label: "Strong", className: "text-profit" }
+  if (z > -0.5) return { label: "Neutral", className: "text-muted-foreground" }
+  if (z > -1.25) return { label: "Weak", className: "text-warn" }
+  return { label: "Very weak", className: "text-loss" }
 }
 
 function prettifyKey(key: string): string {
@@ -130,6 +156,29 @@ function formatInlineValue(value: unknown, key: string): React.ReactNode {
     )
   }
   if (typeof value === "number") {
+    const keyLower = key.toLowerCase()
+    if (ZSCORE_KEYS.has(keyLower)) {
+      const { label, className } = zScoreLabel(value)
+      return (
+        <span className="inline-flex items-baseline gap-1.5">
+          <span className={cn("font-semibold", className)}>{label}</span>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            ({value >= 0 ? "+" : ""}
+            {value.toFixed(2)}σ)
+          </span>
+        </span>
+      )
+    }
+    if (keyLower === "score_decile" || keyLower === "decile") {
+      const d = Math.round(value)
+      const cls =
+        d >= 8 ? "text-profit" : d >= 5 ? "text-warn" : "text-loss"
+      return (
+        <span className={cn("font-semibold tabular-nums", cls)}>
+          {d} / 10
+        </span>
+      )
+    }
     if (isPercentKey(key) && value >= 0 && value <= 1) {
       return (
         <span className={cn("font-semibold tabular-nums", percentColorClass(value))}>
