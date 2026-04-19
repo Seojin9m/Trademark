@@ -159,7 +159,28 @@ def detect_patterns() -> list[dict]:
     """)
     all_patterns.extend(patterns)
 
-    # --- Pattern 5: Overall ---
+    # --- Pattern 5: By proposal status (approved vs rejected) ---
+    patterns = _compute_dimension_patterns(con, "proposal_status", """
+        SELECT proposal_status,
+               COUNT(*) as total,
+               SUM(CASE WHEN outcome_1m = 'GOOD' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN outcome_1m = 'BAD' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN outcome_1m = 'NEUTRAL' THEN 1 ELSE 0 END),
+               AVG(excess_return_1m),
+               AVG(excess_return_3m),
+               (SELECT ticker FROM decision_outcomes d2
+                WHERE d2.proposal_status = d.proposal_status AND d2.excess_return_1m IS NOT NULL
+                ORDER BY d2.excess_return_1m DESC LIMIT 1),
+               (SELECT ticker FROM decision_outcomes d2
+                WHERE d2.proposal_status = d.proposal_status AND d2.excess_return_1m IS NOT NULL
+                ORDER BY d2.excess_return_1m ASC LIMIT 1)
+        FROM decision_outcomes d
+        WHERE outcome_1m IS NOT NULL AND proposal_status IS NOT NULL
+        GROUP BY proposal_status
+    """)
+    all_patterns.extend(patterns)
+
+    # --- Pattern 6: Overall ---
     patterns = _compute_dimension_patterns(con, "overall", """
         SELECT 'all_decisions',
                COUNT(*) as total,

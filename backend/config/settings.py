@@ -125,6 +125,19 @@ class StrategySettings(BaseSettings):
     sector_neutral_blend: float = 1.0
     sector_neutral_min_group_size: int = 5
 
+    # PER / valuation filtering
+    max_absolute_per: float = 40.0
+    max_relative_per_vs_peer: float = 1.5
+
+    # Quality gate: minimum quality z-score to be considered a "good stock"
+    min_quality_zscore: float = -0.5
+
+    # Recent quarters for quality/growth computation (2-4)
+    quality_recent_quarters: int = 4
+
+    # Fundamentals ingestion cooldown (days) — skip re-ingestion if recent
+    fundamentals_cooldown_days: int = 80
+
     # Transaction cost assumptions (bps)
     round_trip_cost_bps_large: int = 10  # >$5B market cap
     round_trip_cost_bps_mid: int = 20  # <$5B market cap

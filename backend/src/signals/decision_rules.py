@@ -1,4 +1,12 @@
-"""Decision rules engine: generate hold/buy/sell/trim/add signals from scores."""
+"""Decision rules engine: value-investing framework with good-stock filter.
+
+Key principles:
+1. Evaluate fundamentals/quality FIRST to determine if a stock is "good."
+2. Price movement is a TIMING signal, not a quality signal.
+3. Good stock + price dip = better buy opportunity.
+4. Good stock + price rise = watch/buy less (avoid chasing).
+5. Bad stock + price dip ≠ buy signal.
+"""
 
 import json
 import sys
@@ -14,10 +22,7 @@ from src.db.schema import get_connection
 
 
 def get_recent_trades(lookback_days: int = 60) -> list[dict]:
-    """Query trade_executions for recently executed trades.
-
-    Returns list of dicts with ticker, action, executed_at, shares.
-    """
+    """Query trade_executions for recently executed trades."""
     try:
         con = get_connection()
         cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
@@ -38,10 +43,7 @@ def get_recent_trades(lookback_days: int = 60) -> list[dict]:
 
 
 def _build_trade_recency(recent_trades: list[dict]) -> dict[str, dict]:
-    """Build a per-ticker recency map from recent trade history.
-
-    Returns {ticker: {last_buy_days_ago, last_sell_days_ago, trade_count_30d}}.
-    """
+    """Build a per-ticker recency map from recent trade history."""
     now = datetime.now()
     recency: dict[str, dict] = {}
 
@@ -81,20 +83,14 @@ def generate_signals(
     adaptive_params: dict | None = None,
     recent_trades: list[dict] | None = None,
 ) -> list[dict]:
-    """Generate trade signals from ranked scores and current holdings.
+    """Generate trade signals with value-investing framework.
 
-    Args:
-        scores: Today's ranked scores (from ranker.py)
-        current_holdings: {ticker: current_weight_pct}
-        prior_deciles: {ticker: prior_score_decile}
-        portfolio_drawdown: Current portfolio drawdown from peak (negative number)
-        adaptive_params: Optional dict from adaptive constraint tuner overriding defaults
-        recent_trades: Recent executed trades for anti-whipsaw filtering
-
-    Returns:
-        List of signal dicts with: ticker, action, reason, score details
+    Decision flow:
+    1. Load quality assessment (is_good_stock) from scores.
+    2. For BUY candidates: ONLY consider stocks that pass the good-stock filter.
+    3. Among good stocks: price dip improves buy ranking, price rise → WATCH.
+    4. Bad stocks with price dips do NOT become buy candidates.
     """
-    # Use adaptive parameters if available, otherwise fall back to settings
     if adaptive_params:
         min_decile_change = adaptive_params.get("min_decile_change", settings.strategy.min_decile_change_to_trade)
         max_new = adaptive_params.get("max_new_positions_per_run", settings.strategy.max_new_positions_per_run)
@@ -117,9 +113,24 @@ def generate_signals(
     for _, row in scores.iterrows():
         ticker = row["ticker"]
         decile = int(row["score_decile"])
+        _ig = row.get("is_good_stock", False)
+        is_good = bool(_ig) if pd.notna(_ig) else False
+        recent_price_change = row.get("recent_price_change", 0.0)
+        price_dip_score = row.get("price_dip_score", 0.0)
+        _qs = row.get("quality_score", 0.0)
+        quality_score = float(_qs) if pd.notna(_qs) else 0.0
+        per_ratio = row.get("per_ratio")
+        quality_reasons = row.get("quality_reasons", [])
+
         score_map[ticker] = {
             "decile": decile,
             "composite_score": row["composite_score"],
+            "is_good_stock": is_good,
+            "quality_score": quality_score if pd.notna(quality_score) else 0.0,
+            "recent_price_change": float(recent_price_change) if pd.notna(recent_price_change) else 0.0,
+            "price_dip_score": float(price_dip_score) if pd.notna(price_dip_score) else 0.0,
+            "per_ratio": float(per_ratio) if pd.notna(per_ratio) else None,
+            "quality_reasons": quality_reasons if isinstance(quality_reasons, list) else [],
             "factors": {
                 "momentum_12m1m": row.get("momentum_12m1m"),
                 "eps_growth_yoy": row.get("eps_growth_yoy"),
@@ -129,7 +140,7 @@ def generate_signals(
             },
         }
 
-    # Check drawdown gates — use continuous scaling if adaptive params available
+    # Check drawdown gates
     if dd_schedule:
         from src.learning.adaptive import drawdown_size_scalar
         dd_scalar = drawdown_size_scalar(portfolio_drawdown, dd_schedule)
@@ -148,9 +159,9 @@ def generate_signals(
     else:
         gate_note = None
 
-    # --- Anti-whipsaw: build trade recency map ---
-    min_hold = settings.strategy.min_holding_days  # Hard floor: no sells within this window
-    cooldown_window = min_hold * 2  # Graduated zone: require larger decile change
+    # Anti-whipsaw
+    min_hold = settings.strategy.min_holding_days
+    cooldown_window = min_hold * 2
     trade_recency = _build_trade_recency(recent_trades or [])
 
     # --- Process current holdings ---
@@ -160,24 +171,21 @@ def generate_signals(
     for ticker, current_weight in current_holdings.items():
         info = score_map.get(ticker, {})
         decile = info.get("decile", 5)
-        # Default to 5 (neutral) so holdings need real score drops to trigger sells
         prior_decile = prior_deciles.get(ticker, 5)
         decile_change = decile - prior_decile
+        is_good = info.get("is_good_stock", False)
+        recent_change = info.get("recent_price_change", 0.0)
 
-        # Anti-whipsaw: check if this position was recently bought
         recency = trade_recency.get(ticker, {})
         last_buy_days = recency.get("last_buy_days_ago")
         holding_protected = False
         effective_min_decile = min_decile_change
 
         if last_buy_days is not None and last_buy_days < min_hold:
-            # Hard protection: never sell within the minimum holding period
             holding_protected = True
         elif last_buy_days is not None and last_buy_days < cooldown_window:
-            # Graduated threshold: require double the decile change in cooldown zone
-            # Linearly interpolate: at min_hold days -> 2x threshold, at cooldown_window -> 1x
             progress = (last_buy_days - min_hold) / max(cooldown_window - min_hold, 1)
-            multiplier = 2.0 - progress  # 2.0 at min_hold, 1.0 at cooldown_window
+            multiplier = 2.0 - progress
             effective_min_decile = max(min_decile_change, int(min_decile_change * multiplier))
 
         if holding_protected:
@@ -192,40 +200,95 @@ def generate_signals(
                 "signal_data": info,
                 "gate_note": gate_note,
             })
-        elif decile <= 2 and abs(decile_change) >= effective_min_decile:
-            sell_signals.append({
-                "ticker": ticker,
-                "action": "SELL",
-                "reason": f"Strong sell: decile dropped to {decile} (was {prior_decile})",
-                "current_weight": current_weight,
-                "target_weight": 0.0,
-                "score_decile": decile,
-                "prior_decile": prior_decile,
-                "signal_data": info,
-                "gate_note": gate_note,
-            })
-        elif decile <= 4 and abs(decile_change) >= effective_min_decile:
-            target = max(current_weight * 0.5, 0)  # Trim 50%
-            sell_signals.append({
-                "ticker": ticker,
-                "action": "TRIM",
-                "reason": f"Sell signal: decile {decile} (was {prior_decile}), trim to {target:.1%}",
-                "current_weight": current_weight,
-                "target_weight": target,
-                "score_decile": decile,
-                "prior_decile": prior_decile,
-                "signal_data": info,
-                "gate_note": gate_note,
-            })
-        elif decile >= 9 and decile_change >= min_decile_change:
-            if not buys_blocked:
-                max_w = settings.strategy.max_single_position_weight
-                add_multiplier = 1.0 + (0.5 * effective_scalar)  # Scale add aggressiveness
-                target = min(current_weight * add_multiplier, max_w)
+        elif is_good:
+            # ── GOOD STOCK: high bar to sell ──
+            # Value investing: don't sell winners because price dropped.
+            # A good stock at a low composite decile means momentum reversed
+            # (price fell) — that's a dip opportunity, not a sell signal.
+            # Only sell when quality itself deteriorates (is_good becomes False).
+            if decile >= 9 and decile_change >= min_decile_change:
+                if not buys_blocked:
+                    max_w = settings.strategy.max_single_position_weight
+                    if recent_change < -0.02:
+                        add_multiplier = 1.0 + (0.7 * effective_scalar)
+                        reason = f"Strong add (dip opportunity): decile {decile}, price down {recent_change:.1%} — good stock at better price"
+                    elif recent_change > 0.05:
+                        hold_signals.append({
+                            "ticker": ticker,
+                            "action": "HOLD",
+                            "reason": f"Watch (avoid chase): decile {decile} but price already up {recent_change:.1%} — wait for better entry",
+                            "current_weight": current_weight,
+                            "target_weight": current_weight,
+                            "score_decile": decile,
+                            "prior_decile": prior_decile,
+                            "signal_data": info,
+                            "gate_note": gate_note,
+                        })
+                        continue
+                    else:
+                        add_multiplier = 1.0 + (0.5 * effective_scalar)
+                        reason = f"Strong hold/add: decile rose to {decile} (was {prior_decile}), size {effective_scalar:.0%}"
+
+                    target = min(current_weight * add_multiplier, max_w)
+                    sell_signals.append({
+                        "ticker": ticker,
+                        "action": "ADD",
+                        "reason": reason,
+                        "current_weight": current_weight,
+                        "target_weight": target,
+                        "score_decile": decile,
+                        "prior_decile": prior_decile,
+                        "signal_data": info,
+                        "gate_note": gate_note,
+                    })
+                else:
+                    hold_signals.append({
+                        "ticker": ticker,
+                        "action": "HOLD",
+                        "reason": f"Good stock hold (buys blocked): decile {decile}, quality {quality_score:.2f}",
+                        "current_weight": current_weight,
+                        "target_weight": current_weight,
+                        "score_decile": decile,
+                        "prior_decile": prior_decile,
+                        "signal_data": info,
+                        "gate_note": gate_note,
+                    })
+            else:
+                reason = f"Hold (good stock): decile {decile} (was {prior_decile}), quality {quality_score:.2f}"
+                if recent_change < -0.05:
+                    reason += f" — dipped {recent_change:.1%}, consider adding"
+                hold_signals.append({
+                    "ticker": ticker,
+                    "action": "HOLD",
+                    "reason": reason,
+                    "current_weight": current_weight,
+                    "target_weight": current_weight,
+                    "score_decile": decile,
+                    "prior_decile": prior_decile,
+                    "signal_data": info,
+                    "gate_note": gate_note,
+                })
+        else:
+            # ── BAD STOCK: standard sell discipline ──
+            # Quality has genuinely deteriorated — sell/trim as warranted.
+            if decile <= 2 and abs(decile_change) >= effective_min_decile:
                 sell_signals.append({
                     "ticker": ticker,
-                    "action": "ADD",
-                    "reason": f"Strong hold/add: decile rose to {decile} (was {prior_decile}), size {effective_scalar:.0%}",
+                    "action": "SELL",
+                    "reason": f"Sell (quality failed + low rank): decile {decile} (was {prior_decile}), quality {quality_score:.2f}",
+                    "current_weight": current_weight,
+                    "target_weight": 0.0,
+                    "score_decile": decile,
+                    "prior_decile": prior_decile,
+                    "signal_data": info,
+                    "gate_note": gate_note,
+                })
+            elif decile <= 4 and abs(decile_change) >= effective_min_decile:
+                target = max(current_weight * 0.5, 0)
+                sell_signals.append({
+                    "ticker": ticker,
+                    "action": "TRIM",
+                    "reason": f"Trim (quality failed): decile {decile} (was {prior_decile}), quality {quality_score:.2f}",
                     "current_weight": current_weight,
                     "target_weight": target,
                     "score_decile": decile,
@@ -233,22 +296,22 @@ def generate_signals(
                     "signal_data": info,
                     "gate_note": gate_note,
                 })
-        else:
-            hold_signals.append({
-                "ticker": ticker,
-                "action": "HOLD",
-                "reason": f"Hold: decile {decile} (was {prior_decile}), change {abs(decile_change)} < threshold {effective_min_decile}",
-                "current_weight": current_weight,
-                "target_weight": current_weight,
-                "score_decile": decile,
-                "prior_decile": prior_decile,
-                "signal_data": info,
-                "gate_note": gate_note,
-            })
+            else:
+                hold_signals.append({
+                    "ticker": ticker,
+                    "action": "HOLD",
+                    "reason": f"Hold: decile {decile} (was {prior_decile}), change {abs(decile_change)} < threshold {effective_min_decile}",
+                    "current_weight": current_weight,
+                    "target_weight": current_weight,
+                    "score_decile": decile,
+                    "prior_decile": prior_decile,
+                    "signal_data": info,
+                    "gate_note": gate_note,
+                })
 
     # --- Process non-holdings: buy candidates ---
-    # BUY now requires decile change >= min_decile_change (same bar as sells)
-    # Prior defaults to 5 (neutral) — ticker must have climbed to top decile
+    # CRITICAL: Only consider stocks that pass the good-stock filter.
+    # Price dip on a bad stock does NOT create a buy signal.
     buy_signals = []
     if not buys_blocked and not all_blocked:
         for _, row in scores.iterrows():
@@ -256,63 +319,77 @@ def generate_signals(
             if ticker in current_holdings:
                 continue
 
+            info = score_map.get(ticker, {})
             decile = int(row["score_decile"])
             prior_decile = prior_deciles.get(ticker, 5)
             decile_change = decile - prior_decile
+            is_good = info.get("is_good_stock", False)
+            recent_change = info.get("recent_price_change", 0.0)
 
-            # Anti-whipsaw: don't buy back a recently sold stock
+            # GATE: Must be a good stock to be a buy candidate
+            if not is_good:
+                continue
+
+            # Anti-whipsaw
             recency = trade_recency.get(ticker, {})
             last_sell_days = recency.get("last_sell_days_ago")
             if last_sell_days is not None and last_sell_days < min_hold:
-                # Skip — sold too recently, avoid churn
                 continue
 
-            # Anti-churn: penalize tickers with high recent turnover
             trade_count = recency.get("trade_count_30d", 0)
             if trade_count >= 3:
-                # Traded 3+ times in 30 days = excessive churn, skip
                 continue
 
             if decile >= 9 and decile_change >= min_decile_change:
                 base_weight = 0.06
-                scaled_weight = round(base_weight * effective_scalar, 4)
+
+                if recent_change < -0.02:
+                    # Good stock with price dip: BETTER buy opportunity
+                    dip_bonus = min(abs(recent_change) * 0.5, 0.03)
+                    scaled_weight = round((base_weight + dip_bonus) * effective_scalar, 4)
+                    reason = (f"Buy opportunity (dip): decile {decile}, price down {recent_change:.1%} — "
+                              f"good stock at discounted price")
+                elif recent_change > 0.05:
+                    # Good stock but price already ran up: WATCH instead of BUY
+                    # Do not generate buy signal — avoid chasing
+                    continue
+                else:
+                    scaled_weight = round(base_weight * effective_scalar, 4)
+                    reason = f"Buy candidate: decile {decile} (was {prior_decile}, change +{decile_change}), size {effective_scalar:.0%}"
+
                 buy_signals.append({
                     "ticker": ticker,
                     "action": "BUY",
-                    "reason": f"Buy candidate: decile {decile} (was {prior_decile}, change +{decile_change}), size {effective_scalar:.0%}",
+                    "reason": reason,
                     "current_weight": 0.0,
                     "target_weight": scaled_weight,
                     "score_decile": decile,
                     "prior_decile": prior_decile,
-                    "signal_data": score_map.get(ticker, {}),
+                    "signal_data": info,
                     "gate_note": gate_note,
                 })
 
     # --- Rotation: find weak holdings to fund stronger buys ---
-    # If we have buy candidates but limited cash, identify held positions
-    # that are mediocre (decile 4-6) to potentially trim and rotate
     rotate_signals = []
     if buy_signals and not buys_blocked:
-        # Sort buys by composite score (best first)
         buy_signals.sort(
             key=lambda s: s["signal_data"].get("composite_score", 0),
             reverse=True,
         )
 
-        # Find held positions in the "weak zone" (decile <= 6, not already selling)
         selling_tickers = {s["ticker"] for s in sell_signals}
         weak_holdings = []
         for ticker, current_weight in current_holdings.items():
             if ticker in selling_tickers:
                 continue
-            # Anti-whipsaw: don't rotate out recently bought positions
             recency = trade_recency.get(ticker, {})
             last_buy_days = recency.get("last_buy_days_ago")
             if last_buy_days is not None and last_buy_days < cooldown_window:
                 continue
             info = score_map.get(ticker, {})
             decile = info.get("decile", 5)
-            if decile <= 5:
+            is_good = info.get("is_good_stock", True)
+            if decile <= 4 and not is_good:
                 weak_holdings.append({
                     "ticker": ticker,
                     "decile": decile,
@@ -320,18 +397,15 @@ def generate_signals(
                     "composite_score": info.get("composite_score", 0),
                 })
 
-        # Sort weakest first
         weak_holdings.sort(key=lambda h: h["composite_score"])
 
-        # Generate ROTATE signals for weak holdings (trim to fund better buys)
         for weak in weak_holdings:
             if not buy_signals:
                 break
-            # Only rotate if the best buy candidate is meaningfully better
             best_buy = buy_signals[0]
             best_buy_score = best_buy["signal_data"].get("composite_score", 0)
             if best_buy_score <= weak["composite_score"] + 0.1:
-                break  # Not enough improvement to justify rotation
+                break
 
             target = max(weak["weight"] * 0.5, 0)
             prior_decile = prior_deciles.get(weak["ticker"], 5)
@@ -346,18 +420,16 @@ def generate_signals(
                 "signal_data": score_map.get(weak["ticker"], {}),
                 "gate_note": gate_note,
             })
-            # This freed up capital for ~1 buy
             buy_signals.pop(0)
 
-    # --- Cap new BUY signals ---
+    # Cap new BUY signals
     buy_signals.sort(
         key=lambda s: s["signal_data"].get("composite_score", 0),
         reverse=True,
     )
     buy_signals = buy_signals[:max_new]
 
-    # --- Assemble final signals with trade cap ---
-    # Priority: sells > rotations > buys > holds
+    # Assemble final signals
     actionable = sell_signals + rotate_signals + buy_signals
     actionable = actionable[:max_total_trades]
 

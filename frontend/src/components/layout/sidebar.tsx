@@ -13,6 +13,7 @@ import {
   Brain,
   Wallet,
   BrainCircuit,
+  Database,
 } from "lucide-react"
 
 const navItems = [
@@ -22,6 +23,7 @@ const navItems = [
   { to: "/trades", icon: ArrowLeftRight, label: "Trades" },
   { to: "/decisions", icon: ClipboardList, label: "Decisions" },
   { to: "/risk", icon: ShieldAlert, label: "Risk" },
+  { to: "/data", icon: Database, label: "Data Grid" },
   { to: "/research", icon: Newspaper, label: "Research" },
   { to: "/learning", icon: Brain, label: "Learning" },
   { to: "/backtest", icon: FlaskConical, label: "Backtest" },

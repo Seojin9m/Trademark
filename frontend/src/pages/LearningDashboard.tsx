@@ -36,6 +36,13 @@ const OUTCOME_COLORS: Record<string, string> = {
   NEUTRAL: "#71717a",
 }
 
+const STATUS_VARIANT: Record<string, "profit" | "loss" | "muted" | "default"> = {
+  APPROVED: "profit",
+  REJECTED: "loss",
+  NEEDS_REVIEW: "muted",
+  PENDING: "default",
+}
+
 const outcomeColumns: Column<DecisionOutcome>[] = [
   {
     key: "decision_date",
@@ -57,14 +64,18 @@ const outcomeColumns: Column<DecisionOutcome>[] = [
     ),
   },
   {
+    key: "proposal_status",
+    header: "Status",
+    render: (r) => (
+      <Badge variant={STATUS_VARIANT[r.proposal_status ?? ""] ?? "muted"}>
+        {r.proposal_status ?? "-"}
+      </Badge>
+    ),
+  },
+  {
     key: "score_decile",
     header: "Decile",
     render: (r) => <span>{r.score_decile ?? "-"}</span>,
-  },
-  {
-    key: "judge_verdict",
-    header: "Verdict",
-    render: (r) => <span className="text-xs text-muted-foreground">{r.judge_verdict ?? "-"}</span>,
   },
   {
     key: "return_1m",
@@ -223,9 +234,9 @@ export default function LearningDashboard() {
       {/* Summary Metrics */}
       <div className="grid grid-cols-5 gap-4 mb-4">
         <MetricCard
-          label="Win Rate"
+          label="Signal Win Rate"
           value={summary?.win_rate != null ? formatPercent(summary.win_rate) : "—"}
-          delta={summary?.classified ? `${summary.classified} classified` : undefined}
+          delta={summary?.classified ? `${summary.classified} proposals measured` : undefined}
           deltaValue={summary?.win_rate != null && summary.win_rate >= 0.5 ? 1 : -1}
         />
         <MetricCard
@@ -234,16 +245,16 @@ export default function LearningDashboard() {
           deltaValue={summary?.avg_excess_return_1m != null ? summary.avg_excess_return_1m : 0}
         />
         <MetricCard
-          label="Good Decisions"
-          value={String(summary?.good ?? 0)}
-          delta={`of ${summary?.classified ?? 0}`}
-          deltaValue={1}
+          label="Approved Win Rate"
+          value={summary?.approved_win_rate != null ? formatPercent(summary.approved_win_rate) : "—"}
+          delta={summary?.approved_total ? `${summary.approved_total} approved` : undefined}
+          deltaValue={summary?.approved_win_rate != null && summary.approved_win_rate >= 0.5 ? 1 : -1}
         />
         <MetricCard
-          label="Bad Decisions"
-          value={String(summary?.bad ?? 0)}
-          delta={`of ${summary?.classified ?? 0}`}
-          deltaValue={-1}
+          label="Rejected Win Rate"
+          value={summary?.rejected_win_rate != null ? formatPercent(summary.rejected_win_rate) : "—"}
+          delta={summary?.rejected_total ? `${summary.rejected_total} rejected` : undefined}
+          deltaValue={summary?.rejected_win_rate != null && summary.rejected_win_rate < 0.5 ? 1 : -1}
         />
         <MetricCard
           label="Pending"
@@ -360,9 +371,9 @@ export default function LearningDashboard() {
         <Card className="mb-4">
           <CardContent>
             <div className="text-center py-12">
-              <p className="text-muted-foreground text-sm">No decision outcomes yet.</p>
+              <p className="text-muted-foreground text-sm">No proposal outcomes yet.</p>
               <p className="text-muted-foreground/60 text-xs mt-1">
-                Run the pipeline to generate trade proposals. Outcomes will be measured at 1-week, 1-month, and 3-month horizons.
+                Run the pipeline to generate trade proposals. All proposals (approved and rejected) will be tracked at 1-week, 1-month, and 3-month horizons.
               </p>
             </div>
           </CardContent>
@@ -482,13 +493,13 @@ export default function LearningDashboard() {
 
       {/* Outcomes Table */}
       <Card>
-        <CardTitle>Decision Outcomes</CardTitle>
+        <CardTitle>Proposal Outcomes</CardTitle>
         <CardContent>
           <DataTable
             columns={outcomeColumns}
             data={outcomes ?? []}
             rowKey={(r) => r.proposal_id}
-            emptyMessage="No outcomes tracked yet. Proposals will appear here after pipeline runs."
+            emptyMessage="No outcomes tracked yet. All proposals will appear here after pipeline runs."
           />
         </CardContent>
       </Card>

@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS decision_outcomes (
     excess_return_1m DOUBLE,
     excess_return_3m DOUBLE,
     outcome_1m VARCHAR,
+    proposal_status VARCHAR,
     measured_at_1w DATE,
     measured_at_1m DATE,
     measured_at_3m DATE,
@@ -183,6 +184,41 @@ CREATE TABLE IF NOT EXISTS decision_patterns (
     alert_message TEXT,
     computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Editable stock metrics (user-correctable numeric data)
+CREATE TABLE IF NOT EXISTS stock_metrics (
+    ticker VARCHAR,
+    metric_name VARCHAR,
+    raw_value DOUBLE,
+    user_value DOUBLE,
+    source VARCHAR DEFAULT 'computed',
+    as_of_date DATE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ticker, metric_name, as_of_date)
+);
+
+-- Stock quality assessment (pre-computed good-stock filter)
+CREATE TABLE IF NOT EXISTS stock_quality_assessment (
+    ticker VARCHAR,
+    date DATE,
+    is_good_stock BOOLEAN,
+    quality_score DOUBLE,
+    quality_reasons JSON,
+    per_ratio DOUBLE,
+    per_vs_peer DOUBLE,
+    per_absolute_pass BOOLEAN,
+    per_relative_pass BOOLEAN,
+    price_opportunity_score DOUBLE,
+    PRIMARY KEY (ticker, date)
+);
+
+-- Ingestion log (tracks when each data type was last ingested)
+CREATE TABLE IF NOT EXISTS ingestion_log (
+    data_type VARCHAR PRIMARY KEY,
+    last_ingested_at TIMESTAMP,
+    record_count INTEGER,
+    notes TEXT
+);
 """
 
 
@@ -211,7 +247,14 @@ def init_db() -> None:
     # Migrations: add columns that may not exist on older databases
     migrations = [
         ("decision_outcomes", "execution_id", "VARCHAR"),
+        ("decision_outcomes", "proposal_status", "VARCHAR"),
         ("trade_proposals", "run_id", "VARCHAR"),
+        ("fundamentals_pit", "fiscal_year", "INTEGER"),
+        ("fundamentals_pit", "fiscal_quarter", "VARCHAR"),
+        ("fundamentals_pit", "source", "VARCHAR"),
+        ("fundamentals_pit", "created_at", "TIMESTAMP"),
+        ("fundamentals_pit", "updated_at", "TIMESTAMP"),
+        ("trade_proposals", "reason", "TEXT"),
     ]
     for table, col, col_type in migrations:
         try:

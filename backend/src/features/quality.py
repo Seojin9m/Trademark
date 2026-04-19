@@ -1,5 +1,7 @@
-"""Quality/Growth factors: EPS growth (TTM YoY), Revenue growth (YoY), Gross margin trend.
+"""Quality/Growth factors: EPS growth, Revenue growth, Gross margin trend.
 
+Uses recent 2-4 quarters only to detect whether the company is improving
+recently, rather than diluting the signal with old data.
 All factors use PIT-safe fundamentals (report_date, not fiscal_period_end).
 """
 
@@ -12,14 +14,20 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.db.schema import get_connection
+from config.settings import settings
 
 
-def _get_pit_fundamentals(as_of_date: str) -> pd.DataFrame:
+def _get_pit_fundamentals(as_of_date: str, max_quarters: int | None = None) -> pd.DataFrame:
     """Get the most recent PIT-safe fundamentals for each ticker.
 
     Only includes data that was publicly available as of as_of_date.
-    Returns the last 8 quarters per ticker for TTM computation.
+    Returns the last `max_quarters` quarters per ticker (default from settings).
     """
+    if max_quarters is None:
+        max_quarters = settings.strategy.quality_recent_quarters
+    # Fetch max_quarters + 4 so we can compare recent vs prior
+    fetch_quarters = max_quarters + 4
+
     con = get_connection()
     df = con.execute("""
         WITH ranked AS (
@@ -40,9 +48,9 @@ def _get_pit_fundamentals(as_of_date: str) -> pd.DataFrame:
             WHERE report_date <= CAST($1 AS DATE)
         )
         SELECT * FROM ranked
-        WHERE quarter_rank <= 8
+        WHERE quarter_rank <= $2
         ORDER BY ticker, fiscal_period_end
-    """, [str(as_of_date)]).fetchdf()
+    """, [str(as_of_date), fetch_quarters]).fetchdf()
     con.close()
     return df
 
@@ -54,21 +62,40 @@ def _compute_ttm(df: pd.DataFrame, column: str) -> pd.Series:
     )
 
 
-# Minimum quarters needed to compute YoY at all (Q0 vs Q-4 requires 5 rows).
-# Threshold for switching from single-quarter YoY to TTM-on-TTM smoothing.
-_MIN_QUARTERS_SINGLE_Q = 5
-_MIN_QUARTERS_TTM = 8
+# With recent-quarter focus: need at least 2 quarters for sequential growth,
+# and at least 4 quarters for YoY single-quarter comparison (Q0 vs Q-4).
+_MIN_QUARTERS_SEQUENTIAL = 2
+_MIN_QUARTERS_YOY = 4
+
+
+def _compute_sequential_growth(group: pd.DataFrame, column: str) -> float | None:
+    """Compute average sequential (QoQ) growth over recent quarters."""
+    n = len(group)
+    recent_n = min(n, settings.strategy.quality_recent_quarters)
+    recent = group.tail(recent_n)
+
+    vals = recent[column].dropna()
+    if len(vals) < 2:
+        return None
+
+    growths = []
+    for i in range(1, len(vals)):
+        prev = vals.iloc[i - 1]
+        curr = vals.iloc[i]
+        if abs(prev) > 0.01:
+            growths.append((curr / prev) - 1.0)
+
+    if not growths:
+        return None
+    return float(np.mean(growths))
 
 
 def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute EPS growth YoY for all tickers.
+    """Compute EPS growth using recent 2-4 quarters.
 
-    Uses TTM-on-TTM (sum of last 4q vs prior 4q) when 8+ quarters are
-    available — smoother and resistant to one-off quarterly noise. Falls
-    back to single-quarter YoY (Q0 vs Q-4) when only 5-7 quarters exist,
-    which is the case for yfinance-sourced tickers (Yahoo only exposes ~6q).
-    Same underlying measurement (same calendar quarter year-over-year),
-    just noisier without the TTM smoothing.
+    Primary: YoY single-quarter comparison (Q0 vs Q-4) when 4+ quarters exist.
+    Fallback: sequential QoQ average growth when only 2-3 quarters available.
+    Emphasizes recent improvement over long historical averages.
     """
     con = get_connection()
     if as_of_date is None:
@@ -86,18 +113,14 @@ def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
         n = len(group)
         growth = None
 
-        if n >= _MIN_QUARTERS_TTM:
-            recent_4 = group.tail(4)
-            prior_4 = group.head(4)
-            ttm_now = recent_4["eps_diluted"].sum()
-            ttm_prior = prior_4["eps_diluted"].sum()
-            if pd.notna(ttm_prior) and abs(ttm_prior) > 0.01:
-                growth = (ttm_now / ttm_prior) - 1.0
-        elif n >= _MIN_QUARTERS_SINGLE_Q:
+        if n >= _MIN_QUARTERS_YOY + 1:
+            # YoY: compare most recent quarter to same quarter a year ago
             q0 = group.iloc[-1]["eps_diluted"]
-            q_prior = group.iloc[-5]["eps_diluted"]
+            q_prior = group.iloc[-(settings.strategy.quality_recent_quarters + 1)]["eps_diluted"]
             if pd.notna(q0) and pd.notna(q_prior) and abs(q_prior) > 0.01:
                 growth = (q0 / q_prior) - 1.0
+        elif n >= _MIN_QUARTERS_SEQUENTIAL:
+            growth = _compute_sequential_growth(group, "eps_diluted")
 
         if growth is not None:
             growth = float(np.clip(growth, -5.0, 10.0))
@@ -112,10 +135,9 @@ def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
 
 
 def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute revenue growth YoY for all tickers.
+    """Compute revenue growth using recent 2-4 quarters.
 
-    Same TTM-or-single-Q hybrid logic as compute_eps_growth — see that
-    docstring for the rationale.
+    Same recent-quarter logic as compute_eps_growth.
     """
     con = get_connection()
     if as_of_date is None:
@@ -133,18 +155,13 @@ def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
         n = len(group)
         growth = None
 
-        if n >= _MIN_QUARTERS_TTM:
-            recent_4 = group.tail(4)
-            prior_4 = group.head(4)
-            ttm_now = recent_4["revenue"].sum()
-            ttm_prior = prior_4["revenue"].sum()
-            if pd.notna(ttm_prior) and ttm_prior > 0:
-                growth = (ttm_now / ttm_prior) - 1.0
-        elif n >= _MIN_QUARTERS_SINGLE_Q:
+        if n >= _MIN_QUARTERS_YOY + 1:
             q0 = group.iloc[-1]["revenue"]
-            q_prior = group.iloc[-5]["revenue"]
+            q_prior = group.iloc[-(settings.strategy.quality_recent_quarters + 1)]["revenue"]
             if pd.notna(q0) and pd.notna(q_prior) and q_prior > 0:
                 growth = (q0 / q_prior) - 1.0
+        elif n >= _MIN_QUARTERS_SEQUENTIAL:
+            growth = _compute_sequential_growth(group, "revenue")
 
         if growth is not None:
             growth = float(np.clip(growth, -2.0, 10.0))
@@ -159,12 +176,10 @@ def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
 
 
 def compute_gross_margin_trend(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute gross margin trend: current gross margin minus year-ago margin.
+    """Compute gross margin trend over recent 2-4 quarters.
 
-    Positive = margin expanding (good). Negative = margin compressing.
-    Uses TTM gross margins when 8+ quarters available, otherwise single
-    quarter gross margins (Q0 vs Q-4). Banks and insurance don't report
-    gross profit, so this stays NaN for them — handled downstream.
+    Compares most recent 2 quarters' average margin vs prior 2 quarters.
+    Banks and insurance don't report gross profit — stays NaN for them.
     """
     con = get_connection()
     if as_of_date is None:
@@ -182,23 +197,22 @@ def compute_gross_margin_trend(as_of_date: str | None = None) -> pd.DataFrame:
         n = len(group)
         gm_trend = None
 
-        if n >= _MIN_QUARTERS_TTM:
-            recent_4 = group.tail(4)
-            prior_4 = group.head(4)
-            rev_now = recent_4["revenue"].sum()
-            gp_now = recent_4["gross_profit"].sum()
-            rev_prior = prior_4["revenue"].sum()
-            gp_prior = prior_4["gross_profit"].sum()
+        if n >= 4:
+            # Compare recent 2 quarters vs prior 2 quarters
+            recent_2 = group.tail(2)
+            prior_2 = group.iloc[-(4):-(2)] if n >= 4 else group.head(2)
+            rev_now = recent_2["revenue"].sum()
+            gp_now = recent_2["gross_profit"].sum()
+            rev_prior = prior_2["revenue"].sum()
+            gp_prior = prior_2["gross_profit"].sum()
             if (pd.notna(gp_now) and pd.notna(gp_prior)
                     and rev_now > 0 and rev_prior > 0):
                 gm_trend = (gp_now / rev_now) - (gp_prior / rev_prior)
-        elif n >= _MIN_QUARTERS_SINGLE_Q:
+        elif n >= 2:
             q0 = group.iloc[-1]
-            q_prior = group.iloc[-5]
-            rev_now = q0["revenue"]
-            gp_now = q0["gross_profit"]
-            rev_prior = q_prior["revenue"]
-            gp_prior = q_prior["gross_profit"]
+            q1 = group.iloc[-2]
+            rev_now, gp_now = q0["revenue"], q0["gross_profit"]
+            rev_prior, gp_prior = q1["revenue"], q1["gross_profit"]
             if (pd.notna(gp_now) and pd.notna(gp_prior)
                     and pd.notna(rev_now) and pd.notna(rev_prior)
                     and rev_now > 0 and rev_prior > 0):
@@ -214,3 +228,41 @@ def compute_gross_margin_trend(as_of_date: str | None = None) -> pd.DataFrame:
     result = pd.DataFrame(results)
     result["date"] = as_of_date
     return result[["ticker", "date", "gross_margin_trend"]]
+
+
+def compute_net_income_growth(as_of_date: str | None = None) -> pd.DataFrame:
+    """Compute net income growth using recent 2-4 quarters."""
+    con = get_connection()
+    if as_of_date is None:
+        as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+        con.close()
+
+    fund = _get_pit_fundamentals(str(as_of_date))
+    if fund.empty:
+        return pd.DataFrame(columns=["ticker", "date", "net_income_growth"])
+
+    fund = fund.sort_values(["ticker", "fiscal_period_end"])
+
+    results = []
+    for ticker, group in fund.groupby("ticker"):
+        n = len(group)
+        growth = None
+
+        if n >= _MIN_QUARTERS_YOY + 1:
+            q0 = group.iloc[-1]["net_income"]
+            q_prior = group.iloc[-(settings.strategy.quality_recent_quarters + 1)]["net_income"]
+            if pd.notna(q0) and pd.notna(q_prior) and abs(q_prior) > 1000:
+                growth = (q0 / q_prior) - 1.0
+        elif n >= _MIN_QUARTERS_SEQUENTIAL:
+            growth = _compute_sequential_growth(group, "net_income")
+
+        if growth is not None:
+            growth = float(np.clip(growth, -5.0, 10.0))
+            results.append({"ticker": ticker, "net_income_growth": growth})
+
+    if not results:
+        return pd.DataFrame(columns=["ticker", "date", "net_income_growth"])
+
+    result = pd.DataFrame(results)
+    result["date"] = as_of_date
+    return result[["ticker", "date", "net_income_growth"]]

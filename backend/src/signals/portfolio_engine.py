@@ -232,8 +232,8 @@ def store_proposals(proposals: list[dict]) -> None:
         con.execute("""
             INSERT INTO trade_proposals
             (proposal_id, run_id, created_at, ticker, action, shares,
-             signal_data, constraint_check, status, human_decision, human_notes)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             signal_data, constraint_check, status, human_decision, human_notes, reason)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         """, [
             p["proposal_id"],
             p.get("run_id"),
@@ -246,6 +246,7 @@ def store_proposals(proposals: list[dict]) -> None:
             p["status"],
             p.get("human_decision"),
             p.get("human_notes"),
+            p.get("reason"),
         ])
     con.close()
     print(f"Stored {len(proposals)} trade proposals")

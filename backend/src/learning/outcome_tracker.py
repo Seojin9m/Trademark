@@ -1,7 +1,11 @@
-"""Outcome tracker: measures decision returns and classifies GOOD/BAD/NEUTRAL.
+"""Outcome tracker: measures proposal returns and classifies GOOD/BAD/NEUTRAL.
 
-For each executed trade, tracks the stock's performance at
-1-week, 1-month, and 3-month horizons relative to the benchmark (QQQ).
+For every trade proposal (regardless of approval status), tracks the stock's
+performance from the proposal date at 1-week, 1-month, and 3-month horizons
+relative to the benchmark (QQQ).
+
+This lets us evaluate whether the MODEL's signals are good — independent of
+whether the judge approved or rejected the proposal.
 
 Outcome classification (based on 1-month excess return):
   GOOD:    excess return >= +2%  (BUY that beat market, or SELL where stock dropped)
@@ -22,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from config.settings import settings
 from src.db.schema import get_connection
 
-# Trading days approximation for horizons
 HORIZON_TRADING_DAYS = {
     "1w": 5,
     "1m": 21,
@@ -30,8 +33,8 @@ HORIZON_TRADING_DAYS = {
 }
 
 OUTCOME_THRESHOLDS = {
-    "GOOD": 0.02,    # >= +2% excess
-    "BAD": -0.02,    # <= -2% excess
+    "GOOD": 0.02,
+    "BAD": -0.02,
 }
 
 
@@ -46,10 +49,7 @@ def _get_price_on_date(con, ticker: str, target_date: str) -> float | None:
 
 
 def _get_price_after_days(con, ticker: str, start_date: str, trading_days: int) -> tuple[float | None, str | None]:
-    """Get the adj_close approximately N trading days after start_date.
-
-    Returns (price, actual_date) or (None, None) if not enough data.
-    """
+    """Get the adj_close approximately N trading days after start_date."""
     rows = con.execute("""
         SELECT adj_close, date FROM prices
         WHERE ticker = $1 AND date > $2 AND adj_close > 0
@@ -78,62 +78,68 @@ def _classify_outcome(excess_return_1m: float | None) -> str | None:
     return "NEUTRAL"
 
 
-def seed_outcomes_from_executions() -> int:
-    """Seed decision_outcomes from trade_executions that don't have outcomes yet.
+def seed_outcomes_from_proposals() -> int:
+    """Seed decision_outcomes from all trade proposals that don't have outcomes yet.
 
-    Only seeds from successful executions — these are trades that actually happened,
-    not just proposals that were approved.
+    Tracks every proposal (APPROVED, REJECTED, PENDING, NEEDS_REVIEW) so we can
+    evaluate model signal quality independent of the judge's filtering.
+    Uses the market close price on the proposal date as entry price.
     """
     con = get_connection()
     universe = pd.read_csv(settings.paths.universe_path)
     sector_map = dict(zip(universe["ticker"], universe.get("sub_sector", pd.Series())))
 
-    # Find successful executions that don't have outcomes yet
-    new_executions = con.execute("""
-        SELECT te.execution_id, te.proposal_id, te.ticker, te.action,
-               te.executed_at, te.shares, te.execution_price,
-               tp.signal_data, tp.judge_response
-        FROM trade_executions te
-        LEFT JOIN decision_outcomes dout ON te.execution_id = dout.execution_id
-        LEFT JOIN trade_proposals tp ON te.proposal_id = tp.proposal_id
-        WHERE dout.execution_id IS NULL
-          AND te.success = TRUE
-          AND te.shares > 0
+    new_proposals = con.execute("""
+        SELECT tp.proposal_id, tp.ticker, tp.action, tp.created_at,
+               tp.shares, tp.signal_data, tp.judge_response, tp.status
+        FROM trade_proposals tp
+        LEFT JOIN decision_outcomes dout ON tp.proposal_id = dout.proposal_id
+        WHERE dout.proposal_id IS NULL
+          AND tp.action NOT IN ('STAY', 'HOLD')
+          AND tp.ticker IS NOT NULL
     """).fetchall()
 
     seeded = 0
-    for row in new_executions:
-        execution_id, proposal_id, ticker, action, executed_at, shares, execution_price, signal_data_raw, judge_response_raw = row
+    for row in new_proposals:
+        proposal_id, ticker, action, created_at, shares, signal_data_raw, judge_response_raw, status = row
 
-        # Parse signal data
         signal_data = json.loads(signal_data_raw) if isinstance(signal_data_raw, str) else (signal_data_raw or {})
         judge_response = json.loads(judge_response_raw) if isinstance(judge_response_raw, str) else (judge_response_raw or {})
 
-        decision_date = str(executed_at)[:10]
+        proposal_date = str(created_at)[:10]
+
+        entry_price = _get_price_on_date(con, ticker, proposal_date)
+        if entry_price is None:
+            continue
+
+        sub_sector_val = None
+        match = universe.loc[universe["ticker"] == ticker, "sub_sector"]
+        if not match.empty:
+            sub_sector_val = match.iloc[0]
 
         con.execute("""
             INSERT INTO decision_outcomes
-            (proposal_id, execution_id, ticker, action, decision_date, entry_price, shares,
+            (proposal_id, ticker, action, decision_date, entry_price, shares,
              composite_score, score_decile, prior_decile,
              judge_verdict, judge_confidence,
-             sector, sub_sector, factor_snapshot)
+             sector, sub_sector, factor_snapshot, proposal_status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         """, [
             proposal_id,
-            execution_id,
             ticker,
             action,
-            decision_date,
-            execution_price,  # Use actual execution price, not market close
+            proposal_date,
+            entry_price,
             shares,
             signal_data.get("composite_score"),
             signal_data.get("decile"),
             signal_data.get("prior_decile"),
             judge_response.get("verdict"),
             judge_response.get("confidence"),
-            universe.loc[universe["ticker"] == ticker, "sub_sector"].iloc[0] if not universe.loc[universe["ticker"] == ticker, "sub_sector"].empty else None,
+            sub_sector_val,
             sector_map.get(ticker),
             json.dumps(signal_data.get("factors", {})),
+            status,
         ])
         seeded += 1
 
@@ -146,13 +152,10 @@ def measure_outcomes() -> dict:
 
     For BUY/ADD: measures if the stock went up (good) or down (bad) vs benchmark.
     For SELL/TRIM: inverts the return — stock dropping after sell = GOOD decision.
-
-    Returns summary of measurements made.
     """
     con = get_connection()
     benchmark = settings.primary_benchmark
 
-    # Get outcomes that still need measurement at any horizon
     outcomes = con.execute("""
         SELECT proposal_id, ticker, action, decision_date, entry_price
         FROM decision_outcomes
@@ -175,7 +178,6 @@ def measure_outcomes() -> dict:
             bench_col = f"benchmark_return_{horizon_key}"
             excess_col = f"excess_return_{horizon_key}"
 
-            # Check if already measured
             existing = con.execute(f"""
                 SELECT {return_col} FROM decision_outcomes
                 WHERE proposal_id = $1
@@ -191,9 +193,6 @@ def measure_outcomes() -> dict:
                 bench_exit, _ = _get_price_after_days(con, benchmark, decision_date_str, trading_days)
                 bench_return = _compute_return(benchmark_entry, bench_exit) if benchmark_entry else None
 
-                # For SELL/TRIM: invert the return
-                # If we sold and the stock dropped 5%, that's a +5% "decision return" (good call)
-                # If we sold and the stock rose 8%, that's a -8% "decision return" (bad call)
                 if is_sell:
                     effective_return = -raw_stock_return
                     raw_excess = (-raw_stock_return - bench_return) if bench_return is not None else None
@@ -208,7 +207,6 @@ def measure_outcomes() -> dict:
                 stats[f"measured_{horizon_key}"] += 1
 
         if updates:
-            # Build dynamic UPDATE
             set_clauses = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates.keys()))
             values = list(updates.values())
 
@@ -218,7 +216,6 @@ def measure_outcomes() -> dict:
                 WHERE proposal_id = $1
             """, [proposal_id] + values)
 
-            # Classify outcome based on 1m excess return
             if "excess_return_1m" in updates and updates["excess_return_1m"] is not None:
                 outcome = _classify_outcome(updates["excess_return_1m"])
                 if outcome:
@@ -248,7 +245,7 @@ def get_outcomes(limit: int = 100) -> list[dict]:
 
 
 def get_outcome_summary() -> dict:
-    """Get high-level summary of decision outcomes."""
+    """Get high-level summary of decision outcomes with status breakdown."""
     con = get_connection()
 
     total = con.execute("SELECT COUNT(*) FROM decision_outcomes").fetchone()[0]
@@ -269,11 +266,16 @@ def get_outcome_summary() -> dict:
 
     win_rate = good / classified if classified > 0 else None
 
-    # Breakdown by action type
     buy_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND action IN ('BUY','ADD')").fetchone()[0]
     buy_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND action IN ('BUY','ADD')").fetchone()[0]
     sell_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND action IN ('SELL','TRIM')").fetchone()[0]
     sell_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND action IN ('SELL','TRIM')").fetchone()[0]
+
+    # Breakdown by proposal status (approved vs rejected vs pending)
+    approved_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status = 'APPROVED'").fetchone()[0]
+    approved_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status = 'APPROVED'").fetchone()[0]
+    rejected_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status IN ('REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
+    rejected_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status IN ('REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
 
     con.close()
     return {
@@ -290,18 +292,24 @@ def get_outcome_summary() -> dict:
         "buy_total": buy_total,
         "sell_win_rate": sell_good / sell_total if sell_total > 0 else None,
         "sell_total": sell_total,
+        "approved_win_rate": approved_good / approved_total if approved_total > 0 else None,
+        "approved_total": approved_total,
+        "rejected_win_rate": rejected_good / rejected_total if rejected_total > 0 else None,
+        "rejected_total": rejected_total,
     }
 
 
 def run_outcome_tracking() -> dict:
     """Full outcome tracking pipeline step: seed new outcomes + measure existing ones."""
-    seeded = seed_outcomes_from_executions()
+    seeded = seed_outcomes_from_proposals()
     measurements = measure_outcomes()
     summary = get_outcome_summary()
 
-    print(f"Outcome tracking: seeded {seeded} new, measured {measurements}")
-    print(f"  Summary: {summary['classified']} classified, "
-          f"win rate: {summary['win_rate']:.0%}" if summary['win_rate'] else "  Summary: no outcomes classified yet")
+    print(f"Outcome tracking: seeded {seeded} new from proposals, measured {measurements}")
+    if summary['win_rate']:
+        print(f"  Summary: {summary['classified']} classified, win rate: {summary['win_rate']:.0%}")
+    else:
+        print("  Summary: no outcomes classified yet")
 
     return {
         "seeded": seeded,

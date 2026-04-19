@@ -784,6 +784,178 @@ def get_adaptive_state_endpoint():
 
 
 # ============================================================
+# Stock metrics & fundamentals endpoints
+# ============================================================
+
+@app.get("/api/stock-metrics")
+def get_stock_metrics():
+    """Return editable stock metrics grid: ticker rows × metric columns."""
+    try:
+        con = get_connection()
+        # Get latest metrics with user overrides
+        df = con.execute("""
+            SELECT ticker, metric_name,
+                   raw_value, user_value,
+                   COALESCE(user_value, raw_value) as effective_value,
+                   source, as_of_date, updated_at
+            FROM stock_metrics
+            WHERE as_of_date = (SELECT MAX(as_of_date) FROM stock_metrics)
+            ORDER BY ticker, metric_name
+        """).fetchdf()
+        con.close()
+
+        if df.empty:
+            return {"as_of_date": None, "tickers": [], "metrics": []}
+
+        as_of_date = str(df["as_of_date"].iloc[0])
+        metrics = sorted(df["metric_name"].unique().tolist())
+        tickers = sorted(df["ticker"].unique().tolist())
+
+        # Pivot into grid format: {ticker: {metric: {raw, user, effective}}}
+        grid = {}
+        for _, row in df.iterrows():
+            t = row["ticker"]
+            if t not in grid:
+                grid[t] = {}
+            grid[t][row["metric_name"]] = {
+                "raw_value": row["raw_value"],
+                "user_value": row["user_value"] if pd.notna(row["user_value"]) else None,
+                "effective_value": row["effective_value"],
+            }
+
+        return {
+            "as_of_date": as_of_date,
+            "tickers": tickers,
+            "metrics": metrics,
+            "grid": grid,
+        }
+    except Exception as e:
+        logger.error(f"Stock metrics endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/stock-metrics/{ticker}/{metric_name}")
+async def update_stock_metric(ticker: str, metric_name: str, request: Request):
+    """User corrects a metric value. Sets user_value override."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    user_value = body.get("user_value")
+    if user_value is None:
+        raise HTTPException(status_code=400, detail="user_value required")
+
+    try:
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        con = get_connection()
+        row = con.execute("SELECT MAX(as_of_date) FROM stock_metrics").fetchone()
+        if not row or not row[0]:
+            con.close()
+            raise HTTPException(status_code=404, detail="No metrics data found")
+        as_of_date = row[0]
+
+        existing = con.execute("""
+            SELECT 1 FROM stock_metrics
+            WHERE ticker = $1 AND metric_name = $2 AND as_of_date = $3
+        """, [ticker, metric_name, str(as_of_date)]).fetchone()
+
+        if existing:
+            con.execute("""
+                UPDATE stock_metrics
+                SET user_value = $1, updated_at = $5
+                WHERE ticker = $2 AND metric_name = $3 AND as_of_date = $4
+            """, [float(user_value), ticker, metric_name, str(as_of_date), now])
+        else:
+            con.execute("""
+                INSERT INTO stock_metrics (ticker, metric_name, raw_value, user_value, source, as_of_date, updated_at)
+                VALUES ($1, $2, NULL, $3, 'manual', $4, $5)
+            """, [ticker, metric_name, float(user_value), str(as_of_date), now])
+
+        con.close()
+        return {"status": "updated", "ticker": ticker, "metric": metric_name, "user_value": user_value}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Stock metric update failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/stock-metrics/{ticker}/{metric_name}")
+def clear_stock_metric_override(ticker: str, metric_name: str):
+    """Remove user override, reverting to raw computed value."""
+    try:
+        con = get_connection()
+        con.execute("""
+            UPDATE stock_metrics SET user_value = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE ticker = $1 AND metric_name = $2
+        """, [ticker, metric_name])
+        con.close()
+        return {"status": "cleared", "ticker": ticker, "metric": metric_name}
+    except Exception as e:
+        logger.error(f"Stock metric clear failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fundamentals/status")
+def get_fundamentals_status():
+    """Check when fundamentals were last ingested and if refresh is needed."""
+    try:
+        from src.ingest.fundamentals import should_ingest_fundamentals
+        should_ingest, reason = should_ingest_fundamentals()
+
+        con = get_connection()
+        row = con.execute("""
+            SELECT last_ingested_at, record_count, notes
+            FROM ingestion_log WHERE data_type = 'fundamentals'
+        """).fetchone()
+        con.close()
+
+        return {
+            "should_ingest": should_ingest,
+            "reason": reason,
+            "last_ingested_at": str(row[0]) if row else None,
+            "record_count": row[1] if row else 0,
+            "notes": row[2] if row else None,
+        }
+    except Exception as e:
+        logger.error(f"Fundamentals status failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/fundamentals/ingest")
+def trigger_fundamentals_ingest():
+    """Manually trigger quarterly fundamentals refresh."""
+    try:
+        from src.ingest.fundamentals import ingest_fundamentals
+        ingest_fundamentals()
+        return {"status": "completed", "message": "Fundamentals ingestion finished"}
+    except Exception as e:
+        logger.error(f"Fundamentals ingest failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quality-assessments")
+def get_quality_assessments():
+    """Get latest quality assessments (good-stock filter results)."""
+    try:
+        con = get_connection()
+        df = con.execute("""
+            SELECT * FROM stock_quality_assessment
+            WHERE date = (SELECT MAX(date) FROM stock_quality_assessment)
+            ORDER BY quality_score DESC
+        """).fetchdf()
+        con.close()
+        if df.empty:
+            return []
+        return json.loads(df.to_json(orient="records", date_format="iso"))
+    except Exception as e:
+        logger.error(f"Quality assessments endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
 # Pipeline streaming endpoints
 # ============================================================
 
@@ -825,6 +997,19 @@ def _run_pipeline_thread(run_id: str) -> None:
                 _emit(run_id, "ingestion", "done", "No new EOD prices (market may be closed)")
     except Exception as e:
         _emit(run_id, "ingestion", "done", f"Price ingestion skipped: {e}")
+
+    # Step 1b: Quarterly fundamentals ingestion (only if cooldown expired)
+    try:
+        from src.ingest.fundamentals import should_ingest_fundamentals, ingest_fundamentals
+        should_ingest, reason = should_ingest_fundamentals()
+        if should_ingest:
+            _emit(run_id, "fundamentals", "running", f"Refreshing quarterly fundamentals: {reason}")
+            ingest_fundamentals()
+            _emit(run_id, "fundamentals", "done", "Quarterly fundamentals refreshed")
+        else:
+            _emit(run_id, "fundamentals", "skipped", f"Fundamentals up-to-date: {reason}")
+    except Exception as e:
+        _emit(run_id, "fundamentals", "done", f"Fundamentals ingestion skipped: {e}")
 
     # Step 2: Scoring
     _emit(run_id, "scoring", "running", "Computing factor scores...")
@@ -929,8 +1114,8 @@ def _run_pipeline_thread(run_id: str) -> None:
                 con.execute("""
                     INSERT INTO trade_proposals
                     (proposal_id, run_id, created_at, ticker, action, shares,
-                     signal_data, constraint_check, status, human_decision, human_notes)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                     signal_data, constraint_check, status, human_decision, human_notes, reason)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 """, [
                     stay_proposal["proposal_id"], stay_proposal["run_id"],
                     stay_proposal["created_at"], stay_proposal["ticker"],
@@ -938,6 +1123,7 @@ def _run_pipeline_thread(run_id: str) -> None:
                     stay_proposal["signal_data"], stay_proposal["constraint_check"],
                     stay_proposal["status"], stay_proposal["human_decision"],
                     stay_proposal["human_notes"],
+                    "No actionable signals — all positions held",
                 ])
                 con.close()
             except Exception:
@@ -1123,6 +1309,7 @@ def _run_pipeline_thread(run_id: str) -> None:
                         "status": "APPROVED" if _auto_mode["enabled"] else "NEEDS_REVIEW",
                         "signal_data": {"source": "judge_review", "reason": h.get("reason", ""), "conviction": h.get("conviction", 0)},
                         "constraint_check": {"passed": True},
+                        "reason": f"Judge review: {h.get('reason', '')}",
                         "human_decision": "JUDGE_INITIATED" if _auto_mode["enabled"] else None,
                         "human_notes": f"Judge portfolio review: {h.get('reason', '')}",
                         "created_at": datetime.now().isoformat(),
@@ -1170,21 +1357,32 @@ def _run_pipeline_thread(run_id: str) -> None:
                     "status": "APPROVED" if _auto_mode["enabled"] else "NEEDS_REVIEW",
                     "signal_data": {"source": "judge_review", "reason": m.get("reason", ""), "conviction": m.get("conviction", 0)},
                     "constraint_check": {"passed": True},
+                    "reason": f"Judge review: {m.get('reason', '')}",
                     "human_decision": "JUDGE_INITIATED" if _auto_mode["enabled"] else None,
                     "human_notes": f"Judge portfolio review: {m.get('reason', '')}",
                     "created_at": datetime.now().isoformat(),
                 })
 
-            # Store all proposals
+            # Store all proposals — first remove any conflicting pipeline
+            # proposals for the same tickers in this run (the judge's view
+            # supersedes the pipeline's constraint-failed proposals).
             if judge_proposals:
-                store_proposals(judge_proposals)
-                # Remove the STAY record — the judge overrode the hold decision
+                judge_tickers = {p["ticker"] for p in judge_proposals}
                 try:
                     con = get_connection()
-                    con.execute("DELETE FROM trade_proposals WHERE run_id = $1 AND action = 'STAY'", [run_id])
+                    for t in judge_tickers:
+                        con.execute(
+                            "DELETE FROM trade_proposals WHERE run_id = $1 AND ticker = $2",
+                            [run_id, t],
+                        )
+                    con.execute(
+                        "DELETE FROM trade_proposals WHERE run_id = $1 AND action = 'STAY'",
+                        [run_id],
+                    )
                     con.close()
                 except Exception:
                     pass
+                store_proposals(judge_proposals)
                 proposals_str = ", ".join(f"{p['action']} {p['shares']} {p['ticker']}" for p in judge_proposals)
 
             # Execute if auto mode, otherwise just show as pending
@@ -1260,9 +1458,9 @@ def _run_pipeline_thread(run_id: str) -> None:
         summary = outcome_result["summary"]
         alerts = [p for p in patterns if p.get("is_alert")]
 
-        msg_parts = [f"Seeded {seeded} new outcomes"]
+        msg_parts = [f"Tracked {seeded} new proposals"]
         if summary.get("classified", 0) > 0:
-            msg_parts.append(f"win rate: {summary['win_rate']:.0%} ({summary['good']}W/{summary['bad']}L/{summary['neutral']}N)")
+            msg_parts.append(f"signal win rate: {summary['win_rate']:.0%} ({summary['good']}W/{summary['bad']}L/{summary['neutral']}N)")
         msg_parts.append(f"{len(patterns)} patterns detected")
         if alerts:
             msg_parts.append(f"{len(alerts)} alerts")

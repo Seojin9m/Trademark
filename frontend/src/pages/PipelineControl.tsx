@@ -11,10 +11,11 @@ import { Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight, AlertTriangle, 
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 
-const stepOrder = ["ingestion", "scoring", "adaptive", "signals", "proposals", "research", "judge", "execution", "pnl", "learning", "complete"]
+const stepOrder = ["ingestion", "fundamentals", "scoring", "adaptive", "signals", "proposals", "research", "judge", "execution", "pnl", "learning", "complete"]
 
 const stepLabels: Record<string, string> = {
   ingestion: "Data Ingestion",
+  fundamentals: "Fundamentals",
   scoring: "Factor Scoring",
   adaptive: "Adaptive Analysis",
   signals: "Signal Generation",

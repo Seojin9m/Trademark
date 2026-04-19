@@ -383,7 +383,24 @@ function TradeCard({
   const [expanded, setExpanded] = useState(false)
   const signal = tryParseJson(proposal.signal_data)
   const judge = tryParseJson(proposal.judge_response)
+  const constraint = tryParseJson(proposal.constraint_check)
   const canAct = ["PENDING", "JUDGE_APPROVED", "NEEDS_REVIEW"].includes(proposal.status)
+
+  // Identify the proposal's origin — the regular pipeline writes full factor
+  // data, the judge-override path writes a stub signal_data with source =
+  // "judge_review". That distinction drives the empty-state copy for the
+  // Judge Response block so the user isn't left wondering why it's missing.
+  const isJudgeOriginated =
+    typeof signal?.source === "string" && signal.source === "judge_review"
+  const violations = Array.isArray(constraint?.violations)
+    ? (constraint!.violations as unknown[]).filter(
+        (v): v is string => typeof v === "string",
+      )
+    : []
+  const constraintBlocked =
+    constraint?.passed === false || violations.length > 0
+  const signalHasContent = signal && Object.keys(signal).length > 0
+  const judgeHasContent = judge && Object.keys(judge).length > 0
 
   return (
     <div className="rounded-lg border border-border/40 bg-card/50 px-5 py-4">
@@ -399,15 +416,20 @@ function TradeCard({
           >
             {proposal.action}
           </span>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-base font-semibold">{proposal.ticker}</span>
               <span className="text-sm text-muted-foreground">
                 {proposal.shares} shares
               </span>
             </div>
+            {proposal.reason && (
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl truncate">
+                {proposal.reason}
+              </p>
+            )}
             {proposal.human_decision && (
-              <p className="text-xs text-muted-foreground">{proposal.human_decision}</p>
+              <p className="text-xs text-muted-foreground/60 mt-0.5">{proposal.human_decision}</p>
             )}
           </div>
         </div>
@@ -438,38 +460,64 @@ function TradeCard({
         </div>
       </div>
 
-      {(signal || judge) && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-          {expanded ? "Hide details" : "Show details"}
-        </button>
-      )}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        {expanded ? "Hide details" : "Show details"}
+      </button>
 
       {expanded && (
         <div className="mt-3 space-y-4">
-          {signal && (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Signal Data
-              </p>
-              <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
-                <DetailList data={signal} />
-              </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Signal Data
+            </p>
+            <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3 space-y-3">
+              {signalHasContent ? (
+                <DetailList data={signal!} />
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  No signal data — this proposal was created directly by the
+                  judge's portfolio review, not by the factor pipeline.
+                </p>
+              )}
+              {constraintBlocked && (
+                <div className="rounded-md border border-loss/30 bg-loss/10 px-3 py-2">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wider text-loss mb-1.5">
+                    Blocked by Constraints
+                  </p>
+                  <ul className="space-y-1 text-xs text-foreground/90">
+                    {violations.map((v, i) => (
+                      <li key={i} className="flex gap-1.5">
+                        <span className="text-loss">•</span>
+                        <span>{v}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-          )}
-          {judge && (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Judge Response
-              </p>
-              <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
-                <DetailList data={judge} />
-              </div>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Judge Response
+            </p>
+            <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
+              {judgeHasContent ? (
+                <DetailList data={judge!} />
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  {constraintBlocked
+                    ? "Not evaluated — constraint check failed before the judge could run."
+                    : isJudgeOriginated
+                      ? "No per-proposal verdict — this trade was initiated by the judge during a portfolio review, so its reasoning is in the Signal Data above."
+                      : "Judge verdict not available for this proposal."}
+                </p>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
@@ -540,6 +588,26 @@ interface RunGroup {
   run_id: string
   timestamp: string
   proposals: Proposal[]
+}
+
+function buildRunSummary(proposals: Proposal[]): string {
+  const trades = proposals.filter((p) => p.action !== "STAY")
+  if (trades.length === 0) return "No trades proposed — holding all positions."
+
+  const counts: Record<string, number> = {}
+  for (const t of trades) {
+    counts[t.action] = (counts[t.action] || 0) + 1
+  }
+
+  const parts: string[] = []
+  if (counts.BUY) parts.push(`${counts.BUY} buy${counts.BUY > 1 ? "s" : ""}`)
+  if (counts.ADD) parts.push(`${counts.ADD} add${counts.ADD > 1 ? "s" : ""}`)
+  if (counts.TRIM) parts.push(`${counts.TRIM} trim${counts.TRIM > 1 ? "s" : ""}`)
+  if (counts.SELL) parts.push(`${counts.SELL} sell${counts.SELL > 1 ? "s" : ""}`)
+
+  const tickers = trades.map((t) => t.ticker)
+  const unique = [...new Set(tickers)]
+  return `${parts.join(", ")} across ${unique.length} stock${unique.length > 1 ? "s" : ""} (${unique.join(", ")})`
 }
 
 function groupByRun(proposals: Proposal[]): RunGroup[] {
@@ -645,7 +713,7 @@ export default function PendingTrades() {
         <div className="space-y-6">
           {runGroups.map((group) => (
             <Card key={group.run_id}>
-              <div className="px-6 pt-4 pb-2 border-b border-border/40">
+              <div className="px-6 pt-4 pb-3 border-b border-border/40">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <Clock className="h-4 w-4 text-muted-foreground" />
@@ -669,6 +737,9 @@ export default function PendingTrades() {
                     </Badge>
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  {buildRunSummary(group.proposals)}
+                </p>
               </div>
               <CardContent>
                 <div className="space-y-2 pt-2">

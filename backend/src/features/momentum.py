@@ -1,13 +1,16 @@
-"""Price momentum factor: 12-month return minus 1-month return (12M-1M).
+"""Price momentum factor: 12M-1M trend momentum + recent price dip signal.
 
-Classic cross-sectional momentum signal. Excludes the most recent month
-to avoid the short-term reversal effect (Jegadeesh & Titman, 1993).
+12M-1M captures medium-term trend (Jegadeesh & Titman, 1993).
+Recent dip signal identifies stocks whose short-term price has fallen,
+which — for fundamentally good stocks — represents a buying opportunity
+rather than a negative signal. This avoids pure price-chasing.
 """
 
 import sys
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -15,17 +18,16 @@ from src.db.schema import get_connection
 
 
 def compute_momentum(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute 12M-1M momentum for all tickers as of a given date.
+    """Compute 12M-1M momentum and recent price change for all tickers.
 
-    Returns DataFrame with columns: ticker, date, momentum_12m1m
+    Returns DataFrame with columns:
+        ticker, date, momentum_12m1m, recent_price_change, price_dip_score
     """
     con = get_connection()
 
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
 
-    # Get prices for the relevant lookback windows
-    # 12M-1M: return from 252 trading days ago to 21 trading days ago
     prices = con.execute("""
         WITH ranked AS (
             SELECT
@@ -41,26 +43,40 @@ def compute_momentum(as_of_date: str | None = None) -> pd.DataFrame:
         SELECT
             ticker,
             MAX(CASE WHEN rn = 1 THEN adj_close END) as price_now,
+            MAX(CASE WHEN rn = 5 THEN adj_close END) as price_1w,
             MAX(CASE WHEN rn = 21 THEN adj_close END) as price_1m,
+            MAX(CASE WHEN rn = 63 THEN adj_close END) as price_3m,
             MAX(CASE WHEN rn = 252 THEN adj_close END) as price_12m
         FROM ranked
-        WHERE rn IN (1, 21, 252)
+        WHERE rn IN (1, 5, 21, 63, 252)
         GROUP BY ticker
     """, [str(as_of_date)]).fetchdf()
     con.close()
 
     if prices.empty:
-        return pd.DataFrame(columns=["ticker", "date", "momentum_12m1m"])
+        return pd.DataFrame(columns=["ticker", "date", "momentum_12m1m", "recent_price_change", "price_dip_score"])
 
-    # 12M-1M momentum: return from 12 months ago to 1 month ago
+    # 12M-1M momentum (medium-term trend, excludes recent month)
     prices["momentum_12m1m"] = (prices["price_1m"] / prices["price_12m"]) - 1.0
 
-    # Drop tickers missing either price point
-    result = prices.dropna(subset=["momentum_12m1m"])[["ticker"]].copy()
-    result["momentum_12m1m"] = prices.dropna(subset=["momentum_12m1m"])["momentum_12m1m"]
+    # Recent price change: how much has the price moved in the last month
+    prices["recent_price_change"] = (prices["price_now"] / prices["price_1m"]) - 1.0
+
+    # Price dip score: positive when price has recently fallen (opportunity).
+    # A stock that dropped 10% in the last month gets a dip score of +0.10.
+    # A stock that rose 10% gets a dip score of -0.10 (penalized for chase risk).
+    # This score is only meaningful when combined with quality assessment.
+    prices["price_dip_score"] = -prices["recent_price_change"]
+    prices["price_dip_score"] = np.clip(prices["price_dip_score"], -0.3, 0.3)
+
+    valid = prices.dropna(subset=["momentum_12m1m"])
+    result = valid[["ticker"]].copy()
+    result["momentum_12m1m"] = valid["momentum_12m1m"]
+    result["recent_price_change"] = valid["recent_price_change"]
+    result["price_dip_score"] = valid["price_dip_score"]
     result["date"] = as_of_date
 
-    return result[["ticker", "date", "momentum_12m1m"]].reset_index(drop=True)
+    return result[["ticker", "date", "momentum_12m1m", "recent_price_change", "price_dip_score"]].reset_index(drop=True)
 
 
 def compute_momentum_historical(

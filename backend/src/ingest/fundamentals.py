@@ -184,6 +184,7 @@ def build_pit_fundamentals(income_df: pd.DataFrame) -> pd.DataFrame:
     result = result[final_cols].copy()
     result["fiscal_period_end"] = pd.to_datetime(result["fiscal_period_end"]).dt.date
     result["report_date"] = pd.to_datetime(result["report_date"]).dt.date
+    result["source"] = "simfin"
 
     # Drop rows without valid dates
     result = result.dropna(subset=["ticker", "report_date"])
@@ -309,6 +310,7 @@ def fetch_yfinance_fundamentals(tickers: list[str]) -> pd.DataFrame:
     )
 
     result = result.dropna(subset=["ticker", "report_date"])
+    result["source"] = "yfinance"
     result = result.sort_values("report_date").drop_duplicates(
         subset=["ticker", "fiscal_period_end"], keep="last"
     )
@@ -317,28 +319,92 @@ def fetch_yfinance_fundamentals(tickers: list[str]) -> pd.DataFrame:
 
 
 def store_fundamentals(df: pd.DataFrame) -> None:
-    """Store PIT fundamentals into DuckDB."""
+    """Store PIT fundamentals into DuckDB with source tracking."""
     if df.empty:
         print("No fundamentals to store.")
         return
 
+    # Ensure source column exists
+    if "source" not in df.columns:
+        df["source"] = "unknown"
+
     con = get_connection()
+
+    # Check if the migration columns exist yet
+    cols = [r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'fundamentals_pit'").fetchall()]
+    has_source_col = "source" in cols
 
     con.register("fund_df", df)
     con.execute("DELETE FROM fundamentals_pit")
-    con.execute("""
-        INSERT INTO fundamentals_pit
-        SELECT ticker, fiscal_period_end, report_date,
-               revenue, gross_profit, operating_income, net_income,
-               eps_diluted, shares_outstanding
-        FROM fund_df
-    """)
+
+    if has_source_col:
+        con.execute("""
+            INSERT INTO fundamentals_pit
+            (ticker, fiscal_period_end, report_date,
+             revenue, gross_profit, operating_income, net_income,
+             eps_diluted, shares_outstanding, source)
+            SELECT ticker, fiscal_period_end, report_date,
+                   revenue, gross_profit, operating_income, net_income,
+                   eps_diluted, shares_outstanding, source
+            FROM fund_df
+        """)
+    else:
+        con.execute("""
+            INSERT INTO fundamentals_pit
+            (ticker, fiscal_period_end, report_date,
+             revenue, gross_profit, operating_income, net_income,
+             eps_diluted, shares_outstanding)
+            SELECT ticker, fiscal_period_end, report_date,
+                   revenue, gross_profit, operating_income, net_income,
+                   eps_diluted, shares_outstanding
+            FROM fund_df
+        """)
 
     row_count = con.execute("SELECT COUNT(*) FROM fundamentals_pit").fetchone()[0]
     ticker_count = con.execute("SELECT COUNT(DISTINCT ticker) FROM fundamentals_pit").fetchone()[0]
+
+    # Log ingestion — use delete+insert instead of ON CONFLICT for DuckDB compat
+    from datetime import datetime
+    now = datetime.now().isoformat()
+    con.execute("DELETE FROM ingestion_log WHERE data_type = 'fundamentals'")
+    con.execute("""
+        INSERT INTO ingestion_log (data_type, last_ingested_at, record_count, notes)
+        VALUES ('fundamentals', $1, $2, $3)
+    """, [now, int(row_count), f"{ticker_count} tickers"])
     con.close()
 
     print(f"Stored in DuckDB: {row_count} fundamentals rows, {ticker_count} tickers")
+
+
+def should_ingest_fundamentals() -> tuple[bool, str]:
+    """Check if fundamentals should be re-ingested based on cooldown period.
+
+    Returns (should_ingest, reason).
+    """
+    cooldown = settings.strategy.fundamentals_cooldown_days
+    try:
+        con = get_connection()
+        row = con.execute("""
+            SELECT last_ingested_at FROM ingestion_log
+            WHERE data_type = 'fundamentals'
+        """).fetchone()
+        con.close()
+
+        if row is None:
+            return True, "No prior ingestion found"
+
+        from datetime import datetime
+        last = row[0]
+        if isinstance(last, str):
+            last = datetime.fromisoformat(last)
+        days_ago = (datetime.now() - last).days
+
+        if days_ago >= cooldown:
+            return True, f"Last ingestion was {days_ago} days ago (cooldown: {cooldown}d)"
+        else:
+            return False, f"Last ingestion was {days_ago} days ago (cooldown: {cooldown}d, {cooldown - days_ago}d remaining)"
+    except Exception as e:
+        return True, f"Could not check ingestion log: {e}"
 
 
 def identify_thin_simfin_tickers(simfin_pit: pd.DataFrame) -> set[str]:
