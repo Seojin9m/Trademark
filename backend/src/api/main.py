@@ -936,6 +936,75 @@ def trigger_fundamentals_ingest():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/fundamentals/quarterly")
+def get_quarterly_fundamentals(ticker: str | None = None):
+    """Quarterly fundamentals with YoY growth for a ticker or all portfolio tickers."""
+    try:
+        con = get_connection()
+        if ticker:
+            df = con.execute("""
+                SELECT ticker, fiscal_period_end, report_date,
+                       revenue, gross_profit, operating_income, net_income,
+                       eps_diluted, shares_outstanding
+                FROM fundamentals_pit
+                WHERE ticker = $1
+                ORDER BY fiscal_period_end ASC
+            """, [ticker]).fetchdf()
+        else:
+            portfolio = load_portfolio_state()
+            tickers = [p["ticker"] for p in portfolio["positions"]]
+            if not tickers:
+                con.close()
+                return []
+            df = con.execute("""
+                SELECT ticker, fiscal_period_end, report_date,
+                       revenue, gross_profit, operating_income, net_income,
+                       eps_diluted, shares_outstanding
+                FROM fundamentals_pit
+                WHERE ticker = ANY($1)
+                ORDER BY ticker, fiscal_period_end ASC
+            """, [tickers]).fetchdf()
+        con.close()
+
+        if df.empty:
+            return []
+
+        records = []
+        for t in df["ticker"].unique():
+            tdf = df[df["ticker"] == t].sort_values("fiscal_period_end").reset_index(drop=True)
+            for i, row in tdf.iterrows():
+                r = {
+                    "ticker": row["ticker"],
+                    "fiscal_period_end": str(row["fiscal_period_end"]),
+                    "report_date": str(row["report_date"]),
+                    "revenue": float(row["revenue"]) if pd.notna(row["revenue"]) else None,
+                    "gross_profit": float(row["gross_profit"]) if pd.notna(row["gross_profit"]) else None,
+                    "operating_income": float(row["operating_income"]) if pd.notna(row["operating_income"]) else None,
+                    "net_income": float(row["net_income"]) if pd.notna(row["net_income"]) else None,
+                    "eps_diluted": float(row["eps_diluted"]) if pd.notna(row["eps_diluted"]) else None,
+                }
+                # YoY growth: compare with 4 quarters ago
+                if i >= 4:
+                    prev = tdf.iloc[i - 4]
+                    for field in ("revenue", "net_income", "eps_diluted", "gross_profit", "operating_income"):
+                        cur_val = row[field]
+                        prev_val = prev[field]
+                        if pd.notna(cur_val) and pd.notna(prev_val) and prev_val != 0:
+                            r[f"{field}_yoy"] = round((float(cur_val) - float(prev_val)) / abs(float(prev_val)), 4)
+                        else:
+                            r[f"{field}_yoy"] = None
+                else:
+                    for field in ("revenue", "net_income", "eps_diluted", "gross_profit", "operating_income"):
+                        r[f"{field}_yoy"] = None
+
+                records.append(r)
+
+        return records
+    except Exception as e:
+        logger.error(f"Quarterly fundamentals endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/quality-assessments")
 def get_quality_assessments():
     """Get latest quality assessments (good-stock filter results)."""

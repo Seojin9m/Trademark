@@ -2,14 +2,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/contexts/toast-context"
 import { api } from "@/lib/api"
-import type { PortfolioData, PortfolioSnapshot } from "@/lib/api"
+import type { PortfolioData, PortfolioSnapshot, QuarterlyFundamental } from "@/lib/api"
 import { formatPercent, pnlColor, cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw, Loader2, TrendingUp } from "lucide-react"
+import { RefreshCw, Loader2, TrendingUp, BarChart3, ChevronDown, ChevronUp } from "lucide-react"
 import {
   PieChart,
   Pie,
@@ -53,6 +53,11 @@ interface PositionRow {
   unrealized_pct: number
   weight?: number
 }
+
+const financialChartCSS = `
+.financial-charts .recharts-wrapper,
+.financial-charts .recharts-surface { overflow: visible !important; }
+`
 
 const slotCSS = `
 @keyframes slot-in-up {
@@ -329,6 +334,300 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
   )
 }
 
+function formatQtr(dateStr: string): string {
+  const [y, m] = dateStr.slice(0, 10).split("-").map(Number)
+  const q = Math.ceil(m / 3)
+  return `${y} Q${q}`
+}
+
+function fmtCompact(value: number): string {
+  const abs = Math.abs(value)
+  const sign = value < 0 ? "-" : ""
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(0)}M`
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`
+  return `${sign}$${abs.toFixed(0)}`
+}
+
+function FinancialTooltip({ active, payload, label, valueKey, valueLabel, fmtValue }: {
+  active?: boolean
+  payload?: Array<{ payload: Record<string, unknown> }>
+  label?: string
+  valueKey: string
+  valueLabel: string
+  fmtValue: (v: number) => string
+}) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  const value = d[valueKey] as number | null
+  const yoy = d.yoy as number | null
+  if (value == null) return null
+  return (
+    <div style={{ ...tooltipStyle, padding: "8px 12px", minWidth: 140 }}>
+      <p className="text-xs text-muted-foreground mb-1.5">{label}</p>
+      <div className="flex justify-between gap-4">
+        <span className="text-xs text-muted-foreground">{valueLabel}</span>
+        <span className="text-xs font-semibold">{fmtValue(value)}</span>
+      </div>
+      {yoy != null && (
+        <div className="flex justify-between gap-4 mt-0.5">
+          <span className="text-xs text-muted-foreground">YoY</span>
+          <span className={cn("text-xs font-semibold", yoy >= 0 ? "text-profit" : "text-loss")}>
+            {yoy >= 0 ? "+" : ""}{(yoy * 100).toFixed(1)}%
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function YoYDot(props: {
+  cx?: number; cy?: number; index?: number
+  data: Array<{ yoy: number | null }>
+  color: string
+  payload?: Record<string, unknown>
+}) {
+  const { cx = 0, cy = 0, index, data, color } = props
+  const yoy = index != null && data[index] ? data[index].yoy : null
+  const isLast = index === data.length - 1
+  const showLabel = isLast && yoy != null
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={isLast ? 6 : 4} fill={color} stroke="#111113" strokeWidth={2} />
+      {showLabel && (
+        <text x={cx} y={cy - 14} textAnchor="middle" fontSize={10}
+          fill={yoy >= 0 ? "#22c55e" : "#ef4444"} fontWeight={600}>
+          {yoy >= 0 ? "+" : ""}{(yoy * 100).toFixed(1)}%
+        </text>
+      )}
+    </g>
+  )
+}
+
+function FinancialStats({ tickers }: { tickers: string[] }) {
+  const [selectedTicker, setSelectedTicker] = useState(tickers[0] ?? "")
+  const [expanded, setExpanded] = useState(true)
+
+  const { data: fundamentals, isLoading } = useQuery<QuarterlyFundamental[]>({
+    queryKey: ["quarterly-fundamentals", selectedTicker],
+    queryFn: () => api.getQuarterlyFundamentals(selectedTicker),
+    enabled: !!selectedTicker,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  useEffect(() => {
+    if (tickers.length > 0 && !tickers.includes(selectedTicker)) {
+      setSelectedTicker(tickers[0])
+    }
+  }, [tickers]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (tickers.length === 0) return null
+
+  const quarters = (fundamentals ?? [])
+    .filter((f) => f.ticker === selectedTicker)
+    .slice(-8)
+
+  const revenueData = quarters.map((q) => ({
+    quarter: formatQtr(q.fiscal_period_end),
+    revenue: q.revenue,
+    yoy: q.revenue_yoy,
+  }))
+
+  const epsData = quarters.map((q) => ({
+    quarter: formatQtr(q.fiscal_period_end),
+    eps: q.eps_diluted,
+    yoy: q.eps_diluted_yoy,
+  }))
+
+  const netIncomeData = quarters.map((q) => ({
+    quarter: formatQtr(q.fiscal_period_end),
+    net_income: q.net_income,
+    yoy: q.net_income_yoy,
+  }))
+
+  return (
+    <Card className="mb-4">
+      <CardTitle>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center justify-between w-full"
+        >
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            Financial Statistics
+          </div>
+          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+      </CardTitle>
+      {expanded && (
+        <CardContent>
+          {/* Ticker selector */}
+          <div className="flex flex-wrap gap-1.5 mb-5">
+            {tickers.map((t) => (
+              <button
+                key={t}
+                onClick={() => setSelectedTicker(t)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-semibold transition-colors",
+                  t === selectedTicker
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40",
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center h-40 gap-2 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading financials...</span>
+            </div>
+          ) : quarters.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
+              <BarChart3 className="h-8 w-8 opacity-30" />
+              <p className="text-sm">No quarterly data available for {selectedTicker}.</p>
+              <p className="text-xs">Run fundamentals ingestion to load data.</p>
+            </div>
+          ) : (
+            <>
+              {/* Revenue + Net Income + EPS Charts */}
+              <div className="financial-charts grid grid-cols-3 gap-4 mb-5">
+                {/* Revenue Chart */}
+                <div style={{ overflow: "visible" }}>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly Revenue</p>
+                  <ResponsiveContainer width="100%" height={210} style={{ overflow: "visible" }}>
+                    <AreaChart data={revenueData} margin={{ top: 30, right: 30, left: 5, bottom: 18 }}>
+                      <defs>
+                        <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
+                      <XAxis dataKey="quarter" tick={{ fontSize: 10, fill: "#71717a", dy: 4 }} axisLine={{ stroke: "#27272a" }} tickLine={false} />
+                      <YAxis domain={["auto", "auto"]} tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={55} />
+                      <Tooltip
+                        content={<FinancialTooltip valueKey="revenue" valueLabel="Revenue" fmtValue={fmtCompact} />}
+                        cursor={{ stroke: "#8b5cf6", strokeWidth: 1, strokeDasharray: "4 2" }}
+                      />
+                      <Area type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2.5}
+                        fill="url(#revGrad)"
+                        dot={(props) => <YoYDot {...props} data={revenueData} color="#8b5cf6" />}
+                        activeDot={{ r: 7, fill: "#8b5cf6", stroke: "#111113", strokeWidth: 2 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Net Income Chart */}
+                <div style={{ overflow: "visible" }}>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly Net Income</p>
+                  <ResponsiveContainer width="100%" height={210} style={{ overflow: "visible" }}>
+                    <AreaChart data={netIncomeData} margin={{ top: 30, right: 30, left: 5, bottom: 18 }}>
+                      <defs>
+                        <linearGradient id="niGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
+                      <XAxis dataKey="quarter" tick={{ fontSize: 10, fill: "#71717a", dy: 4 }} axisLine={{ stroke: "#27272a" }} tickLine={false} />
+                      <YAxis domain={["auto", "auto"]} tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={55} />
+                      <Tooltip
+                        content={<FinancialTooltip valueKey="net_income" valueLabel="Net Income" fmtValue={fmtCompact} />}
+                        cursor={{ stroke: "#22c55e", strokeWidth: 1, strokeDasharray: "4 2" }}
+                      />
+                      <Area type="monotone" dataKey="net_income" stroke="#22c55e" strokeWidth={2.5}
+                        fill="url(#niGrad)"
+                        dot={(props) => <YoYDot {...props} data={netIncomeData} color="#22c55e" />}
+                        activeDot={{ r: 7, fill: "#22c55e", stroke: "#111113", strokeWidth: 2 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* EPS Chart */}
+                <div style={{ overflow: "visible" }}>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly EPS (Diluted)</p>
+                  <ResponsiveContainer width="100%" height={210} style={{ overflow: "visible" }}>
+                    <AreaChart data={epsData} margin={{ top: 30, right: 30, left: 5, bottom: 18 }}>
+                      <defs>
+                        <linearGradient id="epsGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
+                      <XAxis dataKey="quarter" tick={{ fontSize: 10, fill: "#71717a", dy: 4 }} axisLine={{ stroke: "#27272a" }} tickLine={false} />
+                      <YAxis domain={["auto", "auto"]} tickFormatter={(v: number) => `$${v.toFixed(2)}`} tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={50} />
+                      <Tooltip
+                        content={<FinancialTooltip valueKey="eps" valueLabel="EPS" fmtValue={(v) => `$${v.toFixed(2)}`} />}
+                        cursor={{ stroke: "#06b6d4", strokeWidth: 1, strokeDasharray: "4 2" }}
+                      />
+                      <Area type="monotone" dataKey="eps" stroke="#06b6d4" strokeWidth={2.5}
+                        fill="url(#epsGrad)"
+                        dot={(props) => <YoYDot {...props} data={epsData} color="#06b6d4" />}
+                        activeDot={{ r: 7, fill: "#06b6d4", stroke: "#111113", strokeWidth: 2 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Quarterly Financials Table */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly Financials</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border/60">
+                        <th className="text-left py-2 px-2 text-muted-foreground font-medium">Quarter</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Revenue</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">YoY</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Gross Profit</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Op. Income</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Net Income</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">YoY</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">EPS</th>
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">YoY</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...quarters].reverse().map((q) => (
+                        <tr key={q.fiscal_period_end} className="border-b border-border/30 hover:bg-muted/30">
+                          <td className="py-1.5 px-2 font-medium">{formatQtr(q.fiscal_period_end)}</td>
+                          <td className="text-right py-1.5 px-2">{q.revenue != null ? fmtCompact(q.revenue) : "-"}</td>
+                          <td className={cn("text-right py-1.5 px-2 font-medium", q.revenue_yoy != null ? (q.revenue_yoy >= 0 ? "text-profit" : "text-loss") : "")}>
+                            {q.revenue_yoy != null ? `${q.revenue_yoy >= 0 ? "+" : ""}${(q.revenue_yoy * 100).toFixed(1)}%` : "-"}
+                          </td>
+                          <td className="text-right py-1.5 px-2">{q.gross_profit != null ? fmtCompact(q.gross_profit) : "-"}</td>
+                          <td className="text-right py-1.5 px-2">{q.operating_income != null ? fmtCompact(q.operating_income) : "-"}</td>
+                          <td className={cn("text-right py-1.5 px-2", (q.net_income ?? 0) < 0 ? "text-loss" : "")}>
+                            {q.net_income != null ? fmtCompact(q.net_income) : "-"}
+                          </td>
+                          <td className={cn("text-right py-1.5 px-2 font-medium", q.net_income_yoy != null ? (q.net_income_yoy >= 0 ? "text-profit" : "text-loss") : "")}>
+                            {q.net_income_yoy != null ? `${q.net_income_yoy >= 0 ? "+" : ""}${(q.net_income_yoy * 100).toFixed(1)}%` : "-"}
+                          </td>
+                          <td className="text-right py-1.5 px-2 font-medium">{q.eps_diluted != null ? `$${q.eps_diluted.toFixed(2)}` : "-"}</td>
+                          <td className={cn("text-right py-1.5 px-2 font-medium", q.eps_diluted_yoy != null ? (q.eps_diluted_yoy >= 0 ? "text-profit" : "text-loss") : "")}>
+                            {q.eps_diluted_yoy != null ? `${q.eps_diluted_yoy >= 0 ? "+" : ""}${(q.eps_diluted_yoy * 100).toFixed(1)}%` : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+
 export default function PortfolioOverview() {
   const [currency, setCurrency] = useState<"USD" | "CAD">("CAD")
   const queryClient = useQueryClient()
@@ -539,7 +838,7 @@ export default function PortfolioOverview() {
 
   return (
     <>
-      <style>{slotCSS + flashCSS}</style>
+      <style>{slotCSS + flashCSS + financialChartCSS}</style>
       <PageHeader title="Portfolio Overview" actions={toggleActions} />
 
       {/* Metric Cards */}
@@ -665,6 +964,11 @@ export default function PortfolioOverview() {
 
       {/* Portfolio History */}
       <PortfolioHistoryChart snapshots={historyData ?? []} rate={rate} currency={currency} />
+
+      {/* Financial Statistics */}
+      {positions.length > 0 && (
+        <FinancialStats tickers={positions.map((p) => p.ticker)} />
+      )}
 
       {/* Value Breakdown + Allocation */}
       <div className="grid grid-cols-3 gap-4 mb-4">
