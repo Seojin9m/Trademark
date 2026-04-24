@@ -5,7 +5,6 @@ import { formatCurrency, formatPercent, cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react"
 import {
   BarChart,
@@ -64,7 +63,6 @@ export default function RiskMonitor() {
     weight,
   }))
 
-  const StatusIcon = isHalt ? ShieldX : isAlert ? ShieldAlert : ShieldCheck
   const statusColor = isHalt ? "text-loss" : isAlert ? "text-warn" : "text-profit"
   const statusLabel = isHalt ? "HALT" : isAlert ? "ALERT" : "OK"
 

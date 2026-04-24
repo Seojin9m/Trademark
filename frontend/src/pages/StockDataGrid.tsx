@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import type { StockMetricsGrid, FundamentalsStatus, QualityAssessment } from "@/lib/api"
+import type { StockMetricsGrid } from "@/lib/api"
 import { PageHeader } from "@/components/layout/page-header"
-import { Card, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MetricCard } from "@/components/ui/metric-card"
@@ -46,13 +46,6 @@ function formatMetricValue(metric: string, value: number | null): string {
   if (hint?.format === "ratio") return value.toFixed(1)
   if (hint?.format === "pct") return `${(value * 100).toFixed(1)}%`
   return value.toFixed(3)
-}
-
-function formatRawInput(metric: string, value: number): string {
-  const hint = METRIC_HINTS[metric]
-  if (hint?.format === "ratio") return value.toFixed(2)
-  if (hint?.format === "pct") return (value * 100).toFixed(2)
-  return value.toFixed(4)
 }
 
 // ─── Edit Metric Panel ──────────────────────────────────────────────────────
@@ -201,7 +194,7 @@ function EditMetricPanel({ ticker, metric, rawValue, userValue, onSave, onClear,
 
 export default function StockDataGrid() {
   const queryClient = useQueryClient()
-  const { addToast } = useToast()
+  const { toast } = useToast()
   const [editingCell, setEditingCell] = useState<{ ticker: string; metric: string } | null>(null)
   const [search, setSearch] = useState("")
   const [sortCol, setSortCol] = useState<string | null>(null)
@@ -237,11 +230,11 @@ export default function StockDataGrid() {
       api.updateStockMetric(ticker, metric, value),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ["stock-metrics"] })
-      addToast({ type: "success", message: `Updated ${vars.ticker} ${METRIC_LABELS[vars.metric] || vars.metric}` })
+      toast("success", `Updated ${vars.ticker} ${METRIC_LABELS[vars.metric] || vars.metric}`)
       setEditingCell(null)
     },
     onError: (err: Error) => {
-      addToast({ type: "error", message: `Update failed: ${err.message}` })
+      toast("error", "Update failed", err.message)
     },
   })
 
@@ -250,7 +243,7 @@ export default function StockDataGrid() {
       api.clearStockMetricOverride(ticker, metric),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["stock-metrics"] })
-      addToast({ type: "success", message: "Override cleared" })
+      toast("success", "Override cleared")
       setEditingCell(null)
     },
   })
@@ -259,10 +252,21 @@ export default function StockDataGrid() {
     mutationFn: api.triggerFundamentalsIngest,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["fundamentals-status"] })
-      addToast({ type: "success", message: "Fundamentals refresh completed" })
+      toast("success", "Fundamentals refresh completed")
     },
     onError: (err: Error) => {
-      addToast({ type: "error", message: `Ingest failed: ${err.message}` })
+      toast("error", "Ingest failed", err.message)
+    },
+  })
+
+  const resetAllMutation = useMutation({
+    mutationFn: api.clearAllStockMetricOverrides,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["stock-metrics"] })
+      toast("success", `Reset ${data.overrides_removed} override(s)`)
+    },
+    onError: (err: Error) => {
+      toast("error", "Reset failed", err.message)
     },
   })
 
@@ -272,6 +276,14 @@ export default function StockDataGrid() {
 
   const grid = metricsData as StockMetricsGrid | undefined
   const metrics = grid?.metrics || []
+
+  const overrideCount = grid
+    ? Object.values(grid.grid).reduce(
+        (sum, tickerMetrics) =>
+          sum + Object.values(tickerMetrics).filter((v) => v.user_value != null).length,
+        0,
+      )
+    : 0
 
   const filteredTickers = (() => {
     let tickers = (grid?.tickers || []).filter(
@@ -312,22 +324,40 @@ export default function StockDataGrid() {
         title="Stock Data Grid"
         description="View and correct numeric factor data. User-corrected values override computed values for scoring."
         actions={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => ingestMutation.mutate()}
-            disabled={ingestMutation.isPending}
-          >
-            <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", ingestMutation.isPending && "animate-spin")} />
-            Refresh Fundamentals
-          </Button>
+          <div className="flex items-center gap-2">
+            {overrideCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (confirm(`Reset all ${overrideCount} user override(s) to computed values?`)) {
+                    resetAllMutation.mutate()
+                  }
+                }}
+                disabled={resetAllMutation.isPending}
+                className="border-loss/40 text-loss hover:bg-loss/10"
+              >
+                <RotateCcw className={cn("mr-1.5 h-3.5 w-3.5", resetAllMutation.isPending && "animate-spin")} />
+                Reset All Edits ({overrideCount})
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => ingestMutation.mutate()}
+              disabled={ingestMutation.isPending}
+            >
+              <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", ingestMutation.isPending && "animate-spin")} />
+              Refresh Fundamentals
+            </Button>
+          </div>
         }
       />
 
       {/* Fundamentals status */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <MetricCard label="Data As Of" value={grid?.as_of_date || "—"} />
-        <MetricCard label="Tickers" value={grid?.tickers.length || 0} />
+        <MetricCard label="Tickers" value={String(grid?.tickers.length || 0)} />
         <MetricCard label="Last Fundamentals" value={fundStatus?.last_ingested_at?.slice(0, 10) || "Never"} />
         <MetricCard label="Fundamentals Status" value={fundStatus?.should_ingest ? "Refresh needed" : "Up to date"} />
       </div>

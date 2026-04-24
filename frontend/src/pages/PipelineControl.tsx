@@ -563,7 +563,6 @@ function StartOverButton() {
 export default function PipelineControl() {
   const { running, events, error, startPipeline } = usePipeline()
   const { toast } = useToast()
-  const queryClient = useQueryClient()
   const logRef = useRef<HTMLDivElement>(null)
   const prevEventsLen = useRef(0)
 

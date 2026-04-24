@@ -174,7 +174,7 @@ function formatSnapshotDate(dateStr: string): string {
 
 interface HistoryTooltipProps {
   active?: boolean
-  payload?: Array<{ value: number; name: string; payload: Record<string, number | string> }>
+  payload?: Array<{ value: number; name: string; payload: Record<string, unknown> }>
   label?: string
   currency: string
 }
@@ -190,7 +190,7 @@ function fmtConverted(value: number): string {
 
 function HistoryTooltip({ active, payload, label, currency }: HistoryTooltipProps) {
   if (!active || !payload?.length) return null
-  const d = payload[0].payload as PortfolioSnapshot & { displayDate: string; total_value: number; unrealized_pnl: number }
+  const d = payload[0].payload as unknown as PortfolioSnapshot & { displayDate: string; total_value: number; unrealized_pnl: number }
   const returnPct = (d.total_return_pct ?? 0) * 100
   return (
     <div style={{ ...tooltipStyle, padding: "10px 14px", minWidth: 190 }}>
@@ -308,7 +308,7 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
                 stroke={LINE_COLOR}
                 strokeWidth={2}
                 fill="url(#historyGrad)"
-                dot={(props: { cx?: number; cy?: number; index?: number; key?: string }) => {
+                dot={(props: { cx?: number; cy?: number; index?: number; key?: React.Key | null }) => {
                   const { cx = 0, cy = 0, index = 0, key } = props
                   const isLast = index === chartData.length - 1
                   if (!isLast && chartData.length > 15) return <g key={key} />
@@ -635,7 +635,7 @@ export default function PortfolioOverview() {
   const { toast } = useToast()
 
   const syncMutation = useMutation({
-    mutationFn: api.syncPortfolio,
+    mutationFn: () => api.syncPortfolio(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio"] }),
     onError: (e: Error) => toast("error", "Sync Failed", e.message.replace(/^Error:\s*/, "")),
   })
@@ -894,7 +894,7 @@ export default function PortfolioOverview() {
                     tickLine={false}
                   />
                   <Tooltip
-                    formatter={(value: number) => [fmt(value / rate), "P&L"]}
+                    formatter={(value) => [fmt(Number(value) / rate), "P&L"]}
                     contentStyle={tooltipStyle}
                     labelStyle={tooltipLabelStyle}
                     itemStyle={{ color: "#fafafa" }}
@@ -930,7 +930,7 @@ export default function PortfolioOverview() {
                     tickLine={false}
                   />
                   <Tooltip
-                    formatter={(value: number) => [`${value.toFixed(2)}%`, "Return"]}
+                    formatter={(value) => [`${Number(value).toFixed(2)}%`, "Return"]}
                     contentStyle={tooltipStyle}
                     labelStyle={tooltipLabelStyle}
                     itemStyle={{ color: "#fafafa" }}
@@ -996,7 +996,7 @@ export default function PortfolioOverview() {
                     tickLine={false}
                   />
                   <Tooltip
-                    formatter={(value: number) => [fmt(value / rate), "Market Value"]}
+                    formatter={(value) => [fmt(Number(value) / rate), "Market Value"]}
                     contentStyle={tooltipStyle}
                     labelStyle={tooltipLabelStyle}
                     itemStyle={{ color: "#fafafa" }}

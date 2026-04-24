@@ -20,7 +20,7 @@ export default function Brokerage() {
   })
 
   const connectMutation = useMutation({
-    mutationFn: api.connectBrokerage,
+    mutationFn: () => api.connectBrokerage(),
     onSuccess: (data) => {
       window.open(data.url, "_blank")
       toast("info", "Connection Portal Opened", "Complete the login in the new tab, then click Sync")

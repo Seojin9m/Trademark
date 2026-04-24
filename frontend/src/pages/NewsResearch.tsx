@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import type { NewsResearchItem } from "@/lib/api"
 import { PageHeader } from "@/components/layout/page-header"
-import { Card, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { MetricCard } from "@/components/ui/metric-card"
 import {

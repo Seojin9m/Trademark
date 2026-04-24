@@ -898,6 +898,26 @@ def clear_stock_metric_override(ticker: str, metric_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/api/stock-metrics")
+def clear_all_stock_metric_overrides():
+    """Remove all user overrides, reverting every metric to raw computed values."""
+    try:
+        con = get_connection()
+        result = con.execute("""
+            SELECT COUNT(*) FROM stock_metrics WHERE user_value IS NOT NULL
+        """).fetchone()
+        count = result[0] if result else 0
+        con.execute("""
+            UPDATE stock_metrics SET user_value = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE user_value IS NOT NULL
+        """)
+        con.close()
+        return {"status": "cleared", "overrides_removed": count}
+    except Exception as e:
+        logger.error(f"Clear all overrides failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/fundamentals/status")
 def get_fundamentals_status():
     """Check when fundamentals were last ingested and if refresh is needed."""
@@ -1594,14 +1614,15 @@ async def chat_endpoint(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     message = body.get("message", "").strip()
-    if not message:
-        raise HTTPException(status_code=400, detail="'message' field is required")
+    images = body.get("images")
+    if not message and not images:
+        raise HTTPException(status_code=400, detail="'message' or 'images' field is required")
 
     session_id = body.get("session_id")
 
     from src.chat.agent import stream_chat
     return StreamingResponse(
-        stream_chat(session_id, message),
+        stream_chat(session_id, message, images=images),
         media_type="text/event-stream",
     )
 

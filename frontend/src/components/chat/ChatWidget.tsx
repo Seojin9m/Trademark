@@ -1,15 +1,16 @@
-import { useState, useRef, useEffect, memo } from "react"
-import { MessageSquare, X, Send, Trash2, Square } from "lucide-react"
+import { useState, useRef, useEffect, useCallback, memo } from "react"
+import { MessageSquare, X, Send, Trash2, Square, ImagePlus, Copy, Check, Pencil, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
   ThreadPrimitive,
   MessagePrimitive,
   ComposerPrimitive,
+  ActionBarPrimitive,
   type TextMessagePartComponent,
 } from "@assistant-ui/react"
 import { cn } from "@/lib/utils"
-import { ChatRuntimeProvider } from "./ChatRuntimeProvider"
+import { ChatRuntimeProvider, type ChatImage } from "./ChatRuntimeProvider"
 
 // ─── Markdown renderer ──────────────────────────────────────────────────────
 // Memoized so re-renders with the same `text` (e.g. from parent state changes)
@@ -112,11 +113,48 @@ const AssistantText: TextMessagePartComponent = ({ text }) => {
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="flex justify-end">
+    <MessagePrimitive.Root className="flex flex-col items-end gap-1">
       <div className="max-w-[90%] min-w-0 rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-primary text-primary-foreground whitespace-pre-wrap break-words">
         <MessagePrimitive.Parts />
       </div>
+      <ActionBarPrimitive.Root
+        hideWhenRunning
+        autohide="never"
+        className="flex items-center gap-0.5"
+      >
+        <CopyButton />
+        <ActionBarPrimitive.Edit asChild>
+          <button className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors" title="Edit">
+            <Pencil className="h-3 w-3" />
+          </button>
+        </ActionBarPrimitive.Edit>
+      </ActionBarPrimitive.Root>
     </MessagePrimitive.Root>
+  )
+}
+
+function UserEditComposer() {
+  return (
+    <ComposerPrimitive.Root className="flex justify-end">
+      <div className="w-[90%] min-w-0 rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-2.5">
+        <ComposerPrimitive.Input
+          rows={1}
+          className="w-full resize-none bg-transparent text-sm leading-relaxed focus:outline-none max-h-32 overflow-y-auto"
+        />
+        <div className="flex justify-end gap-2 mt-2">
+          <ComposerPrimitive.Cancel asChild>
+            <button className="rounded-lg px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+              Cancel
+            </button>
+          </ComposerPrimitive.Cancel>
+          <ComposerPrimitive.Send asChild>
+            <button className="rounded-lg bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors">
+              Save & Resend
+            </button>
+          </ComposerPrimitive.Send>
+        </div>
+      </div>
+    </ComposerPrimitive.Root>
   )
 }
 
@@ -133,56 +171,217 @@ function ThinkingDots() {
   )
 }
 
+function CopyButton() {
+  const [copied, setCopied] = useState(false)
+  return (
+    <ActionBarPrimitive.Copy asChild onClick={() => { setCopied(true); setTimeout(() => setCopied(false), 2000) }}>
+      <button className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors" title="Copy">
+        {copied ? <Check className="h-3 w-3 text-profit" /> : <Copy className="h-3 w-3" />}
+      </button>
+    </ActionBarPrimitive.Copy>
+  )
+}
+
 function AssistantMessage() {
   return (
-    <MessagePrimitive.Root className="flex justify-start">
+    <MessagePrimitive.Root className="flex flex-col items-start gap-1">
       <div className="max-w-[90%] min-w-0 rounded-xl px-3.5 py-2.5 text-sm leading-relaxed bg-muted/80 text-foreground border border-border/30 break-words">
         <MessagePrimitive.If hasContent={false}>
           <ThinkingDots />
         </MessagePrimitive.If>
         <MessagePrimitive.Parts components={{ Text: AssistantText }} />
       </div>
+      <ActionBarPrimitive.Root
+        hideWhenRunning
+        autohide="never"
+        className="flex items-center gap-0.5"
+      >
+        <CopyButton />
+        <ActionBarPrimitive.Reload asChild>
+          <button className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors" title="Retry">
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </ActionBarPrimitive.Reload>
+      </ActionBarPrimitive.Root>
     </MessagePrimitive.Root>
   )
 }
 
+// ─── Image helpers ────────────────────────────────────────────────────────
+
+function fileToBase64(file: File): Promise<ChatImage> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      const base64 = result.split(",")[1]
+      resolve({ name: file.name, data: base64, mime: file.type })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+function extractImageFiles(items: DataTransferItemList | FileList): File[] {
+  const files: File[] = []
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if ("kind" in item) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const f = item.getAsFile()
+        if (f) files.push(f)
+      }
+    } else if (item.type.startsWith("image/")) {
+      files.push(item)
+    }
+  }
+  return files
+}
+
 // ─── Composer ──────────────────────────────────────────────────────────────
 
-function ChatComposer() {
+function ChatComposer({ imagesRef }: { imagesRef: React.MutableRefObject<ChatImage[]> }) {
+  const [previews, setPreviews] = useState<ChatImage[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const addImages = useCallback(async (files: File[]) => {
+    const newImages = await Promise.all(files.slice(0, 5).map(fileToBase64))
+    setPreviews((prev) => {
+      const combined = [...prev, ...newImages].slice(0, 5)
+      imagesRef.current = combined
+      return combined
+    })
+  }, [imagesRef])
+
+  const removeImage = useCallback((index: number) => {
+    setPreviews((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      imagesRef.current = next
+      return next
+    })
+  }, [imagesRef])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const files = extractImageFiles(e.clipboardData.items)
+    if (files.length > 0) {
+      e.preventDefault()
+      addImages(files)
+    }
+  }, [addImages])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const files = extractImageFiles(e.dataTransfer.items)
+    if (files.length > 0) addImages(files)
+  }, [addImages])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }, [])
+
+  // Clear previews after send (images ref is cleared by the adapter)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (imagesRef.current.length === 0 && previews.length > 0) {
+        setPreviews([])
+      }
+    }, 200)
+    return () => clearInterval(interval)
+  }, [previews, imagesRef])
+
   return (
     <ComposerPrimitive.Root className="border-t border-border/40 px-3 py-2.5">
-      <div className="flex items-end gap-2">
-        <ComposerPrimitive.Input
-          rows={1}
-          placeholder="Ask about your portfolio..."
-          submitMode="enter"
-          className={cn(
-            "flex-1 resize-none rounded-xl border border-border/50 bg-muted/30",
-            "px-3 py-2 text-sm placeholder:text-muted-foreground/60",
-            "focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20",
-            "max-h-24 overflow-y-auto",
-          )}
-        />
-        <ThreadPrimitive.If running={false}>
-          <ComposerPrimitive.Send asChild>
-            <button
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Send"
-            >
-              <Send className="h-3.5 w-3.5" />
-            </button>
-          </ComposerPrimitive.Send>
-        </ThreadPrimitive.If>
-        <ThreadPrimitive.If running>
-          <ComposerPrimitive.Cancel asChild>
-            <button
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-destructive text-white hover:bg-destructive/90 transition-colors"
-              title="Stop"
-            >
-              <Square className="h-3.5 w-3.5" />
-            </button>
-          </ComposerPrimitive.Cancel>
-        </ThreadPrimitive.If>
+      <div
+        onPaste={handlePaste}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className={cn(
+          "rounded-xl border transition-colors",
+          isDragging ? "border-primary bg-primary/5" : "border-transparent",
+        )}
+      >
+        {/* Image previews */}
+        {previews.length > 0 && (
+          <div className="flex gap-1.5 px-2 pt-2 pb-1 flex-wrap">
+            {previews.map((img, i) => (
+              <div key={i} className="relative group">
+                <img
+                  src={`data:${img.mime};base64,${img.data}`}
+                  alt={img.name}
+                  className="h-14 w-14 object-cover rounded-lg border border-border/50"
+                />
+                <button
+                  onClick={() => removeImage(i)}
+                  className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Input row */}
+        <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) addImages(Array.from(e.target.files))
+              e.target.value = ""
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title="Attach image"
+          >
+            <ImagePlus className="h-4 w-4" />
+          </button>
+          <ComposerPrimitive.Input
+            rows={1}
+            placeholder={isDragging ? "Drop image here..." : "Ask about your portfolio..."}
+            submitMode="enter"
+            className={cn(
+              "flex-1 resize-none bg-transparent",
+              "px-1 py-2 text-sm placeholder:text-muted-foreground/60",
+              "focus:outline-none",
+              "max-h-24 overflow-y-auto",
+            )}
+          />
+          <ThreadPrimitive.If running={false}>
+            <ComposerPrimitive.Send asChild>
+              <button
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Send"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </ComposerPrimitive.Send>
+          </ThreadPrimitive.If>
+          <ThreadPrimitive.If running>
+            <ComposerPrimitive.Cancel asChild>
+              <button
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-destructive text-white hover:bg-destructive/90 transition-colors"
+                title="Stop"
+              >
+                <Square className="h-3.5 w-3.5" />
+              </button>
+            </ComposerPrimitive.Cancel>
+          </ThreadPrimitive.If>
+        </div>
       </div>
     </ComposerPrimitive.Root>
   )
@@ -207,9 +406,13 @@ function EmptyState() {
 function ChatPanel({
   onClose,
   onClear,
+  imagesRef,
+  visible,
 }: {
   onClose: () => void
   onClear: () => void
+  imagesRef: React.MutableRefObject<ChatImage[]>
+  visible: boolean
 }) {
   const inputContainerRef = useRef<HTMLDivElement>(null)
 
@@ -226,7 +429,7 @@ function ChatPanel({
         "flex flex-col w-[480px] h-[680px] max-w-[calc(100vw-2.5rem)] max-h-[calc(100vh-2.5rem)]",
         "rounded-2xl border border-border/60 bg-background",
         "shadow-2xl shadow-black/20",
-        "animate-fade-in",
+        visible ? "animate-fade-in" : "hidden",
       )}
     >
       {/* Header */}
@@ -266,11 +469,12 @@ function ChatPanel({
             components={{
               UserMessage,
               AssistantMessage,
+              EditComposer: UserEditComposer,
             }}
           />
         </ThreadPrimitive.Viewport>
         <div ref={inputContainerRef}>
-          <ChatComposer />
+          <ChatComposer imagesRef={imagesRef} />
         </div>
       </ThreadPrimitive.Root>
     </div>
@@ -281,13 +485,15 @@ function ChatPanel({
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false)
-  // Bumping this key force-remounts the runtime provider, which clears all
-  // assistant-ui state. Simpler than digging into the imperative reset API
-  // and works regardless of which version of the runtime is installed.
+  const [hasOpened, setHasOpened] = useState(false)
   const [resetKey, setResetKey] = useState(0)
-  // Lifted out of the provider so the clear-button handler can read it
-  // before remounting (the new provider gets a fresh ref).
   const sessionIdRef = useRef<string | null>(null)
+  const imagesRef = useRef<ChatImage[]>([])
+
+  const handleOpen = () => {
+    setOpen(true)
+    setHasOpened(true)
+  }
 
   const handleClear = () => {
     const sid = sessionIdRef.current
@@ -300,10 +506,9 @@ export function ChatWidget() {
 
   return (
     <>
-      {/* Floating toggle button — always visible when panel is closed */}
       {!open && (
         <button
-          onClick={() => setOpen(true)}
+          onClick={handleOpen}
           className={cn(
             "fixed bottom-5 right-5 z-40",
             "flex h-12 w-12 items-center justify-center rounded-full",
@@ -317,11 +522,9 @@ export function ChatWidget() {
         </button>
       )}
 
-      {/* Runtime provider stays mounted while the panel is open so the user's
-          conversation persists if they close and reopen the toggle. */}
-      {open && (
-        <ChatRuntimeProvider key={resetKey} sessionIdRef={sessionIdRef}>
-          <ChatPanel onClose={() => setOpen(false)} onClear={handleClear} />
+      {hasOpened && (
+        <ChatRuntimeProvider key={resetKey} sessionIdRef={sessionIdRef} imagesRef={imagesRef}>
+          <ChatPanel onClose={() => setOpen(false)} onClear={handleClear} imagesRef={imagesRef} visible={open} />
         </ChatRuntimeProvider>
       )}
     </>

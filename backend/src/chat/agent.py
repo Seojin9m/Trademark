@@ -108,7 +108,7 @@ def _get_agent():
 
 # ─── Streaming chat ─────────────────────────────────────────────────────────
 
-async def stream_chat(session_id: str | None, user_message: str):
+async def stream_chat(session_id: str | None, user_message: str, images: list[dict] | None = None):
     """Async generator that yields SSE-formatted events.
 
     Events:
@@ -133,10 +133,25 @@ async def stream_chat(session_id: str | None, user_message: str):
             messages.append(HumanMessage(content=msg["content"]))
         else:
             messages.append(AIMessage(content=msg["content"]))
-    messages.append(HumanMessage(content=user_message))
+    if images:
+        content_blocks: list[dict] = []
+        for img in images:
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": img.get("mime", "image/png"),
+                    "data": img["data"],
+                },
+            })
+        if user_message:
+            content_blocks.append({"type": "text", "text": user_message})
+        messages.append(HumanMessage(content=content_blocks))
+    else:
+        messages.append(HumanMessage(content=user_message))
 
-    # Save user message to history
-    history.append({"role": "user", "content": user_message})
+    # Save user message to history (text only — images are not replayed)
+    history.append({"role": "user", "content": user_message or "[image]"})
 
     try:
         agent = _get_agent()

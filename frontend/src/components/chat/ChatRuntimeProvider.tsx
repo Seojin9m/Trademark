@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode, type RefObject } from "react"
+import { useMemo, type ReactNode, type RefObject, type MutableRefObject } from "react"
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -6,6 +6,12 @@ import {
   type ChatModelRunOptions,
   type ChatModelRunResult,
 } from "@assistant-ui/react"
+
+export interface ChatImage {
+  name: string
+  data: string // base64
+  mime: string
+}
 
 /**
  * Builds a ChatModelAdapter that streams from our custom backend at /api/chat.
@@ -25,6 +31,7 @@ import {
  */
 function buildAdapter(
   sessionIdRef: RefObject<string | null>,
+  imagesRef: MutableRefObject<ChatImage[]>,
 ): ChatModelAdapter {
   return {
     async *run({
@@ -39,7 +46,10 @@ function buildAdapter(
         .map((p) => p.text)
         .join("\n")
 
-      if (!userText.trim()) return
+      if (!userText.trim() && imagesRef.current.length === 0) return
+
+      const images = imagesRef.current.slice()
+      imagesRef.current = []
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -47,6 +57,7 @@ function buildAdapter(
         body: JSON.stringify({
           message: userText,
           session_id: sessionIdRef.current,
+          images: images.length > 0 ? images : undefined,
         }),
         signal: abortSignal,
       })
@@ -169,15 +180,16 @@ function buildAdapter(
 
 interface ChatRuntimeProviderProps {
   sessionIdRef: RefObject<string | null>
+  imagesRef: MutableRefObject<ChatImage[]>
   children: ReactNode
 }
 
 export function ChatRuntimeProvider({
   sessionIdRef,
+  imagesRef,
   children,
 }: ChatRuntimeProviderProps) {
-  // Adapter must be stable across renders or useLocalRuntime will reset state.
-  const adapter = useMemo(() => buildAdapter(sessionIdRef), [sessionIdRef])
+  const adapter = useMemo(() => buildAdapter(sessionIdRef, imagesRef), [sessionIdRef, imagesRef])
   const runtime = useLocalRuntime(adapter)
   return (
     <AssistantRuntimeProvider runtime={runtime}>

@@ -145,18 +145,58 @@ def store_prices(df: pd.DataFrame) -> None:
 
 
 def fetch_polygon_eod(tickers: list[str], date: str | None = None) -> pd.DataFrame:
-    """Fetch single-day EOD data from Polygon.io free tier.
+    """Fetch single-day EOD data from Polygon.io using the Grouped Daily endpoint.
 
-    Rate limit: 5 calls/min. For 75 tickers, this takes ~15 minutes.
+    Uses a single API call to get all US stock data for a given date,
+    then filters to our universe. No per-ticker rate limit issues.
     """
-    import time
     from polygon import RESTClient
 
     client = RESTClient(api_key=settings.api_keys.polygon_api_key)
+    ticker_set = set(tickers)
 
     if date is None:
-        # Use most recent trading day
         date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    print(f"Fetching grouped daily data from Polygon for {date}...")
+    records = []
+    try:
+        grouped = client.get_grouped_daily_aggs(date)
+        for agg in grouped:
+            t = agg.ticker
+            if t in ticker_set:
+                records.append({
+                    "ticker": t,
+                    "date": date,
+                    "open": agg.open,
+                    "high": agg.high,
+                    "low": agg.low,
+                    "close": agg.close,
+                    "volume": int(agg.volume) if agg.volume else 0,
+                    "adj_close": agg.close,
+                })
+    except Exception as e:
+        print(f"  Grouped daily failed: {e}, falling back to per-ticker fetch...")
+        return _fetch_polygon_eod_per_ticker(tickers, date, client)
+
+    df = pd.DataFrame(records)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"]).dt.date
+
+    missing = ticker_set - set(df["ticker"]) if not df.empty else ticker_set
+    if missing:
+        print(f"  {len(missing)} tickers missing from grouped data, fetching individually...")
+        extra = _fetch_polygon_eod_per_ticker(sorted(missing), date, client)
+        if not extra.empty:
+            df = pd.concat([df, extra], ignore_index=True) if not df.empty else extra
+
+    print(f"Polygon EOD: {len(df)} tickers fetched for {date}")
+    return df
+
+
+def _fetch_polygon_eod_per_ticker(tickers: list[str], date: str, client) -> pd.DataFrame:
+    """Fallback: fetch one ticker at a time with rate limiting."""
+    import time
 
     records = []
     for i, ticker in enumerate(tickers):
@@ -172,20 +212,18 @@ def fetch_polygon_eod(tickers: list[str], date: str | None = None) -> pd.DataFra
                     "low": agg.low,
                     "close": agg.close,
                     "volume": int(agg.volume) if agg.volume else 0,
-                    "adj_close": agg.close,  # Polygon returns adjusted by default
+                    "adj_close": agg.close,
                 })
         except Exception as e:
             print(f"  WARNING: Polygon failed for {ticker}: {e}")
 
-        # Rate limit: 5 calls/min = 1 call per 12 seconds
         if (i + 1) % 5 == 0 and i < len(tickers) - 1:
             print(f"  Fetched {i + 1}/{len(tickers)}, pausing for rate limit...")
-            time.sleep(61)  # Wait 61 seconds after every 5 calls
+            time.sleep(61)
 
     df = pd.DataFrame(records)
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"]).dt.date
-    print(f"Polygon EOD: {len(df)} tickers fetched for {date}")
     return df
 
 

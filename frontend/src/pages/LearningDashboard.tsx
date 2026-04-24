@@ -409,8 +409,8 @@ export default function LearningDashboard() {
                         tickLine={false}
                       />
                       <Tooltip
-                        formatter={(value: number, _: string, props: { payload: { samples: number } }) =>
-                          [`${value.toFixed(0)}% (n=${props.payload.samples})`, "Win Rate"]
+                        formatter={(value, _, props) =>
+                          [`${Number(value).toFixed(0)}% (n=${(props as { payload: { samples: number } }).payload.samples})`, "Win Rate"]
                         }
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "#a1a1aa" }}
@@ -456,8 +456,8 @@ export default function LearningDashboard() {
                       />
                       <ZAxis range={[40, 40]} />
                       <Tooltip
-                        formatter={(value: number) => [`${value.toFixed(1)}%`, "Excess Return 1M"]}
-                        labelFormatter={(v: number) => new Date(v).toLocaleDateString()}
+                        formatter={(value) => [`${Number(value).toFixed(1)}%`, "Excess Return 1M"]}
+                        labelFormatter={(v) => new Date(Number(v)).toLocaleDateString()}
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "#a1a1aa" }}
                         itemStyle={{ color: "#fafafa" }}
