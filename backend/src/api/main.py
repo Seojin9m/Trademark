@@ -141,6 +141,12 @@ _pipeline_locks: dict[str, threading.Event] = {}
 # Auto mode state: when enabled, pipeline auto-approves and executes judge-approved trades
 _auto_mode: dict = {"enabled": False}
 
+# Review mode: when enabled, pipeline pauses at gates for human review
+_review_mode: dict = {"enabled": True}
+
+# Gate state: run_id -> {gate_name -> {"data": ..., "event": Event, "response": ...}}
+_pipeline_gates: dict[str, dict[str, dict]] = {}
+
 # User notes: context the user provides before pipeline runs
 # The judge uses this as extra context but remains objective
 _user_notes: dict = {"text": "", "images": [], "updated_at": None}
@@ -342,6 +348,60 @@ def set_auto_mode(enabled: bool):
 
 
 # ============================================================
+# Review mode + gate endpoints
+# ============================================================
+
+@app.get("/api/review-mode")
+def get_review_mode():
+    """Get current review mode state."""
+    return _review_mode
+
+
+@app.post("/api/review-mode")
+def set_review_mode(enabled: bool):
+    """Toggle review mode. When enabled, pipeline pauses at gates for human review."""
+    _review_mode["enabled"] = enabled
+    logger.info(f"REVIEW MODE {'ENABLED' if enabled else 'DISABLED'}")
+    return _review_mode
+
+
+@app.get("/api/pipeline/gate")
+def get_pipeline_gate(run_id: str):
+    """Get the currently active (unresolved) gate for a pipeline run."""
+    gates = _pipeline_gates.get(run_id, {})
+    for gate_name, gate_info in gates.items():
+        if not gate_info["event"].is_set():
+            return {
+                "gate_name": gate_name,
+                "data": gate_info["data"],
+                "created_at": gate_info["created_at"],
+            }
+    return {"gate_name": None}
+
+
+@app.post("/api/pipeline/gate/respond")
+async def respond_to_gate(request: Request):
+    """Submit a review response to an active gate, unblocking the pipeline."""
+    body = await request.json()
+    run_id = body.get("run_id")
+    gate_name = body.get("gate_name")
+    action = body.get("action", "continue")
+    overrides = body.get("overrides", {})
+
+    if not run_id or not gate_name:
+        raise HTTPException(400, "run_id and gate_name are required")
+
+    gate_info = _pipeline_gates.get(run_id, {}).get(gate_name)
+    if not gate_info:
+        raise HTTPException(404, "Gate not found")
+
+    gate_info["response"] = {"action": action, "overrides": overrides}
+    gate_info["event"].set()
+
+    return {"status": "ok", "gate_name": gate_name, "action": action}
+
+
+# ============================================================
 # User notes endpoints
 # ============================================================
 
@@ -482,6 +542,11 @@ def approve_proposal(proposal_id: str, notes: str = ""):
         SET status = 'APPROVED', human_decision = 'APPROVED', human_notes = ?
         WHERE proposal_id = ?
     """, [notes or "Human approved", proposal_id])
+    con.execute("""
+        UPDATE decision_outcomes
+        SET proposal_status = 'APPROVED'
+        WHERE proposal_id = ?
+    """, [proposal_id])
     con.close()
 
     return {"status": "approved", "proposal_id": proposal_id}
@@ -496,8 +561,29 @@ def reject_proposal(proposal_id: str, notes: str = ""):
         SET status = 'REJECTED', human_decision = 'REJECTED', human_notes = ?
         WHERE proposal_id = ?
     """, [notes, proposal_id])
+    con.execute("""
+        UPDATE decision_outcomes
+        SET proposal_status = 'REJECTED'
+        WHERE proposal_id = ?
+    """, [proposal_id])
     con.close()
     return {"status": "rejected", "proposal_id": proposal_id}
+
+
+@app.delete("/api/proposals/run/{run_id}")
+def delete_run_proposals(run_id: str):
+    """Permanently delete all proposals for a pipeline run and their related records."""
+    con = get_connection()
+    proposal_ids = [r[0] for r in con.execute(
+        "SELECT proposal_id FROM trade_proposals WHERE run_id = ?", [run_id]
+    ).fetchall()]
+    if not proposal_ids:
+        con.close()
+        raise HTTPException(status_code=404, detail="No proposals found for this run")
+    con.execute("DELETE FROM decision_outcomes WHERE proposal_id = ANY($1)", [proposal_ids])
+    con.execute("DELETE FROM trade_proposals WHERE run_id = ?", [run_id])
+    con.close()
+    return {"status": "deleted", "run_id": run_id, "deleted_count": len(proposal_ids)}
 
 
 @app.get("/api/judge-log")
@@ -560,6 +646,131 @@ def get_portfolio_history(days: int = 90):
     except Exception:
         con.close()
         return []
+
+
+@app.get("/api/portfolio/holding-times")
+def get_holding_times():
+    """Per-position holding time data: buy date, days held, recommended hold, status."""
+    try:
+        portfolio = load_portfolio_state()
+        pos_tickers = [p["ticker"] for p in portfolio["positions"]]
+        if not pos_tickers:
+            return []
+
+        con = get_connection()
+
+        # Get earliest active buy for each current position
+        executions = con.execute("""
+            WITH ranked AS (
+                SELECT
+                    ticker,
+                    action,
+                    executed_at,
+                    shares,
+                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY executed_at DESC) as rn
+                FROM trade_executions
+                WHERE ticker = ANY($1)
+                  AND action IN ('BUY', 'ADD')
+                  AND success = TRUE
+            )
+            SELECT ticker, executed_at, shares
+            FROM ranked
+            WHERE rn = 1
+        """, [pos_tickers]).fetchdf()
+
+        # Get quality from stock_quality_assessment and decile from factor_scores
+        quality_df = con.execute("""
+            SELECT ticker, quality_score, is_good_stock
+            FROM (
+                SELECT ticker, quality_score, is_good_stock,
+                       ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                FROM stock_quality_assessment
+                WHERE ticker = ANY($1)
+            ) sub WHERE rn = 1
+        """, [pos_tickers]).fetchdf()
+
+        decile_df = con.execute("""
+            SELECT ticker, score_decile
+            FROM (
+                SELECT ticker, score_decile,
+                       ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                FROM factor_scores
+                WHERE ticker = ANY($1)
+            ) sub WHERE rn = 1
+        """, [pos_tickers]).fetchdf()
+        con.close()
+
+        min_hold = settings.strategy.min_holding_days
+        now = datetime.now()
+        quality_map = {}
+        if not quality_df.empty:
+            for _, row in quality_df.iterrows():
+                quality_map[row["ticker"]] = {
+                    "quality_score": float(row["quality_score"]) if pd.notna(row["quality_score"]) else 0,
+                    "is_good_stock": bool(row["is_good_stock"]) if pd.notna(row["is_good_stock"]) else False,
+                }
+        if not decile_df.empty:
+            for _, row in decile_df.iterrows():
+                entry = quality_map.setdefault(row["ticker"], {"quality_score": 0, "is_good_stock": False})
+                entry["score_decile"] = int(row["score_decile"]) if pd.notna(row["score_decile"]) else 5
+
+        results = []
+        exec_map = {}
+        if not executions.empty:
+            for _, row in executions.iterrows():
+                exec_map[row["ticker"]] = row["executed_at"]
+
+        for pos in portfolio["positions"]:
+            ticker = pos["ticker"]
+            last_buy = exec_map.get(ticker)
+            q = quality_map.get(ticker, {})
+
+            if last_buy is not None:
+                if isinstance(last_buy, str):
+                    last_buy_dt = datetime.fromisoformat(last_buy)
+                else:
+                    last_buy_dt = last_buy
+                days_held = (now - last_buy_dt).days
+                buy_date = last_buy_dt.strftime("%Y-%m-%d")
+            else:
+                # No pipeline trade record — position was synced from brokerage
+                days_held = None
+                buy_date = None
+
+            decile = q.get("score_decile", 5)
+            is_good = q.get("is_good_stock", False)
+            if is_good and decile >= 8:
+                recommended_days = min_hold + 20
+            elif is_good:
+                recommended_days = min_hold + 10
+            else:
+                recommended_days = min_hold
+
+            if days_held is not None:
+                if days_held < min_hold:
+                    hold_status = "protected"
+                elif days_held < recommended_days:
+                    hold_status = "maturing"
+                else:
+                    hold_status = "tradeable"
+            else:
+                hold_status = "tradeable"
+
+            results.append({
+                "ticker": ticker,
+                "buy_date": buy_date,
+                "days_held": days_held,
+                "min_hold_days": min_hold,
+                "recommended_hold_days": recommended_days,
+                "hold_status": hold_status,
+                "is_good_stock": is_good,
+                "score_decile": decile,
+            })
+
+        return results
+    except Exception as e:
+        logger.error(f"Holding times endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================
@@ -1048,12 +1259,73 @@ def get_quality_assessments():
 # Pipeline streaming endpoints
 # ============================================================
 
+def _sanitize_for_sse(obj):
+    """Recursively convert numpy/pandas types to JSON-safe Python types."""
+    import math
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_sse(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_sse(v) for v in obj]
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        v = float(obj)
+        return None if math.isnan(v) or math.isinf(v) else v
+    if isinstance(obj, np.ndarray):
+        return [_sanitize_for_sse(v) for v in obj.tolist()]
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if hasattr(obj, 'isoformat'):
+        return obj.isoformat()
+    return obj
+
+
 def _emit(run_id: str, step: str, status: str, message: str, **extra: object) -> None:
     """Push an event to the pipeline run log."""
-    event = {"step": step, "status": status, "message": message, **extra}
+    event = _sanitize_for_sse({"step": step, "status": status, "message": message, **extra})
     _pipeline_runs.setdefault(run_id, []).append(event)
     log_fn = logger.error if status == "error" else logger.info
     log_fn(f"[pipeline:{run_id}] [{step}] {status}: {message}")
+
+
+def _wait_for_gate(run_id: str, gate_name: str, step: str, message: str, data: dict) -> dict | None:
+    """Pause pipeline at a gate and wait for user review.
+
+    Returns user's response dict (may contain overrides), or None if aborted.
+    If review mode is disabled, emits the data as a 'data' event and returns immediately.
+    """
+    safe_data = _sanitize_for_sse(data)
+
+    if not _review_mode["enabled"]:
+        _emit(run_id, step, "data", message, gate_data=safe_data, gate_name=gate_name)
+        return {}
+
+    gate_event = threading.Event()
+    _pipeline_gates.setdefault(run_id, {})[gate_name] = {
+        "data": safe_data,
+        "event": gate_event,
+        "response": None,
+        "created_at": datetime.now().isoformat(),
+    }
+
+    _emit(run_id, step, "gate", message, gate_data=safe_data, gate_name=gate_name)
+
+    gate_event.wait(timeout=1800)
+
+    gate_info = _pipeline_gates.get(run_id, {}).get(gate_name, {})
+    response = gate_info.get("response")
+
+    if response and response.get("action") == "abort":
+        _emit(run_id, "complete", "error", f"Pipeline aborted by user at {gate_name}")
+        _pipeline_locks[run_id].set()
+        return None
+
+    return response or {}
 
 
 def _run_pipeline_thread(run_id: str) -> None:
@@ -1100,11 +1372,19 @@ def _run_pipeline_thread(run_id: str) -> None:
     except Exception as e:
         _emit(run_id, "fundamentals", "done", f"Fundamentals ingestion skipped: {e}")
 
-    # Step 2: Scoring
+    # Step 2: Scoring (uses prior run's learned factor weights if available)
     _emit(run_id, "scoring", "running", "Computing factor scores...")
     try:
         from src.signals.ranker import rank_universe, store_scores, get_prior_deciles
-        scores = rank_universe()
+        from src.learning.adaptive import get_adaptive_state
+
+        prior_adaptive = get_adaptive_state()
+        learned_weights = prior_adaptive.get("recommended_factor_weights") if prior_adaptive else None
+        if learned_weights:
+            weights_msg = ", ".join(f"{k}: {v:.0%}" for k, v in learned_weights.items())
+            _emit(run_id, "scoring", "running", f"Using learned factor weights: {weights_msg}")
+
+        scores = rank_universe(factor_weights=learned_weights)
         if scores.empty:
             _emit(run_id, "scoring", "error", "No scores computed")
             _emit(run_id, "complete", "error", "Pipeline failed at scoring")
@@ -1114,6 +1394,30 @@ def _run_pipeline_thread(run_id: str) -> None:
         store_scores(scores)
         as_of_date = str(scores["date"].iloc[0])
         top5 = scores.head(5)["ticker"].tolist()
+
+        # Gate: Scoring Review
+        score_cols = ["ticker", "composite_score", "score_decile", "momentum_12m1m",
+                      "eps_growth_yoy", "revenue_growth_yoy", "gross_margin_trend",
+                      "relative_valuation", "is_good_stock", "quality_score"]
+        available_cols = [c for c in score_cols if c in scores.columns]
+        scores_preview = json.loads(scores[available_cols].head(30).to_json(orient="records"))
+        gate_resp = _wait_for_gate(run_id, "scoring_review", "scoring",
+            f"Scored {len(scores)} tickers as of {as_of_date}. Top 5: {', '.join(top5)}",
+            {"scores": scores_preview, "total_count": len(scores), "as_of_date": as_of_date})
+        if gate_resp is None:
+            return
+
+        # Apply user overrides: exclude tickers, override deciles
+        if gate_resp.get("overrides"):
+            excluded = set(gate_resp["overrides"].get("exclude_tickers", []))
+            if excluded:
+                scores = scores[~scores["ticker"].isin(excluded)]
+                _emit(run_id, "scoring", "running", f"Excluded {len(excluded)} tickers: {', '.join(excluded)}")
+            for ov in gate_resp["overrides"].get("decile_overrides", []):
+                mask = scores["ticker"] == ov["ticker"]
+                if mask.any():
+                    scores.loc[mask, "score_decile"] = ov["new_decile"]
+
         _emit(run_id, "scoring", "done", f"Scored {len(scores)} tickers as of {as_of_date}. Top 5: {', '.join(top5)}")
     except Exception as e:
         _emit(run_id, "scoring", "error", f"Scoring failed: {e}")
@@ -1135,7 +1439,14 @@ def _run_pipeline_thread(run_id: str) -> None:
         weights_msg = ", ".join(f"{k}: {v:.0%}" for k, v in ic.get("shrunk_weights", {}).items())
         _emit(run_id, "adaptive", "done",
               f"Regime: {regime_msg} | Decile threshold: {adaptive_params.get('min_decile_change', '?')} | "
-              f"Size scalar: {adaptive_params.get('position_size_scalar', 1):.0%} | Weights: {weights_msg}")
+              f"Size scalar: {adaptive_params.get('position_size_scalar', 1):.0%} | Weights: {weights_msg}",
+              gate_data={
+                  "regime": regime,
+                  "constraints": adaptive_params,
+                  "ic_analysis": {k: v for k, v in ic.items() if k != "raw_ics"},
+                  "recommended_weights": ic.get("shrunk_weights", {}),
+                  "rationale": adaptive_result.get("rationale", []),
+              })
     except Exception as e:
         _emit(run_id, "adaptive", "done", f"Adaptive analysis skipped: {e}")
 
@@ -1159,10 +1470,37 @@ def _run_pipeline_thread(run_id: str) -> None:
         signals = generate_signals(scores, current_weights, prior_deciles, drawdown, adaptive_params=adaptive_params, recent_trades=recent_trades)
         actionable = filter_actionable_signals(signals)
 
+        # Gate: Signal Review
+        def _signal_to_dict(s):
+            return {k: (v if not isinstance(v, pd.Series) else v.tolist()) for k, v in s.items()}
+
+        signals_data = [_signal_to_dict(s) for s in actionable]
+        hold_signals = [_signal_to_dict(s) for s in signals if s["action"] == "HOLD"]
+        action_summary = ", ".join(f"{s['action']} {s['ticker']}" for s in actionable[:5])
+        gate_msg = f"{len(actionable)} actionable signals: {action_summary}" if actionable else f"{len(signals)} signals, 0 actionable"
+
+        gate_resp = _wait_for_gate(run_id, "signals_review", "signals", gate_msg, {
+            "actionable_signals": signals_data,
+            "hold_signals": hold_signals[:20],
+            "total_signals": len(signals),
+        })
+        if gate_resp is None:
+            return
+
+        # Apply overrides: remove signals or change actions
+        if gate_resp.get("overrides"):
+            removed = set(gate_resp["overrides"].get("remove_tickers", []))
+            if removed:
+                actionable = [s for s in actionable if s["ticker"] not in removed]
+                _emit(run_id, "signals", "running", f"Removed {len(removed)} signals: {', '.join(removed)}")
+            for ao in gate_resp["overrides"].get("action_overrides", []):
+                for s in actionable:
+                    if s["ticker"] == ao["ticker"]:
+                        s["action"] = ao["new_action"]
+
         if len(actionable) == 0:
             _emit(run_id, "signals", "done", f"{len(signals)} signals, 0 actionable - no trades recommended today")
         else:
-            action_summary = ", ".join(f"{s['action']} {s['ticker']}" for s in actionable[:5])
             _emit(run_id, "signals", "done", f"{len(actionable)} actionable signals: {action_summary}")
     except Exception as e:
         _emit(run_id, "signals", "error", f"Signal generation failed: {e}")
@@ -1175,7 +1513,7 @@ def _run_pipeline_thread(run_id: str) -> None:
     try:
         from src.signals.portfolio_engine import build_trade_proposals, store_proposals
         universe = pd.read_csv(settings.paths.universe_path)
-        proposals = build_trade_proposals(actionable, portfolio, prices, universe)
+        proposals = build_trade_proposals(actionable, portfolio, prices, universe, adaptive_params=adaptive_params)
         for p in proposals:
             p["run_id"] = run_id
         store_proposals(proposals)
@@ -1219,6 +1557,45 @@ def _run_pipeline_thread(run_id: str) -> None:
                 pass
             _emit(run_id, "proposals", "done", "No proposals created — holding all positions")
         else:
+            # Gate: Proposals Review
+            def _proposal_to_dict(p):
+                d = {}
+                for k, v in p.items():
+                    if isinstance(v, (str, int, float, bool, type(None))):
+                        d[k] = v
+                    elif isinstance(v, dict):
+                        d[k] = v
+                    elif isinstance(v, list):
+                        d[k] = v
+                    else:
+                        d[k] = str(v)
+                return d
+
+            proposals_data = [_proposal_to_dict(p) for p in proposals]
+            gate_resp = _wait_for_gate(run_id, "proposals_review", "proposals",
+                f"{len(passed)} proposals passed constraints, {len(blocked)} blocked",
+                {"proposals": proposals_data, "passed_count": len(passed), "blocked_count": len(blocked)})
+            if gate_resp is None:
+                return
+
+            # Apply overrides: remove proposals, edit shares, force through blocked
+            if gate_resp.get("overrides"):
+                ov = gate_resp["overrides"]
+                removed_ids = set(ov.get("remove_proposal_ids", []))
+                if removed_ids:
+                    proposals = [p for p in proposals if p["proposal_id"] not in removed_ids]
+                    _emit(run_id, "proposals", "running", f"Removed {len(removed_ids)} proposals")
+                for so in ov.get("shares_overrides", []):
+                    for p in proposals:
+                        if p["proposal_id"] == so["proposal_id"]:
+                            p["shares"] = so["new_shares"]
+                for force_id in ov.get("force_through_ids", []):
+                    for p in proposals:
+                        if p["proposal_id"] == force_id:
+                            p["constraint_check"] = {"passed": True, "violations": [], "human_override": True}
+                passed = [p for p in proposals if p["constraint_check"]["passed"]]
+                blocked = [p for p in proposals if not p["constraint_check"]["passed"]]
+
             _emit(run_id, "proposals", "done", f"{len(passed)} proposals passed constraints, {len(blocked)} blocked")
     except Exception as e:
         _emit(run_id, "proposals", "error", f"Proposal generation failed: {e}")
@@ -1245,6 +1622,39 @@ def _run_pipeline_thread(run_id: str) -> None:
 
             research_map = {r.ticker: r for r in research_results}
             with_news = sum(1 for r in research_results if r.confidence > 0)
+
+            # Gate: News Research Review
+            research_data = []
+            for r in research_results:
+                research_data.append({
+                    "ticker": r.ticker,
+                    "headlines": r.headlines if hasattr(r, "headlines") else [],
+                    "ai_summary": r.summary if hasattr(r, "summary") else getattr(r, "ai_summary", ""),
+                    "sentiment": r.sentiment if hasattr(r, "sentiment") else "",
+                    "binary_events": [e.__dict__ if hasattr(e, "__dict__") else e for e in (r.binary_events if hasattr(r, "binary_events") else [])],
+                    "risk_factors": r.risk_factors if hasattr(r, "risk_factors") else [],
+                    "opportunities": r.opportunities if hasattr(r, "opportunities") else [],
+                    "confidence": r.confidence if hasattr(r, "confidence") else 0,
+                    "data_sources": r.data_sources if hasattr(r, "data_sources") else [],
+                })
+            gate_resp = _wait_for_gate(run_id, "research_review", "research",
+                f"Researched {len(research_results)} tickers ({with_news} with news)",
+                {"research": research_data, "total_tickers": len(research_tickers_list)})
+            if gate_resp is None:
+                return
+
+            # Apply overrides: user can add custom context per ticker
+            if gate_resp.get("overrides"):
+                user_context = gate_resp["overrides"].get("user_context", {})
+                for ticker, notes in user_context.items():
+                    if ticker in research_map:
+                        r = research_map[ticker]
+                        existing = r.summary if hasattr(r, "summary") else getattr(r, "ai_summary", "")
+                        if hasattr(r, "summary"):
+                            r.summary = f"{existing}\n\n[User context]: {notes}"
+                        elif hasattr(r, "ai_summary"):
+                            r.ai_summary = f"{existing}\n\n[User context]: {notes}"
+
             _emit(run_id, "research", "done", f"Researched {len(research_results)} tickers ({with_news} with news)")
         except Exception as e:
             _emit(run_id, "research", "done", f"News research skipped: {e}")
@@ -1278,11 +1688,8 @@ def _run_pipeline_thread(run_id: str) -> None:
         try:
             from src.judge.client import evaluate_all_proposals
             judge_results = evaluate_all_proposals(passed_proposals, portfolio_value, pnl, research_map, recent_trades=recent_trades)
-            _emit(run_id, "judge", "done", f"Judge evaluated {len(judge_results)} proposals")
 
-            # Persist judge verdicts back to the proposals rows. store_proposals
-            # was called before the judge ran, so those rows currently have a
-            # NULL judge_response — the UI was silently rendering nothing.
+            # Persist judge verdicts to DB
             try:
                 con = get_connection()
                 for proposal, output in judge_results:
@@ -1300,7 +1707,59 @@ def _run_pipeline_thread(run_id: str) -> None:
                     )
                 con.close()
             except Exception as e:
-                _emit(run_id, "judge", "done", f"Judge persist warning: {e}")
+                _emit(run_id, "judge", "running", f"Judge persist warning: {e}")
+
+            # Gate: Judge Review
+            judge_review_data = []
+            for proposal, output in judge_results:
+                judge_review_data.append({
+                    "proposal_id": proposal.get("proposal_id"),
+                    "ticker": proposal["ticker"],
+                    "action": proposal["action"],
+                    "shares": proposal.get("shares", 0),
+                    "verdict": output.verdict.value,
+                    "confidence": output.confidence,
+                    "reasons": output.reasons,
+                    "risk_flags": output.risk_flags,
+                    "violated_rules": getattr(output, "violated_rules", []),
+                    "binary_event_warning": getattr(output, "binary_event_warning", None),
+                    "follow_up_checks": getattr(output, "follow_up_checks", []),
+                    "status": proposal.get("status", "NEEDS_REVIEW"),
+                })
+            approved_count = sum(1 for d in judge_review_data if d["verdict"] == "approve")
+            rejected_count = sum(1 for d in judge_review_data if d["verdict"] == "reject")
+
+            gate_resp = _wait_for_gate(run_id, "judge_review", "judge",
+                f"Judge evaluated {len(judge_results)} proposals: {approved_count} approved, {rejected_count} rejected",
+                {"judge_results": judge_review_data})
+            if gate_resp is None:
+                return
+
+            # Apply verdict overrides
+            if gate_resp.get("overrides"):
+                for vo in gate_resp["overrides"].get("verdict_overrides", []):
+                    for proposal, output in judge_results:
+                        if proposal.get("proposal_id") == vo["proposal_id"]:
+                            new_verdict = vo["new_verdict"]
+                            if new_verdict == "approve":
+                                proposal["status"] = "JUDGE_APPROVED"
+                                proposal["human_decision"] = "OVERRIDE_APPROVED"
+                            elif new_verdict == "reject":
+                                proposal["status"] = "JUDGE_REJECTED"
+                                proposal["human_decision"] = "OVERRIDE_REJECTED"
+                            proposal["human_notes"] = vo.get("notes", "")
+                            # Also update DB
+                            try:
+                                con = get_connection()
+                                con.execute("""
+                                    UPDATE trade_proposals SET status = $1, human_decision = $2, human_notes = $3
+                                    WHERE proposal_id = $4
+                                """, [proposal["status"], proposal.get("human_decision"), proposal.get("human_notes"), proposal["proposal_id"]])
+                                con.close()
+                            except Exception:
+                                pass
+
+            _emit(run_id, "judge", "done", f"Judge evaluated {len(judge_results)} proposals: {approved_count} approved, {rejected_count} rejected")
         except Exception as e:
             _emit(run_id, "judge", "done", f"Judge evaluation skipped: {e}")
     else:
@@ -1474,8 +1933,27 @@ def _run_pipeline_thread(run_id: str) -> None:
                 store_proposals(judge_proposals)
                 proposals_str = ", ".join(f"{p['action']} {p['shares']} {p['ticker']}" for p in judge_proposals)
 
-            # Execute if auto mode, otherwise just show as pending
+            # Gate: Execution Review (only when auto-mode is on and there are trades)
             if _auto_mode["enabled"] and judge_proposals:
+                exec_data = [{
+                    "proposal_id": p["proposal_id"], "ticker": p["ticker"],
+                    "action": p["action"], "shares": p["shares"],
+                    "estimated_value": p["shares"] * exec_prices.get(p["ticker"], 0),
+                    "price": exec_prices.get(p["ticker"], 0),
+                } for p in judge_proposals]
+
+                gate_resp = _wait_for_gate(run_id, "execution_review", "execution",
+                    f"Ready to execute {len(judge_proposals)} judge-initiated trades",
+                    {"trades": exec_data, "auto_mode": True})
+                if gate_resp is None:
+                    return
+
+                # Apply overrides: remove trades from execution
+                if gate_resp.get("overrides"):
+                    removed_ids = set(gate_resp["overrides"].get("remove_proposal_ids", []))
+                    if removed_ids:
+                        judge_proposals = [p for p in judge_proposals if p["proposal_id"] not in removed_ids]
+
                 _emit(run_id, "execution", "running", "AUTO MODE: Executing judge-initiated trades...")
                 executed_trades = []
                 for proposal in judge_proposals:
@@ -1523,10 +2001,30 @@ def _run_pipeline_thread(run_id: str) -> None:
         snap_prices = get_live_prices(snap_tickers, snap_portfolio)
 
         pnl_data = pnl_compute(snap_portfolio, snap_prices)
+
+        # Data display: P&L
+        positions_data = []
+        for pos in pnl_data.get("positions", []):
+            positions_data.append({
+                "ticker": pos.get("ticker"),
+                "shares": pos.get("shares"),
+                "current_price": pos.get("current_price"),
+                "market_value": pos.get("market_value"),
+                "unrealized_pnl": pos.get("unrealized_pnl"),
+                "unrealized_pct": pos.get("unrealized_pct"),
+                "weight": pos.get("weight"),
+            })
         _emit(
             run_id, "pnl", "done",
             f"Portfolio value: ${pnl_data['total_portfolio_value']:,.2f}, "
-            f"P&L: ${pnl_data['total_unrealized_pnl']:,.2f} ({pnl_data['total_return_pct']:.1%})"
+            f"P&L: ${pnl_data['total_unrealized_pnl']:,.2f} ({pnl_data['total_return_pct']:.1%})",
+            gate_data={
+                "total_value": pnl_data.get("total_portfolio_value"),
+                "unrealized_pnl": pnl_data.get("total_unrealized_pnl"),
+                "total_return_pct": pnl_data.get("total_return_pct"),
+                "cash": pnl_data.get("cash"),
+                "positions": positions_data,
+            }
         )
 
         snapshot_portfolio(snap_portfolio, pnl_data, snap_prices, source="pipeline")
@@ -1554,7 +2052,16 @@ def _run_pipeline_thread(run_id: str) -> None:
         if alerts:
             msg_parts.append(f"{len(alerts)} alerts")
 
-        _emit(run_id, "learning", "done", " | ".join(msg_parts))
+        _emit(run_id, "learning", "done", " | ".join(msg_parts),
+              gate_data={
+                  "seeded": seeded,
+                  "measurements": outcome_result.get("measurements", {}),
+                  "summary": summary,
+                  "patterns_count": len(patterns),
+                  "alerts": [{"dimension": a.get("dimension"), "dimension_value": a.get("dimension_value"),
+                              "alert_message": a.get("alert_message"), "win_rate": a.get("win_rate")}
+                             for a in alerts],
+              })
     except Exception as e:
         _emit(run_id, "learning", "done", f"Self-learning skipped: {e}")
 

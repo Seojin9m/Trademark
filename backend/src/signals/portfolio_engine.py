@@ -87,6 +87,7 @@ def check_constraints(
     portfolio: dict,
     prices: dict,
     universe: pd.DataFrame,
+    adaptive_params: dict | None = None,
 ) -> dict:
     """Check if a proposed trade violates any risk constraints.
 
@@ -120,6 +121,10 @@ def check_constraints(
         new_sector_weight = sector_weight - old_weight + target_weight
         max_sector = settings.strategy.max_subsector_weight.get(sector, 0.35)
 
+        sector_cap_adj = (adaptive_params or {}).get("sector_cap_adjustments", {})
+        if sector in sector_cap_adj:
+            max_sector *= sector_cap_adj[sector]
+
         if new_sector_weight > max_sector:
             violations.append(
                 f"Sub-sector '{sector}' would reach {new_sector_weight:.1%}, exceeds max {max_sector:.1%}"
@@ -150,6 +155,7 @@ def build_trade_proposals(
     portfolio: dict,
     prices: dict,
     universe: pd.DataFrame,
+    adaptive_params: dict | None = None,
 ) -> list[dict]:
     """Convert signals into formal trade proposals with constraint checks.
 
@@ -166,6 +172,7 @@ def build_trade_proposals(
         ticker = signal["ticker"]
         constraint_result = check_constraints(
             signal, current_weights, portfolio, prices, universe,
+            adaptive_params=adaptive_params,
         )
 
         # Compute shares to trade

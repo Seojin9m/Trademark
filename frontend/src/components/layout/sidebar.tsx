@@ -1,6 +1,9 @@
 import { NavLink } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { usePipeline } from "@/contexts/pipeline-context"
+import { api } from "@/lib/api"
+import type { Proposal } from "@/lib/api"
 import {
   LayoutDashboard,
   BarChart3,
@@ -34,6 +37,15 @@ const navItems = [
 export function Sidebar() {
   const { running } = usePipeline()
 
+  const { data: proposals } = useQuery<Proposal[]>({
+    queryKey: ["proposals"],
+    queryFn: () => api.getProposals(undefined, 100),
+    staleTime: 30_000,
+  })
+  const pendingCount = (proposals ?? []).filter(
+    (p) => ["PENDING", "NEEDS_REVIEW", "JUDGE_APPROVED"].includes(p.status),
+  ).length
+
   return (
     <aside className="fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-border/60 bg-card/80 backdrop-blur-xl">
       <div className="flex h-16 items-center gap-2 border-b border-border/60 px-5">
@@ -60,6 +72,11 @@ export function Sidebar() {
           >
             <Icon className="h-4 w-4 shrink-0" />
             <span>{label}</span>
+            {to === "/trades" && pendingCount > 0 && (
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-semibold px-1.5">
+                {pendingCount}
+              </span>
+            )}
             {to === "/pipeline" && running && (
               <span className="ml-auto h-2 w-2 rounded-full bg-primary animate-pulse-dot" />
             )}
@@ -69,7 +86,7 @@ export function Sidebar() {
 
       <div className="border-t border-border/60 px-5 py-4">
         <p className="text-[11px] font-medium text-muted-foreground/60">
-          v4.0 &middot; Phase 7
+          v4.0 &middot; Phase 8
         </p>
       </div>
     </aside>

@@ -134,7 +134,10 @@ def _apply_user_overrides(factors: pd.DataFrame, overrides: dict, as_of_date: st
     return factors
 
 
-def compute_composite_scores(as_of_date: str | None = None) -> pd.DataFrame:
+def compute_composite_scores(
+    as_of_date: str | None = None,
+    factor_weights: dict[str, float] | None = None,
+) -> pd.DataFrame:
     """Two-stage composite scoring.
 
     Stage 1: Compute quality score from fundamentals + valuation + PER filter.
@@ -142,6 +145,11 @@ def compute_composite_scores(as_of_date: str | None = None) -> pd.DataFrame:
     Stage 2: For good stocks, apply price dip as opportunity bonus.
              For bad stocks, price dip does NOT improve score.
              Price rise penalizes buy urgency (avoids chasing).
+
+    Args:
+        as_of_date: Scoring date. Defaults to latest available.
+        factor_weights: IC-optimized weights from adaptive analysis.
+                        Falls back to settings.strategy.factor_weights if None.
     """
     # Step 1: Compute each factor
     mom = compute_momentum(as_of_date)
@@ -268,7 +276,7 @@ def compute_composite_scores(as_of_date: str | None = None) -> pd.DataFrame:
     # ---- STAGE 2: Price-adjusted composite score ----
     # Full composite includes momentum, but the price dip/rise adjusts
     # the final score differently based on good-stock status.
-    weights = settings.strategy.factor_weights
+    weights = factor_weights if factor_weights else settings.strategy.factor_weights
     weighted_sum = pd.Series(0.0, index=factors.index)
     weight_total = pd.Series(0.0, index=factors.index)
     for col in FACTOR_COLUMNS:

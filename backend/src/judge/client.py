@@ -446,26 +446,26 @@ def evaluate_all_proposals(
             date_str = executed.strftime("%Y-%m-%d") if hasattr(executed, "strftime") else str(executed)[:10]
         _trade_history[ticker].append(f"{t['action']} {t['shares']} shares on {date_str}")
 
-    results = []
+    # Pre-process: attach trade history and filter
+    eligible = []
     for p in proposals:
         if not p.get("constraint_check", {}).get("passed", True):
-            # Skip proposals that already failed constraints
             continue
-
-        print(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
-        # Attach recent trade history for this ticker so the judge can see it
         ticker_history = _trade_history.get(p["ticker"], [])
         if ticker_history:
             p["recent_trade_history"] = ticker_history
+        eligible.append(p)
 
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import logging
+    _log = logging.getLogger("trade4me")
+
+    def _judge_one(p: dict) -> tuple[dict, JudgeOutput]:
+        _log.info(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
         news = research_map.get(p["ticker"])
         output = evaluate_proposal(p, portfolio_value, pnl, news=news)
-        print(f"    Verdict: {output.verdict.value} (confidence: {output.confidence:.0%})")
-        if output.reasons:
-            for r in output.reasons:
-                print(f"    - {r}")
+        _log.info(f"    {p['ticker']}: {output.verdict.value} ({output.confidence:.0%})")
 
-        # Update proposal status based on verdict
         p["judge_verdict"] = output.verdict.value
         p["judge_confidence"] = output.confidence
         p["judge_reasons"] = output.reasons
@@ -478,7 +478,13 @@ def evaluate_all_proposals(
         else:
             p["status"] = "NEEDS_REVIEW"
 
-        results.append((p, output))
+        return (p, output)
+
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_judge_one, p): p for p in eligible}
+        for future in as_completed(futures):
+            results.append(future.result())
 
     return results
 

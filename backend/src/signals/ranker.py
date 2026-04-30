@@ -11,13 +11,20 @@ from src.features.composite import compute_composite_scores, store_quality_asses
 from src.db.schema import get_connection
 
 
-def rank_universe(as_of_date: str | None = None) -> pd.DataFrame:
+def rank_universe(
+    as_of_date: str | None = None,
+    factor_weights: dict[str, float] | None = None,
+) -> pd.DataFrame:
     """Score and rank all universe tickers as of a given date.
 
     Returns DataFrame sorted by composite_score descending with all factor
     columns plus quality assessment fields (is_good_stock, quality_score, etc).
+
+    Args:
+        as_of_date: Scoring date. Defaults to latest available.
+        factor_weights: IC-optimized weights from prior adaptive analysis.
     """
-    scores = compute_composite_scores(as_of_date)
+    scores = compute_composite_scores(as_of_date, factor_weights=factor_weights)
 
     if scores.empty:
         print("WARNING: No scores computed")

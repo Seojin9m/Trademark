@@ -1,13 +1,14 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import type { Proposal } from "@/lib/api"
+import { usePipeline } from "@/contexts/pipeline-context"
 import { PageHeader } from "@/components/layout/page-header"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MetricCard } from "@/components/ui/metric-card"
-import { Check, X, ChevronDown, ChevronUp, Clock, ShieldCheck } from "lucide-react"
+import { Check, X, ChevronDown, ChevronUp, Clock, ShieldCheck, Sparkles, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/contexts/toast-context"
 
@@ -211,6 +212,10 @@ function formatInlineValue(value: unknown, key: string): React.ReactNode {
       return <span className="text-muted-foreground italic">empty</span>
     }
     if (value.every((v) => typeof v === "string" || typeof v === "number")) {
+      const avgLen = value.reduce((s, v) => s + String(v).length, 0) / value.length
+      if (avgLen > 40) {
+        return null
+      }
       return (
         <div className="flex flex-wrap justify-end gap-1">
           {value.map((v, i) => (
@@ -264,6 +269,42 @@ function DetailField({ fieldKey, value }: { fieldKey: string; value: unknown }) 
         </p>
         <div className="border-l-2 border-border/50 pl-3">
           <DetailList data={value as Record<string, unknown>} />
+        </div>
+      </div>
+    )
+  }
+
+  const isLongStringArray =
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((v) => typeof v === "string") &&
+    (value as string[]).reduce((s, v) => s + v.length, 0) / value.length > 40
+
+  if (isLongStringArray) {
+    return (
+      <div className="space-y-2">
+        <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <div className="space-y-1.5">
+          {(value as string[]).map((item, i) => {
+            const dashIdx = item.indexOf(" — ")
+            const headline = dashIdx > -1 ? item.slice(0, dashIdx) : null
+            const detail = dashIdx > -1 ? item.slice(dashIdx + 3) : item
+            return (
+              <div key={i} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2">
+                <div className="flex items-start gap-2">
+                  <span className="text-muted-foreground/50 mt-0.5 shrink-0 text-xs">•</span>
+                  <div className="min-w-0">
+                    {headline && (
+                      <p className="text-sm font-medium text-foreground mb-0.5">{headline}</p>
+                    )}
+                    <p className="text-sm text-foreground/70 leading-relaxed">{detail}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     )
@@ -630,11 +671,19 @@ function groupByRun(proposals: Proposal[]): RunGroup[] {
 export default function PendingTrades() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { lastCompletedRunId, clearLastCompletedRunId } = usePipeline()
   const [filter, setFilter] = useState("All")
+  const highlightRef = useRef<HTMLDivElement>(null)
   const { data: proposals, isLoading } = useQuery<Proposal[]>({
     queryKey: ["proposals"],
     queryFn: () => api.getProposals(undefined, 100),
   })
+
+  useEffect(() => {
+    if (lastCompletedRunId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [lastCompletedRunId, proposals])
 
   const approveMut = useMutation({
     mutationFn: (id: string) => api.approveProposal(id),
@@ -652,6 +701,32 @@ export default function PendingTrades() {
       toast("info", "Trade Rejected")
     },
     onError: (e) => toast("error", "Reject Failed", String(e)),
+  })
+
+  const [menuOpenRunId, setMenuOpenRunId] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenRunId(null)
+      }
+    }
+    if (menuOpenRunId) document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [menuOpenRunId])
+
+  const deleteRunMut = useMutation({
+    mutationFn: (runId: string) => api.deleteRun(runId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["proposals"] })
+      toast("success", "Run Deleted", `Removed ${data.deleted_count} proposal${data.deleted_count !== 1 ? "s" : ""}`)
+      setMenuOpenRunId(null)
+    },
+    onError: (e) => {
+      toast("error", "Delete Failed", String(e))
+      setMenuOpenRunId(null)
+    },
   })
 
   if (isLoading) {
@@ -711,18 +786,36 @@ export default function PendingTrades() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {runGroups.map((group) => (
-            <Card key={group.run_id}>
-              <div className="px-6 pt-4 pb-3 border-b border-border/40">
+          {runGroups.map((group) => {
+            const isLatestRun = lastCompletedRunId && group.run_id === lastCompletedRunId
+            return (
+            <Card
+              key={group.run_id}
+              ref={isLatestRun ? highlightRef : undefined}
+              className={cn(isLatestRun && "ring-2 ring-primary/50 shadow-lg shadow-primary/10")}
+            >
+              <div className={cn(
+                "px-6 pt-4 pb-3 border-b border-border/40",
+                isLatestRun && "bg-primary/[0.03]",
+              )}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    {isLatestRun ? (
+                      <Sparkles className="h-4 w-4 text-primary" />
+                    ) : (
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                    )}
                     <span className="text-sm font-medium">
                       Pipeline Run{" "}
                       <span className="font-mono text-muted-foreground">
                         {group.run_id === "unknown" ? "—" : group.run_id}
                       </span>
                     </span>
+                    {isLatestRun && (
+                      <Badge variant="default" className="bg-primary/20 text-primary border-primary/30 text-[10px]">
+                        LATEST
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground">
@@ -735,6 +828,38 @@ export default function PendingTrades() {
                         return `${trades.length} trade${trades.length !== 1 ? "s" : ""}`
                       })()}
                     </Badge>
+                    {isLatestRun && (
+                      <button
+                        onClick={clearLastCompletedRunId}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        title="Dismiss highlight"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {group.run_id !== "unknown" && (
+                      <div className="relative" ref={menuOpenRunId === group.run_id ? menuRef : undefined}>
+                        <button
+                          onClick={() => setMenuOpenRunId(menuOpenRunId === group.run_id ? null : group.run_id)}
+                          className="p-1.5 rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete this pipeline run"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        {menuOpenRunId === group.run_id && (
+                          <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-lg border border-border/60 bg-card shadow-xl shadow-black/40 py-1">
+                            <button
+                              onClick={() => deleteRunMut.mutate(group.run_id)}
+                              disabled={deleteRunMut.isPending}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              {deleteRunMut.isPending ? "Deleting..." : "Delete run"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1.5">
@@ -760,7 +885,8 @@ export default function PendingTrades() {
                 </div>
               </CardContent>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
     </>

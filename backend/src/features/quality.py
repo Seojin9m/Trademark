@@ -17,6 +17,8 @@ from src.db.schema import get_connection
 from config.settings import settings
 
 
+_pit_cache: dict[str, pd.DataFrame] = {}
+
 def _get_pit_fundamentals(as_of_date: str, max_quarters: int | None = None) -> pd.DataFrame:
     """Get the most recent PIT-safe fundamentals for each ticker.
 
@@ -25,8 +27,11 @@ def _get_pit_fundamentals(as_of_date: str, max_quarters: int | None = None) -> p
     """
     if max_quarters is None:
         max_quarters = settings.strategy.quality_recent_quarters
-    # Fetch max_quarters + 4 so we can compare recent vs prior
     fetch_quarters = max_quarters + 4
+
+    cache_key = f"{as_of_date}:{fetch_quarters}"
+    if cache_key in _pit_cache:
+        return _pit_cache[cache_key].copy()
 
     con = get_connection()
     df = con.execute("""
@@ -52,7 +57,8 @@ def _get_pit_fundamentals(as_of_date: str, max_quarters: int | None = None) -> p
         ORDER BY ticker, fiscal_period_end
     """, [str(as_of_date), fetch_quarters]).fetchdf()
     con.close()
-    return df
+    _pit_cache[cache_key] = df
+    return df.copy()
 
 
 def _compute_ttm(df: pd.DataFrame, column: str) -> pd.Series:

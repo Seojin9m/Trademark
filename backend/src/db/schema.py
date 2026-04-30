@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
     record_count INTEGER,
     notes TEXT
 );
+
 """
 
 

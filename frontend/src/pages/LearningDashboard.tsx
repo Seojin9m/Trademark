@@ -38,7 +38,9 @@ const OUTCOME_COLORS: Record<string, string> = {
 
 const STATUS_VARIANT: Record<string, "profit" | "loss" | "muted" | "default"> = {
   APPROVED: "profit",
+  JUDGE_APPROVED: "profit",
   REJECTED: "loss",
+  JUDGE_REJECTED: "loss",
   NEEDS_REVIEW: "muted",
   PENDING: "default",
 }

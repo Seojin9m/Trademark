@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/contexts/toast-context"
 import { api } from "@/lib/api"
-import type { PortfolioData, PortfolioSnapshot, QuarterlyFundamental } from "@/lib/api"
+import type { PortfolioData, PortfolioSnapshot, QuarterlyFundamental, HoldingTime } from "@/lib/api"
 import { formatPercent, pnlColor, cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
@@ -657,6 +657,13 @@ export default function PortfolioOverview() {
     staleTime: 60 * 1000,
   })
 
+  const { data: holdingTimes } = useQuery<HoldingTime[]>({
+    queryKey: ["holding-times"],
+    queryFn: api.getHoldingTimes,
+    staleTime: 60 * 1000,
+  })
+  const holdMap = new Map((holdingTimes ?? []).map((h) => [h.ticker, h]))
+
   const rate = currency === "CAD" ? (rateData?.rate ?? 1.38) : 1
 
   const portfolioFlash = useFlash(data?.pnl?.total_portfolio_value ?? 0)
@@ -834,6 +841,45 @@ export default function PortfolioOverview() {
         </span>
       ),
     },
+    {
+      key: "hold",
+      header: "Hold Status",
+      align: "right" as const,
+      render: (r: PositionRow) => {
+        const h = holdMap.get(r.ticker)
+        if (!h) return <span className="text-muted-foreground/50">—</span>
+        const pct = h.days_held != null ? Math.min(h.days_held / h.recommended_hold_days, 1) : 1
+        const statusColor =
+          h.hold_status === "protected" ? "text-amber-400" :
+          h.hold_status === "maturing" ? "text-blue-400" :
+          "text-profit"
+        const statusLabel =
+          h.hold_status === "protected" ? "Hold" :
+          h.hold_status === "maturing" ? "Maturing" :
+          "Tradeable"
+        const tooltip = h.buy_date
+          ? `Bought ${h.buy_date} · ${h.days_held}d / ${h.recommended_hold_days}d recommended`
+          : "Synced from brokerage · tradeable"
+        return (
+          <div className="flex items-center gap-2 justify-end" title={tooltip}>
+            <div className="w-12 h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  h.hold_status === "protected" ? "bg-amber-400" :
+                  h.hold_status === "maturing" ? "bg-blue-400" :
+                  "bg-profit",
+                )}
+                style={{ width: `${pct * 100}%` }}
+              />
+            </div>
+            <span className={cn("text-[11px] font-medium", statusColor)}>
+              {statusLabel}
+            </span>
+          </div>
+        )
+      },
+    },
   ]
 
   return (
@@ -865,6 +911,22 @@ export default function PortfolioOverview() {
         />
         <MetricCard label="Positions" value={String(positions.length)} />
       </div>
+
+      {/* Portfolio History */}
+      <PortfolioHistoryChart snapshots={historyData ?? []} rate={rate} currency={currency} />
+
+      {/* Current Holdings — full width */}
+      <Card className="mb-4">
+        <CardTitle>Current Holdings</CardTitle>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={positions}
+            rowKey={(r) => r.ticker}
+            emptyMessage="No positions. Update portfolio_state.json with your holdings."
+          />
+        </CardContent>
+      </Card>
 
       {/* P&L Bar Chart + Return % Chart */}
       {positions.length > 0 && (
@@ -948,22 +1010,6 @@ export default function PortfolioOverview() {
           </Card>
         </div>
       )}
-
-      {/* Current Holdings — full width */}
-      <Card className="mb-4">
-        <CardTitle>Current Holdings</CardTitle>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            data={positions}
-            rowKey={(r) => r.ticker}
-            emptyMessage="No positions. Update portfolio_state.json with your holdings."
-          />
-        </CardContent>
-      </Card>
-
-      {/* Portfolio History */}
-      <PortfolioHistoryChart snapshots={historyData ?? []} rate={rate} currency={currency} />
 
       {/* Financial Statistics */}
       {positions.length > 0 && (

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { usePipeline } from "@/contexts/pipeline-context"
 import { useToast } from "@/contexts/toast-context"
@@ -7,7 +8,12 @@ import { PageHeader } from "@/components/layout/page-header"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight, AlertTriangle, ShieldAlert, Zap, Trash2, RotateCcw, StickyNote, X, Save, ImagePlus } from "lucide-react"
+import { GateReviewPanel } from "@/components/pipeline/GateReviewPanel"
+import {
+  Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight,
+  Trash2, RotateCcw, StickyNote, X, Save, ImagePlus,
+  Hand, Eye, ChevronDown, ChevronUp, Database, ExternalLink,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 
@@ -38,20 +44,45 @@ function stepIcon(status: string, size = "h-4 w-4") {
       return <XCircle className={cn(size, "text-loss")} />
     case "skipped":
       return <Clock className={cn(size, "text-muted-foreground")} />
+    case "gate":
+      return <Hand className={cn(size, "text-amber-500 animate-pulse")} />
+    case "data":
+      return <Database className={cn(size, "text-blue-400")} />
     default:
       return <Clock className={cn(size, "text-muted-foreground/40")} />
   }
 }
 
-function StepTracker({ events }: { events: PipelineEvent[] }) {
+function StepTracker({ events, eventTimestamps }: { events: PipelineEvent[]; eventTimestamps: Map<number, number> }) {
   const latestByStep = new Map<string, PipelineEvent>()
   events.forEach((e) => latestByStep.set(e.step, e))
+
+  const stepElapsed = new Map<string, number>()
+  const stepStartTs = new Map<string, number>()
+  events.forEach((e, i) => {
+    const ts = eventTimestamps.get(i)
+    if (!ts) return
+    if (e.status === "running" && !stepStartTs.has(e.step)) stepStartTs.set(e.step, ts)
+    if ((e.status === "done" || e.status === "error") && stepStartTs.has(e.step)) {
+      stepElapsed.set(e.step, (ts - stepStartTs.get(e.step)!) / 1000)
+    }
+  })
+
+  const formatElapsed = (secs: number) => {
+    if (secs < 1) return "<1s"
+    if (secs < 60) return `${Math.round(secs)}s`
+    const m = Math.floor(secs / 60)
+    const s = Math.round(secs % 60)
+    return s > 0 ? `${m}m ${s}s` : `${m}m`
+  }
 
   return (
     <div className="space-y-1">
       {stepOrder.map((step, i) => {
         const ev = latestByStep.get(step)
         const isActive = ev?.status === "running"
+        const isGate = ev?.status === "gate"
+        const elapsed = stepElapsed.get(step)
 
         return (
           <div key={step}>
@@ -59,7 +90,8 @@ function StepTracker({ events }: { events: PipelineEvent[] }) {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
                 isActive && "bg-primary/5 border border-primary/20",
-                !isActive && "border border-transparent",
+                isGate && "bg-amber-500/5 border border-amber-500/30",
+                !isActive && !isGate && "border border-transparent",
               )}
             >
               {ev ? stepIcon(ev.status) : stepIcon("pending")}
@@ -69,6 +101,7 @@ function StepTracker({ events }: { events: PipelineEvent[] }) {
                     "text-sm font-medium",
                     ev ? "text-foreground" : "text-muted-foreground/50",
                     isActive && "text-primary",
+                    isGate && "text-amber-400",
                   )}
                 >
                   {stepLabels[step] || step}
@@ -77,8 +110,21 @@ function StepTracker({ events }: { events: PipelineEvent[] }) {
                   <p className="text-xs text-muted-foreground truncate">{ev.message}</p>
                 )}
               </div>
+              {elapsed !== undefined && (
+                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                  {formatElapsed(elapsed)}
+                </span>
+              )}
               {isActive && (
                 <ArrowRight className="h-3.5 w-3.5 text-primary animate-pulse" />
+              )}
+              {isGate && (
+                <Badge variant="default" className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px]">
+                  REVIEW
+                </Badge>
+              )}
+              {ev?.status === "data" && ev.gate_data && (
+                <Eye className="h-3.5 w-3.5 text-blue-400" />
               )}
             </div>
             {i < stepOrder.length - 1 && (
@@ -91,159 +137,104 @@ function StepTracker({ events }: { events: PipelineEvent[] }) {
   )
 }
 
-function AutoModeToggle() {
+// ─── Inline data display for non-gate steps ───
+function StepDataDisplay({ event }: { event: PipelineEvent }) {
+  const [open, setOpen] = useState(false)
+  const data = event.gate_data
+  if (!data) return null
+
+  return (
+    <div className="rounded-lg border border-blue-500/20 bg-blue-500/[0.02] mt-1">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-3 py-1.5 text-left">
+        <Eye className="h-3 w-3 text-blue-400" />
+        <span className="text-[11px] text-blue-400 font-medium">{event.step} data</span>
+        <span className="flex-1" />
+        {open ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-2">
+          <pre className="text-[10px] text-muted-foreground max-h-[10rem] overflow-y-auto">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// AutoModeToggle — commented out for now, will re-enable later
+// function AutoModeToggle() { ... }
+
+function ReviewModeToggle() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
-  const [confirming, setConfirming] = useState(false)
 
-  const { data: autoMode } = useQuery({
-    queryKey: ["auto-mode"],
-    queryFn: api.getAutoMode,
+  const { data: reviewMode } = useQuery({
+    queryKey: ["review-mode"],
+    queryFn: api.getReviewMode,
     refetchInterval: 5000,
   })
 
   const mutation = useMutation({
-    mutationFn: api.setAutoMode,
+    mutationFn: api.setReviewMode,
     onSuccess: (data) => {
-      queryClient.setQueryData(["auto-mode"], data)
+      queryClient.setQueryData(["review-mode"], data)
       toast(
         data.enabled ? "info" : "success",
-        data.enabled ? "Auto Mode Enabled" : "Auto Mode Disabled",
+        data.enabled ? "Review Mode Enabled" : "Review Mode Disabled",
         data.enabled
-          ? "Trades will be executed automatically without review"
-          : "Trades will require manual approval",
+          ? "Pipeline will pause at key stages for your review"
+          : "Pipeline will run autonomously without pausing",
       )
-      setConfirming(false)
     },
   })
 
-  const enabled = autoMode?.enabled ?? false
-
-  const handleToggle = () => {
-    if (!enabled) {
-      // Turning ON — require confirmation
-      setConfirming(true)
-    } else {
-      // Turning OFF — do it immediately
-      mutation.mutate(false)
-    }
-  }
+  const enabled = reviewMode?.enabled ?? true
 
   return (
-    <div className="relative">
-      <div
-        className={cn(
-          "rounded-xl border-2 p-4 transition-all",
-          enabled
-            ? "border-amber-500/60 bg-amber-500/5"
-            : "border-border/60 bg-card",
-        )}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {enabled ? (
-              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-amber-500/15">
-                <Zap className="h-5 w-5 text-amber-500" />
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-muted/60">
-                <ShieldAlert className="h-5 w-5 text-muted-foreground" />
-              </div>
-            )}
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold">Auto Mode</p>
-                <Badge variant={enabled ? "loss" : "muted"} className="text-[10px]">
-                  {enabled ? "ACTIVE" : "OFF"}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {enabled
-                  ? "Trades are executed automatically after judge approval"
-                  : "Trades require manual review before execution"}
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={handleToggle}
-            disabled={mutation.isPending}
-            className={cn(
-              "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-              enabled
-                ? "bg-amber-500 border-amber-500"
-                : "bg-muted border-border/80",
-            )}
-          >
-            <span
-              className={cn(
-                "pointer-events-none inline-block h-5.5 w-5.5 rounded-full bg-white shadow-sm transition-transform duration-200 mt-[1px]",
-                enabled ? "translate-x-[22px]" : "translate-x-[2px]",
-              )}
-              style={{ height: 20, width: 20 }}
-            />
-          </button>
-        </div>
-
-        {enabled && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-200/80 leading-relaxed">
-              <span className="font-semibold text-amber-400">Warning:</span> Auto mode will
-              execute all judge-approved trades immediately without human confirmation.
-              Real portfolio changes will be made. Only use this if you trust the model's decisions.
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Confirmation modal */}
-      {confirming && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border-2 border-amber-500/40 bg-card p-6 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex items-center justify-center h-10 w-10 rounded-full bg-amber-500/15">
-                <AlertTriangle className="h-6 w-6 text-amber-500" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">Enable Auto Mode?</h3>
-                <p className="text-sm text-muted-foreground">This action requires confirmation</p>
-              </div>
-            </div>
-
-            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 mb-5">
-              <ul className="text-xs text-amber-200/80 space-y-1.5 list-disc list-inside">
-                <li>All judge-approved trades will be executed <span className="font-semibold text-amber-400">immediately</span></li>
-                <li>No human review step — the model decides for you</li>
-                <li>Portfolio state (cash, positions) will be modified automatically</li>
-                <li>Judge-rejected trades will still be blocked</li>
-              </ul>
-            </div>
-
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setConfirming(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
-                onClick={() => mutation.mutate(true)}
-                disabled={mutation.isPending}
-              >
-                {mutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Zap className="mr-2 h-4 w-4" />
-                )}
-                Enable Auto Mode
-              </Button>
-            </div>
-          </div>
-        </div>
+    <div
+      className={cn(
+        "rounded-xl border-2 p-4 transition-all",
+        enabled
+          ? "border-blue-500/60 bg-blue-500/5"
+          : "border-border/60 bg-card",
       )}
+    >
+      <div className="flex items-center gap-3">
+        <div className={cn(
+          "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
+          enabled ? "bg-blue-500/15" : "bg-muted/60",
+        )}>
+          {enabled
+            ? <Hand className="h-5 w-5 text-blue-400" />
+            : <Eye className="h-5 w-5 text-muted-foreground" />
+          }
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold">Review Mode</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {enabled ? "Pipeline pauses at each stage for review" : "Pipeline runs without pausing"}
+          </p>
+        </div>
+        <button
+          onClick={() => mutation.mutate(!enabled)}
+          disabled={mutation.isPending}
+          className={cn(
+            "relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+            enabled
+              ? "bg-blue-500 border-blue-500"
+              : "bg-muted border-border/80",
+          )}
+        >
+          <span
+            className={cn(
+              "pointer-events-none inline-block rounded-full bg-white shadow-sm transition-transform duration-200",
+              enabled ? "translate-x-[17px]" : "translate-x-[1px]",
+            )}
+            style={{ height: 16, width: 16, marginTop: 2 }}
+          />
+        </button>
+      </div>
     </div>
   )
 }
@@ -253,7 +244,8 @@ function UserNotesPanel() {
   const { toast } = useToast()
   const [draft, setDraft] = useState("")
   const [images, setImages] = useState<{ name: string; dataUrl: string }[]>([])
-  const [expanded, setExpanded] = useState(false)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: notes } = useQuery({
@@ -267,6 +259,7 @@ function UserNotesPanel() {
     onSuccess: (data) => {
       queryClient.setQueryData(["user-notes"], data)
       toast("success", "Notes Saved", "Your context will be included in the next pipeline run")
+      setDropdownOpen(false)
     },
   })
 
@@ -282,7 +275,6 @@ function UserNotesPanel() {
 
   const hasNotes = !!(notes?.text) || !!(notes?.images?.length)
 
-  // Sync draft with server state when data loads
   useEffect(() => {
     if (notes?.text !== undefined && draft === "" && notes.text) {
       setDraft(notes.text)
@@ -296,9 +288,18 @@ function UserNotesPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes?.text, notes?.images])
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    if (dropdownOpen) document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [dropdownOpen])
+
   const handleSave = () => {
     const imagePayloads = images.map((img) => {
-      // Extract base64 data and mime type from dataUrl
       const match = img.dataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
       return {
         name: img.name,
@@ -350,49 +351,57 @@ function UserNotesPanel() {
   }
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border-2 p-4 transition-all",
-        hasNotes
-          ? "border-blue-500/40 bg-blue-500/5"
-          : "border-border/60 bg-card",
-      )}
-    >
+    <div className="relative" ref={dropdownRef}>
       <div
-        className="flex items-center justify-between gap-4 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
+        className={cn(
+          "rounded-xl border-2 p-4 transition-all",
+          hasNotes
+            ? "border-blue-500/40 bg-blue-500/5"
+            : "border-border/60 bg-card",
+        )}
       >
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            "flex items-center justify-center h-9 w-9 rounded-lg",
-            hasNotes ? "bg-blue-500/15" : "bg-muted/60",
-          )}>
-            <StickyNote className={cn("h-5 w-5", hasNotes ? "text-blue-400" : "text-muted-foreground")} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold">Pipeline Notes</p>
-              {hasNotes && (
-                <Badge variant="default" className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
-                  ACTIVE
-                </Badge>
-              )}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "flex items-center justify-center h-9 w-9 rounded-lg",
+              hasNotes ? "bg-blue-500/15" : "bg-muted/60",
+            )}>
+              <StickyNote className={cn("h-5 w-5", hasNotes ? "text-blue-400" : "text-muted-foreground")} />
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {hasNotes
-                ? "Your notes will be reviewed by the judge"
-                : "Add context for the LLM judge — news, observations, links, images"}
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">Pipeline Notes</p>
+                {hasNotes && (
+                  <Badge variant="default" className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
+                    ACTIVE
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {hasNotes
+                  ? "Your notes will be reviewed by the judge"
+                  : "Add context for the LLM judge"}
+              </p>
+            </div>
           </div>
+
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              dropdownOpen
+                ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60",
+            )}
+          >
+            {dropdownOpen ? "Close" : hasNotes ? "Edit" : "Add Notes"}
+            {dropdownOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
         </div>
-        <ArrowRight className={cn(
-          "h-4 w-4 text-muted-foreground transition-transform",
-          expanded && "rotate-90",
-        )} />
       </div>
 
-      {expanded && (
-        <div className="mt-4 space-y-3">
+      {dropdownOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border-2 border-blue-500/30 bg-card shadow-2xl shadow-black/40 p-4 space-y-3">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -561,10 +570,24 @@ function StartOverButton() {
 }
 
 export default function PipelineControl() {
-  const { running, events, error, startPipeline } = usePipeline()
+  const { running, events, error, activeGate, lastCompletedRunId, startPipeline, respondToGate } = usePipeline()
   const { toast } = useToast()
+  const navigate = useNavigate()
   const logRef = useRef<HTMLDivElement>(null)
   const prevEventsLen = useRef(0)
+  const eventTimestamps = useRef<Map<number, number>>(new Map())
+
+  useEffect(() => {
+    if (events.length === 0) {
+      eventTimestamps.current = new Map()
+    } else {
+      for (let i = 0; i < events.length; i++) {
+        if (!eventTimestamps.current.has(i)) {
+          eventTimestamps.current.set(i, Date.now())
+        }
+      }
+    }
+  }, [events])
 
   useEffect(() => {
     if (logRef.current) {
@@ -644,16 +667,67 @@ export default function PipelineControl() {
         </div>
       )}
 
-      <div className="mb-4 space-y-3">
-        <AutoModeToggle />
-        <UserNotesPanel />
+      {/* Pipeline completed banner */}
+      {isComplete && !hasError && !running && (
+        <div className="mb-4 rounded-xl border-2 border-profit/40 bg-profit/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-profit/15">
+                <CheckCircle className="h-5 w-5 text-profit" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Pipeline Complete</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {events.find((e) => e.step === "complete")?.message || "All steps finished successfully"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/")}
+                className="h-8 text-xs"
+              >
+                Portfolio
+                <ExternalLink className="ml-1.5 h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => navigate("/trades")}
+                className="bg-profit/90 hover:bg-profit text-white border-profit h-8 text-xs"
+              >
+                View Trades
+                <ArrowRight className="ml-1.5 h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-4">
+        <div className="grid grid-cols-2 gap-3">
+          <UserNotesPanel />
+          <ReviewModeToggle />
+        </div>
       </div>
+
+      {/* Active Gate Review Panel */}
+      {activeGate && (
+        <div className="mb-4">
+          <GateReviewPanel
+            gate={activeGate}
+            onContinue={(overrides) => respondToGate("continue", overrides)}
+            onAbort={() => respondToGate("abort")}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-6">
         <Card className="col-span-1">
           <CardTitle>Steps</CardTitle>
           <CardContent>
-            <StepTracker events={events} />
+            <StepTracker events={events} eventTimestamps={eventTimestamps.current} />
           </CardContent>
         </Card>
 
@@ -670,23 +744,34 @@ export default function PipelineControl() {
                 </p>
               ) : (
                 events.map((e, i) => (
-                  <div key={i} className="flex gap-2 py-0.5">
-                    <span className="text-muted-foreground/60 w-24 shrink-0 text-right">
-                      [{e.step}]
-                    </span>
-                    <span
-                      className={cn(
-                        e.status === "error"
-                          ? "text-loss"
-                          : e.status === "done"
-                            ? "text-profit"
-                            : e.status === "running"
-                              ? "text-primary"
-                              : "text-foreground/70",
-                      )}
-                    >
-                      {e.message}
-                    </span>
+                  <div key={i}>
+                    <div className="flex gap-2 py-0.5">
+                      <span className="text-muted-foreground/60 w-24 shrink-0 text-right">
+                        [{e.step}]
+                      </span>
+                      <span
+                        className={cn(
+                          e.status === "error"
+                            ? "text-loss"
+                            : e.status === "done"
+                              ? "text-profit"
+                              : e.status === "running"
+                                ? "text-primary"
+                                : e.status === "gate"
+                                  ? "text-amber-400"
+                                  : e.status === "data"
+                                    ? "text-blue-400"
+                                    : "text-foreground/70",
+                        )}
+                      >
+                        {e.status === "gate" && "⏸ "}
+                        {e.status === "data" && "📊 "}
+                        {e.message}
+                      </span>
+                    </div>
+                    {e.status === "data" && e.gate_data && (
+                      <StepDataDisplay event={e} />
+                    )}
                   </div>
                 ))
               )}

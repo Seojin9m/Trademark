@@ -126,19 +126,27 @@ def collect_news_batch(
     max_per_ticker: int = 8,
     universe_path: str | None = None,
 ) -> dict[str, list[dict]]:
-    """Collect news for a batch of tickers.
+    """Collect news for a batch of tickers in parallel.
 
     Returns {ticker: [articles]} dict.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     names = get_company_names(tickers, universe_path)
     results: dict[str, list[dict]] = {}
 
-    for ticker in tickers:
+    def _fetch(ticker: str) -> tuple[str, list[dict]]:
         articles = search_ticker_news(
             ticker,
             company_name=names.get(ticker),
             max_results=max_per_ticker,
         )
-        results[ticker] = articles
+        return ticker, articles
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_fetch, t): t for t in tickers}
+        for future in as_completed(futures):
+            ticker, articles = future.result()
+            results[ticker] = articles
 
     return results

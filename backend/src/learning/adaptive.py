@@ -362,6 +362,13 @@ def compute_adaptive_constraints(regime: dict, ic_result: dict) -> dict:
         total = sum(bear_adj.values())
         recommended_weights = {k: round(v / total, 4) for k, v in bear_adj.items()}
 
+    # --- Sector cap adjustments from outcome patterns ---
+    sector_caps = _compute_sector_cap_adjustments()
+
+    rationale = _build_rationale(regime, vol_scalar, adapted_decile_change)
+    for sector, mult in sector_caps.items():
+        rationale.append(f"Sector '{sector}' cap tightened to {mult:.0%} of base (poor outcome history)")
+
     return {
         "min_decile_change": adapted_decile_change,
         "position_size_scalar": round(vol_scalar, 3),
@@ -369,10 +376,37 @@ def compute_adaptive_constraints(regime: dict, ic_result: dict) -> dict:
         "max_trades_per_run": adapted_max_trades,
         "drawdown_schedule": drawdown_schedule,
         "recommended_factor_weights": recommended_weights,
+        "sector_cap_adjustments": sector_caps,
         "regime": regime,
-        "rationale": _build_rationale(regime, vol_scalar, adapted_decile_change),
+        "rationale": rationale,
         "computed_at": datetime.now().isoformat(),
     }
+
+
+def _compute_sector_cap_adjustments() -> dict[str, float]:
+    """Compute sector cap tightening multipliers from outcome pattern alerts.
+
+    Reads decision_patterns where dimension='sub_sector' and is_alert=TRUE.
+    For sectors with win_rate < 40% and sample_size >= 5, returns a
+    tightening multiplier (0.5 to 1.0) applied to the configured sector cap.
+    """
+    try:
+        con = get_connection()
+        rows = con.execute("""
+            SELECT dimension_value, win_rate, sample_size
+            FROM decision_patterns
+            WHERE dimension = 'sub_sector' AND is_alert = TRUE AND sample_size >= 5
+        """).fetchall()
+        con.close()
+    except Exception:
+        return {}
+
+    adjustments = {}
+    for sector, win_rate, sample_size in rows:
+        multiplier = max(0.5, win_rate / 0.50)
+        adjustments[sector] = round(multiplier, 2)
+
+    return adjustments
 
 
 def _build_rationale(regime: dict, vol_scalar: float, decile_change: int) -> list[str]:

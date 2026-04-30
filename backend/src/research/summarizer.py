@@ -134,17 +134,24 @@ def research_tickers(
     tickers: list[str],
     news_by_ticker: dict[str, list[dict]],
 ) -> list[NewsResearch]:
-    """Run AI summarization for a batch of tickers.
+    """Run AI summarization for a batch of tickers in parallel.
 
     Returns list of NewsResearch objects.
     """
-    results = []
-    for ticker in tickers:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _summarize(ticker: str) -> NewsResearch:
         articles = news_by_ticker.get(ticker, [])
         logger.info(f"  Summarizing {ticker} ({len(articles)} articles)...")
         research = summarize_ticker_news(ticker, articles)
-        results.append(research)
         logger.info(f"    {ticker}: sentiment={research.sentiment}, confidence={research.confidence:.0%}")
+        return research
+
+    results = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(_summarize, t): t for t in tickers}
+        for future in as_completed(futures):
+            results.append(future.result())
 
     return results
 

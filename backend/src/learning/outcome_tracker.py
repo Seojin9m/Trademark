@@ -14,6 +14,7 @@ Outcome classification (based on 1-month excess return):
 """
 
 import json
+import math
 import sys
 import uuid
 from datetime import datetime, timedelta
@@ -25,6 +26,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
 from src.db.schema import get_connection
+
+FACTOR_COLUMNS = [
+    "momentum_12m1m",
+    "eps_growth_yoy",
+    "revenue_growth_yoy",
+    "gross_margin_trend",
+    "relative_valuation",
+]
+
+
+def _sanitize_for_json(d: dict) -> dict:
+    """Replace NaN/Inf float values with None for safe JSON serialization."""
+    return {
+        k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+        for k, v in d.items()
+    }
 
 HORIZON_TRADING_DAYS = {
     "1w": 5,
@@ -86,6 +103,16 @@ def seed_outcomes_from_proposals() -> int:
     Uses the market close price on the proposal date as entry price.
     """
     con = get_connection()
+
+    # Sync stale proposal_status values from trade_proposals → decision_outcomes
+    con.execute("""
+        UPDATE decision_outcomes
+        SET proposal_status = tp.status
+        FROM trade_proposals tp
+        WHERE decision_outcomes.proposal_id = tp.proposal_id
+          AND decision_outcomes.proposal_status != tp.status
+    """)
+
     universe = pd.read_csv(settings.paths.universe_path)
     sector_map = dict(zip(universe["ticker"], universe.get("sub_sector", pd.Series())))
 
@@ -117,6 +144,20 @@ def seed_outcomes_from_proposals() -> int:
         if not match.empty:
             sub_sector_val = match.iloc[0]
 
+        factors = signal_data.get("factors", {})
+        if not factors or all(v is None for v in factors.values()):
+            row_fs = con.execute("""
+                SELECT momentum_12m1m, eps_growth_yoy, revenue_growth_yoy,
+                       gross_margin_trend, relative_valuation
+                FROM factor_scores
+                WHERE ticker = $1 AND date <= CAST($2 AS DATE)
+                ORDER BY date DESC LIMIT 1
+            """, [ticker, proposal_date]).fetchone()
+            if row_fs:
+                factors = dict(zip(FACTOR_COLUMNS, row_fs))
+
+        factors = _sanitize_for_json(factors)
+
         con.execute("""
             INSERT INTO decision_outcomes
             (proposal_id, ticker, action, decision_date, entry_price, shares,
@@ -138,7 +179,7 @@ def seed_outcomes_from_proposals() -> int:
             judge_response.get("confidence"),
             sub_sector_val,
             sector_map.get(ticker),
-            json.dumps(signal_data.get("factors", {})),
+            json.dumps(factors),
             status,
         ])
         seeded += 1
@@ -272,10 +313,10 @@ def get_outcome_summary() -> dict:
     sell_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND action IN ('SELL','TRIM')").fetchone()[0]
 
     # Breakdown by proposal status (approved vs rejected vs pending)
-    approved_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status = 'APPROVED'").fetchone()[0]
-    approved_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status = 'APPROVED'").fetchone()[0]
-    rejected_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status IN ('REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
-    rejected_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status IN ('REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
+    approved_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status IN ('APPROVED', 'JUDGE_APPROVED')").fetchone()[0]
+    approved_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status IN ('APPROVED', 'JUDGE_APPROVED')").fetchone()[0]
+    rejected_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status IN ('REJECTED', 'JUDGE_REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
+    rejected_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status IN ('REJECTED', 'JUDGE_REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
 
     con.close()
     return {

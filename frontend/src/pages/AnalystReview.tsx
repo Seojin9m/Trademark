@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 import {
   Loader2, BrainCircuit, TrendingUp, TrendingDown, Minus,
   ShieldAlert, Lightbulb, AlertTriangle, CheckCircle, RefreshCw,
-  FlaskConical, ChevronRight,
+  FlaskConical,
 } from "lucide-react"
 
 const STANCE_CONFIG = {
@@ -53,20 +53,45 @@ function Section({ icon: Icon, title, items, color }: {
   color: string
 }) {
   if (!items?.length) return null
+
+  const dotColor =
+    color === "text-profit" ? "bg-emerald-500" :
+    color === "text-primary" ? "bg-primary" :
+    color === "text-amber-400" ? "bg-amber-500" :
+    color === "text-loss" ? "bg-red-500" :
+    "bg-muted-foreground"
+
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-3">
         <Icon className={cn("h-4 w-4", color)} />
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <span className="text-[10px] text-muted-foreground/50">{items.length}</span>
       </div>
-      <ul className="space-y-1.5">
-        {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-foreground/80">
-            <ChevronRight className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} />
-            {item}
-          </li>
-        ))}
-      </ul>
+      <div className="space-y-2">
+        {items.map((item, i) => {
+          const dashIdx = item.indexOf(" — ")
+          const headline = dashIdx > -1 ? item.slice(0, dashIdx) : null
+          const detail = dashIdx > -1 ? item.slice(dashIdx + 3) : item
+
+          return (
+            <div
+              key={i}
+              className="rounded-lg border border-border/40 bg-muted/20 px-3.5 py-2.5"
+            >
+              <div className="flex items-start gap-2.5">
+                <div className={cn("h-1.5 w-1.5 rounded-full mt-1.5 shrink-0", dotColor)} />
+                <div className="min-w-0">
+                  {headline && (
+                    <p className="text-sm font-medium text-foreground mb-0.5">{headline}</p>
+                  )}
+                  <p className="text-sm text-foreground/70 leading-relaxed">{detail}</p>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -166,18 +191,22 @@ function ReviewDisplay({ review, onApplyToggle, applyPending }: {
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardContent>
-            <div className="space-y-4">
-              <Section icon={CheckCircle} title="Strengths" items={review.strengths} color="text-profit" />
-              <Section icon={Lightbulb} title="Opportunities" items={review.opportunities} color="text-primary" />
-            </div>
+            <Section icon={CheckCircle} title="Strengths" items={review.strengths} color="text-profit" />
           </CardContent>
         </Card>
         <Card>
           <CardContent>
-            <div className="space-y-4">
-              <Section icon={AlertTriangle} title="Concerns" items={review.concerns} color="text-amber-400" />
-              <Section icon={ShieldAlert} title="Risk Factors" items={review.risk_factors} color="text-loss" />
-            </div>
+            <Section icon={AlertTriangle} title="Concerns" items={review.concerns} color="text-amber-400" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Section icon={Lightbulb} title="Opportunities" items={review.opportunities} color="text-primary" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Section icon={ShieldAlert} title="Risk Factors" items={review.risk_factors} color="text-loss" />
           </CardContent>
         </Card>
       </div>
@@ -200,14 +229,29 @@ function ReviewDisplay({ review, onApplyToggle, applyPending }: {
                 ? "These instructions will be injected into the LLM judge on the next pipeline run."
                 : "Toggle \"Apply to pipeline\" above to inject these into the next pipeline run's judge."}
             </p>
-            <ul className="space-y-1.5">
-              {review.pipeline_guidance.map((g, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm">
-                  <ChevronRight className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", review.apply_to_pipeline ? "text-primary" : "text-muted-foreground")} />
-                  {g}
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-2">
+              {review.pipeline_guidance.map((g, i) => {
+                const dashIdx = g.indexOf(" — ")
+                const headline = dashIdx > -1 ? g.slice(0, dashIdx) : null
+                const detail = dashIdx > -1 ? g.slice(dashIdx + 3) : g
+                return (
+                  <div key={i} className="rounded-lg border border-border/40 bg-muted/20 px-3.5 py-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <div className={cn(
+                        "h-1.5 w-1.5 rounded-full mt-1.5 shrink-0",
+                        review.apply_to_pipeline ? "bg-primary" : "bg-muted-foreground",
+                      )} />
+                      <div className="min-w-0">
+                        {headline && (
+                          <p className="text-sm font-medium text-foreground mb-0.5">{headline}</p>
+                        )}
+                        <p className="text-sm text-foreground/70 leading-relaxed">{detail}</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </CardContent>
         </Card>
       )}

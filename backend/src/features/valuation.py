@@ -17,8 +17,13 @@ from src.db.schema import get_connection
 from config.settings import settings
 
 
+_val_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
+
 def _get_price_and_fundamentals(as_of_date: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Shared data fetch for valuation computations."""
+    if as_of_date in _val_cache:
+        p, f = _val_cache[as_of_date]
+        return p.copy(), f.copy()
     con = get_connection()
 
     prices = con.execute("""
@@ -53,7 +58,8 @@ def _get_price_and_fundamentals(as_of_date: str) -> tuple[pd.DataFrame, pd.DataF
     """, [str(as_of_date)]).fetchdf()
     con.close()
 
-    return prices, fundamentals
+    _val_cache[as_of_date] = (prices, fundamentals)
+    return prices.copy(), fundamentals.copy()
 
 
 def compute_relative_valuation(as_of_date: str | None = None) -> pd.DataFrame:

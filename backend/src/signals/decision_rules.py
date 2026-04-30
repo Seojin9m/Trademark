@@ -369,6 +369,18 @@ def generate_signals(
                     "gate_note": gate_note,
                 })
 
+    # --- Vol-adjusted position sizing for buy signals ---
+    if buy_signals and adaptive_params:
+        try:
+            from src.learning.adaptive import compute_vol_adjusted_weights
+            base_targets = {s["ticker"]: s["target_weight"] for s in buy_signals}
+            adjusted = compute_vol_adjusted_weights(base_targets, position_scalar)
+            for s in buy_signals:
+                if s["ticker"] in adjusted:
+                    s["target_weight"] = adjusted[s["ticker"]]
+        except Exception:
+            pass
+
     # --- Rotation: find weak holdings to fund stronger buys ---
     rotate_signals = []
     if buy_signals and not buys_blocked:
