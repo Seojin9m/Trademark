@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { usePipeline } from "@/contexts/pipeline-context"
+import { useAnalyst } from "@/contexts/analyst-context"
 import { api } from "@/lib/api"
 import type { Proposal } from "@/lib/api"
 import {
@@ -36,6 +37,7 @@ const navItems = [
 
 export function Sidebar() {
   const { running } = usePipeline()
+  const { analyzing } = useAnalyst()
 
   const { data: proposals } = useQuery<Proposal[]>({
     queryKey: ["proposals"],
@@ -76,6 +78,9 @@ export function Sidebar() {
               <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-semibold px-1.5">
                 {pendingCount}
               </span>
+            )}
+            {to === "/analyst" && analyzing && (
+              <span className="ml-auto h-2 w-2 rounded-full bg-primary animate-pulse-dot" />
             )}
             {to === "/pipeline" && running && (
               <span className="ml-auto h-2 w-2 rounded-full bg-primary animate-pulse-dot" />

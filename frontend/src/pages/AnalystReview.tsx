@@ -7,6 +7,7 @@ import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/contexts/toast-context"
+import { useAnalyst } from "@/contexts/analyst-context"
 import { cn } from "@/lib/utils"
 import {
   Loader2, BrainCircuit, TrendingUp, TrendingDown, Minus,
@@ -273,28 +274,18 @@ const THINKING_STEPS = [
 ]
 
 function AnalysisLoadingState() {
-  const [visibleCount, setVisibleCount] = useState(1)
+  const { visibleSteps } = useAnalyst()
   const [cursorVisible, setCursorVisible] = useState(true)
   const logRef = useRef<HTMLDivElement>(null)
 
-  // Advance one step every ~1.8 s, then hold on the last one
-  useEffect(() => {
-    const id = setInterval(() => {
-      setVisibleCount((n) => (n < THINKING_STEPS.length ? n + 1 : n))
-    }, 1800)
-    return () => clearInterval(id)
-  }, [])
-
-  // Blink the cursor
   useEffect(() => {
     const id = setInterval(() => setCursorVisible((v) => !v), 530)
     return () => clearInterval(id)
   }, [])
 
-  // Auto-scroll the log as new lines appear
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [visibleCount])
+  }, [visibleSteps])
 
   return (
     <div className="space-y-4">
@@ -319,9 +310,9 @@ function AnalysisLoadingState() {
           className="px-4 py-3 space-y-1.5 font-mono text-xs overflow-y-auto"
           style={{ minHeight: 180, maxHeight: 260 }}
         >
-          {THINKING_STEPS.slice(0, visibleCount).map((step, i) => {
-            const isLast = i === visibleCount - 1
-            const isDone = i < visibleCount - 1
+          {THINKING_STEPS.slice(0, visibleSteps).map((step, i) => {
+            const isLast = i === visibleSteps - 1
+            const isDone = i < visibleSteps - 1
             return (
               <div
                 key={i}
@@ -399,19 +390,11 @@ function AnalysisLoadingState() {
 export default function AnalystReview() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { analyzing, requestAnalysis } = useAnalyst()
 
   const { data, isLoading } = useQuery({
     queryKey: ["analyst-review"],
     queryFn: api.getAnalystReview,
-  })
-
-  const requestMutation = useMutation({
-    mutationFn: api.requestAnalystReview,
-    onSuccess: (review) => {
-      queryClient.setQueryData(["analyst-review"], { review })
-      toast("success", "Analysis Complete", `Stance: ${review.overall_stance} · Health: ${review.portfolio_health_score}/100`)
-    },
-    onError: (e: Error) => toast("error", "Analysis Failed", e.message.replace(/^Error:\s*/, "")),
   })
 
   const applyMutation = useMutation({
@@ -444,26 +427,24 @@ export default function AnalystReview() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => requestMutation.mutate()}
-                disabled={requestMutation.isPending}
+                onClick={requestAnalysis}
+                disabled={analyzing}
                 className="text-muted-foreground"
               >
-                {requestMutation.isPending
+                {analyzing
                   ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                 Re-analyse
               </Button>
             )}
-            {!review && (
+            {!review && !analyzing && (
               <Button
-                onClick={() => requestMutation.mutate()}
-                disabled={requestMutation.isPending}
+                onClick={requestAnalysis}
+                disabled={analyzing}
                 className="bg-primary/90 hover:bg-primary"
               >
-                {requestMutation.isPending
-                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  : <BrainCircuit className="mr-2 h-4 w-4" />}
-                {requestMutation.isPending ? "Analysing portfolio..." : "Request Analysis"}
+                <BrainCircuit className="mr-2 h-4 w-4" />
+                Request Analysis
               </Button>
             )}
           </div>
@@ -477,9 +458,9 @@ export default function AnalystReview() {
         </div>
       )}
 
-      {requestMutation.isPending && <AnalysisLoadingState />}
+      {analyzing && <AnalysisLoadingState />}
 
-      {!isLoading && !requestMutation.isPending && !review && (
+      {!isLoading && !analyzing && !review && (
         <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
           <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20">
             <BrainCircuit className="h-8 w-8 text-primary" />
@@ -492,7 +473,7 @@ export default function AnalystReview() {
             </p>
           </div>
           <Button
-            onClick={() => requestMutation.mutate()}
+            onClick={requestAnalysis}
             className="bg-primary/90 hover:bg-primary mt-2"
           >
             <BrainCircuit className="mr-2 h-4 w-4" />
@@ -501,7 +482,7 @@ export default function AnalystReview() {
         </div>
       )}
 
-      {review && !requestMutation.isPending && (
+      {review && !analyzing && (
         <ReviewDisplay
           review={review}
           onApplyToggle={() => applyMutation.mutate(!review.apply_to_pipeline)}

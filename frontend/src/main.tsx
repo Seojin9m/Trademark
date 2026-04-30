@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import { BrowserRouter } from "react-router-dom"
 import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query"
 import { PipelineProvider } from "./contexts/pipeline-context"
+import { AnalystProvider } from "./contexts/analyst-context"
 import { ToastProvider } from "./contexts/toast-context"
 import "./index.css"
 import App from "./App"
@@ -41,7 +42,9 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <ToastProvider>
           <PipelineProvider>
-            <App />
+            <AnalystProvider>
+              <App />
+            </AnalystProvider>
           </PipelineProvider>
         </ToastProvider>
       </BrowserRouter>

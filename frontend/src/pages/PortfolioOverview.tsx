@@ -929,12 +929,14 @@ export default function PortfolioOverview() {
       </Card>
 
       {/* P&L Bar Chart + Return % Chart */}
-      {positions.length > 0 && (
+      {positions.length > 0 && (() => {
+        const chartHeight = Math.max(200, pnlChartData.length * 36)
+        return (
         <div className="grid grid-cols-2 gap-4 mb-4">
           <Card>
             <CardTitle>P&L by Position</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={Math.max(160, pnlChartData.length * 36)}>
+              <ResponsiveContainer width="100%" height={chartHeight}>
                 <BarChart data={pnlChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
                   <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
                   <XAxis
@@ -976,7 +978,7 @@ export default function PortfolioOverview() {
           <Card>
             <CardTitle>Return % by Position</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
+              <ResponsiveContainer width="100%" height={chartHeight}>
                 <BarChart data={returnChartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                   <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
                   <XAxis
@@ -999,7 +1001,7 @@ export default function PortfolioOverview() {
                     cursor={{ fill: "rgba(99, 102, 241, 0.08)" }}
                   />
                   <ReferenceLine y={0} stroke="#3f3f46" />
-                  <Bar dataKey="return_pct" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                  <Bar dataKey="return_pct" radius={[4, 4, 0, 0]}>
                     {returnChartData.map((entry, i) => (
                       <Cell key={i} fill={entry.fill} />
                     ))}
@@ -1009,7 +1011,8 @@ export default function PortfolioOverview() {
             </CardContent>
           </Card>
         </div>
-      )}
+        )
+      })()}
 
       {/* Financial Statistics */}
       {positions.length > 0 && (
