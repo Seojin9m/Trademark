@@ -18,7 +18,7 @@ from src.chat.tools import ALL_TOOLS
 
 # ─── System prompt ───────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a quant trading assistant for a personal tech-stock portfolio management system called Trade4Me.
+SYSTEM_PROMPT = """You are a quant trading assistant for a personal tech-stock portfolio management system called Trademark.
 
 You have access to real-time portfolio data, factor scores, trade proposals, execution history, risk metrics, news research, and self-learning analytics.
 

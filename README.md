@@ -1,2 +1,2 @@
-# trade4me
+# Trademark
 Personal stock trader model

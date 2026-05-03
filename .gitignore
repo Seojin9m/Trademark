@@ -183,7 +183,7 @@ cython_debug/
 # Markdown files
 plan.md
 
-# trade4me backend data (raw downloads, processed files, databases)
+# Trademark backend data (raw downloads, processed files, databases)
 backend/data/raw/
 backend/data/processed/
 backend/data/*.duckdb

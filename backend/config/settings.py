@@ -34,7 +34,7 @@ class PathSettings(BaseSettings):
     portfolio_state_path: Path = PROJECT_ROOT / "data" / "portfolio_state.json"
     universe_path: Path = PROJECT_ROOT / "config" / "universe.csv"
     factor_weights_path: Path = PROJECT_ROOT / "config" / "factor_weights.json"
-    duckdb_path: Path = PROJECT_ROOT / "data" / "trade4me.duckdb"
+    duckdb_path: Path = PROJECT_ROOT / "data" / "trademark.duckdb"
     judge_log_path: Path = PROJECT_ROOT / "logs" / "judge_log.db"
 
 

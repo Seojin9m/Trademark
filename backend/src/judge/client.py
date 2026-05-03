@@ -458,7 +458,7 @@ def evaluate_all_proposals(
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import logging
-    _log = logging.getLogger("trade4me")
+    _log = logging.getLogger("trademark")
 
     def _judge_one(p: dict) -> tuple[dict, JudgeOutput]:
         _log.info(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")

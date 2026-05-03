@@ -96,7 +96,7 @@ def get_live_prices(tickers: list[str], portfolio: dict | None = None) -> dict[s
 
     return prices
 
-logger = logging.getLogger("trade4me")
+logger = logging.getLogger("trademark")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -110,7 +110,7 @@ async def lifespan(_: FastAPI):
     init_db()
     yield
 
-app = FastAPI(title="trade4me API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Trademark API", version="2.0.0", lifespan=lifespan)
 
 
 @app.exception_handler(Exception)

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from config.settings import settings
 from src.research.schema import NewsResearch, BinaryEvent
 
-logger = logging.getLogger("trade4me.research")
+logger = logging.getLogger("trademark.research")
 
 SUMMARIZER_SYSTEM = """You are a financial news research assistant. Given news headlines and snippets about a stock, produce a structured research summary.
 

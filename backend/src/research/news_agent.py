@@ -13,7 +13,7 @@ from ddgs import DDGS
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-logger = logging.getLogger("trade4me.research")
+logger = logging.getLogger("trademark.research")
 
 # Trusted financial news sources.  DuckDuckGo returns a short "source" string
 # (e.g. "Reuters", "Yahoo Finance").  We lowercase-match against these tokens

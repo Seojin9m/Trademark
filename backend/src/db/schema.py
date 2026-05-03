@@ -1,4 +1,4 @@
-"""DuckDB schema initialization for trade4me."""
+"""DuckDB schema initialization for Trademark."""
 
 import time
 import duckdb

@@ -402,8 +402,8 @@ def fetch_url(url: str) -> str:
             url,
             headers={
                 "User-Agent": (
-                    "Mozilla/5.0 (compatible; Trade4MeBot/1.0; "
-                    "+https://github.com/trade4me)"
+                    "Mozilla/5.0 (compatible; TrademarkBot/1.0; "
+                    "+https://github.com/trademark)"
                 ),
                 "Accept": "text/html,application/xhtml+xml",
             },

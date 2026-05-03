@@ -1,4 +1,4 @@
-"""Daily job orchestration for trade4me.
+"""Daily job orchestration for Trademark.
 
 Runs the full EOD pipeline:
 1. Ingest latest prices from Polygon.io

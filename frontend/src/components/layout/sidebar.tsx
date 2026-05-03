@@ -54,7 +54,7 @@ export function Sidebar() {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15">
           <span className="text-sm font-semibold text-primary">$</span>
         </div>
-        <span className="text-base font-semibold tracking-tight">trade4me</span>
+        <span className="text-base font-semibold tracking-tight">Trademark</span>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 pt-4">

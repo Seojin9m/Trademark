@@ -1,4 +1,4 @@
-"""Streamlit dashboard for trade4me."""
+"""Streamlit dashboard for Trademark."""
 
 import json
 import sys
@@ -23,7 +23,7 @@ from src.signals.portfolio_engine import (
 from src.simulation.pnl import compute_pnl
 from src.judge.client import get_judge_log
 
-st.set_page_config(page_title="trade4me", layout="wide", page_icon="$")
+st.set_page_config(page_title="Trademark", layout="wide", page_icon="$")
 
 init_db()
 
@@ -31,7 +31,7 @@ init_db()
 # --- Sidebar Navigation ---
 page = st.sidebar.radio(
     "Navigation",
-    ["Portfolio Overview", "Signal Dashboard", "Pending Trades",
+    ["Portfolio", "Signal Dashboard", "Pending Trades",
      "Decision Log", "Risk Monitor", "Backtest Results"],
 )
 
@@ -40,10 +40,10 @@ st.sidebar.caption(f"Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 
 # ============================================================
-# Page 1: Portfolio Overview
+# Page 1: Portfolio
 # ============================================================
-if page == "Portfolio Overview":
-    st.title("Portfolio Overview")
+if page == "Portfolio":
+    st.title("Portfolio")
 
     portfolio = load_portfolio_state()
     tickers = [p["ticker"] for p in portfolio["positions"]]

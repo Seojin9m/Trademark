@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/contexts/toast-context"
 import { api } from "@/lib/api"
-import type { PortfolioData, PortfolioSnapshot, QuarterlyFundamental, HoldingTime } from "@/lib/api"
+import type { PortfolioData, PortfolioSnapshot, QuarterlyFundamental, HoldingTime, BrokerageStatus } from "@/lib/api"
 import { formatPercent, pnlColor, cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
@@ -662,6 +662,13 @@ export default function PortfolioOverview() {
     queryFn: api.getHoldingTimes,
     staleTime: 60 * 1000,
   })
+
+  const { data: brokerageStatus } = useQuery<BrokerageStatus>({
+    queryKey: ["brokerage-status"],
+    queryFn: api.getBrokerageStatus,
+    staleTime: 60 * 1000,
+  })
+  const brokerageConnected = brokerageStatus?.connected ?? false
   const holdMap = new Map((holdingTimes ?? []).map((h) => [h.ticker, h]))
 
   const rate = currency === "CAD" ? (rateData?.rate ?? 1.38) : 1
@@ -718,10 +725,24 @@ export default function PortfolioOverview() {
     </div>
   )
 
+  const portfolioTitle = (
+    <>
+      Portfolio
+      {brokerageConnected && (
+        <img
+          src="/brokerages/wealthsimple_logo.jpg"
+          alt="Wealthsimple"
+          className="h-7 w-7 rounded-lg object-cover border border-border/40"
+          title="Connected to Wealthsimple"
+        />
+      )}
+    </>
+  )
+
   if (isLoading) {
     return (
       <>
-        <PageHeader title="Portfolio Overview" actions={toggleActions} />
+        <PageHeader title={portfolioTitle} actions={toggleActions} />
         <div className="grid grid-cols-4 gap-3 mb-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-28 rounded-xl border border-border/60 bg-card animate-shimmer" />
@@ -739,7 +760,7 @@ export default function PortfolioOverview() {
   if (error || !data) {
     return (
       <PageHeader
-        title="Portfolio Overview"
+        title="Portfolio"
         description="Failed to load portfolio data. Is the backend running on port 8000?"
         actions={toggleActions}
       />
@@ -885,7 +906,7 @@ export default function PortfolioOverview() {
   return (
     <>
       <style>{slotCSS + flashCSS + financialChartCSS}</style>
-      <PageHeader title="Portfolio Overview" actions={toggleActions} />
+      <PageHeader title={portfolioTitle} actions={toggleActions} />
 
       {/* Metric Cards */}
       <div className="grid grid-cols-4 gap-3 mb-4">

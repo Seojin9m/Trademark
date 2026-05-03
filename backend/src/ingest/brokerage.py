@@ -104,7 +104,7 @@ def get_connection_status() -> dict:
         return {"connected": False, "status": f"error: {e}", "accounts": []}
 
 
-def register_user(user_id: str = "trade4me-user") -> dict:
+def register_user(user_id: str = "trademark-user") -> dict:
     """Register a SnapTrade user (one-time setup).
 
     Returns the user state with userId and userSecret.
