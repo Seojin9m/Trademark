@@ -1,45 +1,71 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-card: #111113;
-  --color-card-foreground: #fafafa;
-  --color-popover: #111113;
-  --color-popover-foreground: #fafafa;
-  --color-primary: #6366f1;
-  --color-primary-foreground: #fafafa;
-  --color-secondary: #1a1a2e;
-  --color-secondary-foreground: #fafafa;
-  --color-muted: #18181b;
-  --color-muted-foreground: #71717a;
-  --color-accent: #1c1c28;
-  --color-accent-foreground: #fafafa;
-  --color-destructive: #ef4444;
-  --color-border: #1f1f2e;
-  --color-input: #27272a;
-  --color-ring: #6366f1;
-  --color-profit: #10b981;
-  --color-loss: #f43f5e;
-  --color-warn: #f59e0b;
-  --color-neutral: #737373;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
+  /* Neon terminal dark theme */
+  --color-background: #0a0d0a;
+  --color-foreground: #e8efe6;
+  --color-card: #0f1310;
+  --color-card-foreground: #e8efe6;
+  --color-popover: #0f1310;
+  --color-popover-foreground: #e8efe6;
+  --color-primary: #c5fb45;
+  --color-primary-foreground: #0a0d0a;
+  --color-secondary: #131815;
+  --color-secondary-foreground: #e8efe6;
+  --color-muted: #131815;
+  --color-muted-foreground: #7a8479;
+  --color-accent: #131815;
+  --color-accent-foreground: #e8efe6;
+  --color-destructive: #ff6b6b;
+  --color-border: #1d231e;
+  --color-input: #1d231e;
+  --color-ring: #c5fb45;
+
+  --color-profit: #7ee787;
+  --color-loss: #ff6b6b;
+  --color-warn: #fbbf24;
+  --color-neutral: #7a8479;
+  --color-info: #6cb4ee;
+
+  --color-surface: #0f1310;
+  --color-surface-2: #131815;
+  --color-bg-2: #0d1110;
+  --color-line: #1d231e;
+  --color-line-2: #262d27;
+  --color-fg-dim: #b3bcb1;
+  --color-muted-2: #525a52;
+  --color-accent-dim: #8fb12f;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --font-sans: 'Inter Tight', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #27272a transparent;
+  scrollbar-color: #262d27 transparent;
 }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #262d27; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #525a52; }
+
+::selection { background: #c5fb45; color: #0a0d0a; }
 
 body {
   margin: 0;
   background-color: var(--color-background);
   color: var(--color-foreground);
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
 }
 
 #root {
@@ -47,7 +73,8 @@ body {
 }
 
 .font-mono {
-  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'cv11';
 }
 
 @keyframes shimmer {
@@ -56,9 +83,9 @@ body {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.04), transparent);
+  background: linear-gradient(90deg, var(--color-surface), var(--color-surface-2), var(--color-surface));
   background-size: 200% 100%;
-  animation: shimmer 2s infinite;
+  animation: shimmer 1.4s infinite;
 }
 
 @keyframes fade-in {
@@ -67,7 +94,7 @@ body {
 }
 
 .animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+  animation: fade-in 0.25s ease-out;
 }
 
 @keyframes pulse-dot {
@@ -76,5 +103,32 @@ body {
 }
 
 .animate-pulse-dot {
-  animation: pulse-dot 1.5s ease-in-out infinite;
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(197, 251, 69, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(197, 251, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(197, 251, 69, 0); }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s steps(2) infinite;
+}
+
+@keyframes icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-icon-spin {
+  animation: icon-spin 1s linear infinite;
 }
