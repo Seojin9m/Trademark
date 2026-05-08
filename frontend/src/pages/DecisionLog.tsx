@@ -8,25 +8,81 @@ import { DataTable } from "@/components/ui/data-table"
 import { MetricCard } from "@/components/ui/metric-card"
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 
+type StatusVariant = "profit" | "loss" | "warn" | "accent" | "muted"
+
+// Colors for known verdict types. Per-proposal verdicts are approve/reject/
+// needs_review; portfolio-level verdicts are agree/disagree (judge weighing
+// in on the pipeline's overall HOLD/STAY decision). Any unknown verdict
+// falls back to a neutral gray so the pie still renders sensibly.
 const VERDICT_COLORS: Record<string, string> = {
-  approve: "#22c55e",
-  reject: "#ef4444",
-  needs_review: "#f59e0b",
+  approve: "#7ee787",
+  agree: "#7ee787",
+  reject: "#ff6b6b",
+  disagree: "#fbbf24",
+  needs_review: "#fbbf24",
+  review: "#fbbf24",
 }
+const FALLBACK_VERDICT_COLOR = "#525a52"
 
 const tooltipStyle = {
-  backgroundColor: "#111113",
-  border: "1px solid #1f1f2e",
-  borderRadius: "0.75rem",
-  color: "#fafafa",
+  backgroundColor: "#0f1310",
+  border: "1px solid #262d27",
+  borderRadius: "6px",
+  color: "#e8efe6",
   fontSize: "12px",
-  boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+  fontFamily: "'JetBrains Mono', monospace",
+  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+}
+
+function statusVariant(status: string): StatusVariant {
+  switch (status) {
+    case "EXECUTED":
+    case "APPROVED":
+      return "profit"
+    case "REJECTED":
+    case "JUDGE_REJECTED":
+      return "loss"
+    case "JUDGE_APPROVED":
+      return "accent"
+    case "PENDING":
+    case "NEEDS_REVIEW":
+      return "warn"
+    default:
+      return "muted"
+  }
+}
+
+function verdictVariant(verdict: string): StatusVariant {
+  const v = verdict.toLowerCase()
+  if (v === "approve") return "profit"
+  if (v === "reject") return "loss"
+  if (v === "needs_review") return "warn"
+  return "muted"
+}
+
+function formatDate(ts: string): string {
+  if (!ts) return ""
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts.slice(0, 10)
+  return d.toISOString().slice(0, 10)
+}
+
+function formatDateTime(ts: string): string {
+  if (!ts) return ""
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  const hh = String(d.getHours()).padStart(2, "0")
+  const mi = String(d.getMinutes()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
 }
 
 export default function DecisionLog() {
   const { data: proposals, isLoading: loadingProposals } = useQuery<Proposal[]>({
     queryKey: ["proposals-log"],
-    queryFn: () => api.getProposals(undefined, 100),
+    queryFn: () => api.getProposals(undefined, 20),
   })
 
   const { data: judgeLog, isLoading: loadingJudge } = useQuery<JudgeLogEntry[]>({
@@ -38,9 +94,14 @@ export default function DecisionLog() {
     return (
       <>
         <PageHeader title="Decision Log" />
-        <div className="space-y-6">
+        <div className="grid grid-cols-4 gap-4 mb-[18px]">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-24 rounded-md border border-line bg-surface animate-shimmer" />
+          ))}
+        </div>
+        <div className="space-y-4">
           {[0, 1].map((i) => (
-            <div key={i} className="h-48 rounded-xl border border-border/60 bg-card animate-shimmer" />
+            <div key={i} className="h-48 rounded-md border border-line bg-surface animate-shimmer" />
           ))}
         </div>
       </>
@@ -51,37 +112,60 @@ export default function DecisionLog() {
   const allJudge = judgeLog || []
 
   const verdictCounts = allJudge.reduce<Record<string, number>>((acc, e) => {
-    acc[e.verdict] = (acc[e.verdict] || 0) + 1
+    const k = e.verdict.toLowerCase()
+    acc[k] = (acc[k] || 0) + 1
     return acc
   }, {})
-  const pieData = Object.entries(verdictCounts).map(([name, value]) => ({ name, value }))
+
+  const totalVerdicts = allJudge.length
+
+  // Approved / rejected groupings combine per-proposal and portfolio-level
+  // semantics so the metric cards still show meaningful numbers regardless of
+  // whether the judge was reviewing trades or a HOLD decision.
+  const approvedCount = (verdictCounts.approve || 0) + (verdictCounts.agree || 0)
+  const rejectedCount = (verdictCounts.reject || 0) + (verdictCounts.disagree || 0)
+  const reviewCount = (verdictCounts.needs_review || 0) + (verdictCounts.review || 0)
+
+  // Build pie data dynamically from whatever verdicts exist, sorted by count.
+  const pieData = Object.entries(verdictCounts)
+    .map(([key, value]) => ({
+      name: key,
+      label: key.replace(/_/g, " ").toUpperCase(),
+      value,
+      color: VERDICT_COLORS[key] ?? FALLBACK_VERDICT_COLOR,
+    }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value)
+
   const avgConfidence = allJudge.length > 0
     ? allJudge.reduce((sum, e) => sum + e.confidence, 0) / allJudge.length
     : 0
+
+  const pct = (n: number) => totalVerdicts > 0 ? `${((n / totalVerdicts) * 100).toFixed(0)}% of all` : "—"
 
   const proposalColumns = [
     {
       key: "id",
       header: "ID",
       render: (p: Proposal) => (
-        <span className="text-xs text-muted-foreground">{p.proposal_id.slice(0, 8)}</span>
+        <span className="text-muted-2">{p.proposal_id.slice(0, 8)}</span>
       ),
     },
     {
       key: "date",
       header: "Date",
-      render: (p: Proposal) => <span className="text-xs">{p.created_at}</span>,
+      render: (p: Proposal) => <span>{formatDate(p.created_at)}</span>,
     },
     {
       key: "ticker",
       header: "Ticker",
-      render: (p: Proposal) => <span className="font-semibold">{p.ticker}</span>,
+      render: (p: Proposal) => <span className="font-semibold text-foreground">{p.ticker}</span>,
     },
     {
       key: "action",
       header: "Action",
       render: (p: Proposal) => (
-        <Badge variant={p.action === "BUY" ? "profit" : "loss"}>{p.action}</Badge>
+        <Badge variant={p.action === "BUY" || p.action === "ADD" ? "profit" : "loss"}>{p.action}</Badge>
       ),
     },
     {
@@ -93,82 +177,157 @@ export default function DecisionLog() {
     {
       key: "status",
       header: "Status",
-      render: (p: Proposal) => <Badge variant="muted">{p.status}</Badge>,
+      render: (p: Proposal) => <Badge variant={statusVariant(p.status)}>{p.status}</Badge>,
     },
     {
       key: "human",
-      header: "Human",
+      header: "Human Decision",
       render: (p: Proposal) => (
-        <span className="text-xs text-muted-foreground">{p.human_decision || "-"}</span>
+        <span className="text-muted-2">{p.human_decision || "—"}</span>
       ),
     },
   ]
 
   const judgeColumns = [
     {
-      key: "date",
-      header: "Date",
-      render: (e: JudgeLogEntry) => <span className="text-xs">{e.created_at}</span>,
+      key: "id",
+      header: "ID",
+      render: (e: JudgeLogEntry) => (
+        <span className="text-muted-2">{e.log_id.slice(0, 8)}</span>
+      ),
     },
     {
-      key: "ticker",
-      header: "Ticker",
-      render: (e: JudgeLogEntry) => <span className="font-semibold">{e.ticker}</span>,
+      key: "time",
+      header: "Time",
+      render: (e: JudgeLogEntry) => <span>{formatDateTime(e.created_at)}</span>,
+    },
+    {
+      key: "target",
+      header: "Target",
+      render: (e: JudgeLogEntry) => (
+        <span className="font-semibold text-foreground">{e.ticker}</span>
+      ),
     },
     {
       key: "action",
       header: "Action",
       render: (e: JudgeLogEntry) => (
-        <Badge variant={e.action === "BUY" ? "profit" : "loss"}>{e.action}</Badge>
+        <Badge variant={e.action === "BUY" || e.action === "ADD" ? "profit" : "loss"}>{e.action}</Badge>
       ),
     },
     {
       key: "verdict",
       header: "Verdict",
       render: (e: JudgeLogEntry) => (
-        <Badge variant={e.verdict === "approve" ? "profit" : e.verdict === "reject" ? "loss" : "warn"}>
-          {e.verdict}
-        </Badge>
+        <Badge variant={verdictVariant(e.verdict)}>{e.verdict.toUpperCase()}</Badge>
       ),
     },
     {
       key: "confidence",
       header: "Confidence",
       align: "right" as const,
-      render: (e: JudgeLogEntry) => (
-        <span>{(e.confidence * 100).toFixed(0)}%</span>
-      ),
+      render: (e: JudgeLogEntry) => <span>{e.confidence.toFixed(2)}</span>,
     },
     {
       key: "model",
       header: "Model",
       render: (e: JudgeLogEntry) => (
-        <span className="text-xs text-muted-foreground">{e.model_used}</span>
+        <span className="text-muted-2">{e.model_used}</span>
       ),
     },
   ]
 
   return (
     <>
-      <PageHeader title="Decision Log" description="All proposals and judge decisions" />
+      <PageHeader
+        title="Decision Log"
+        description="Audit trail of every proposal and judge verdict"
+      />
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <MetricCard label="Total Proposals" value={String(allProposals.length)} />
-        <MetricCard label="Judge Decisions" value={String(allJudge.length)} />
+      <div className="grid grid-cols-4 gap-4 mb-[18px]">
         <MetricCard
-          label="Avg Confidence"
-          value={`${(avgConfidence * 100).toFixed(0)}%`}
+          label="Approved"
+          value={String(approvedCount)}
+          sub={pct(approvedCount)}
         />
-        <MetricCard label="Approval Rate" value={
-          allJudge.length > 0
-            ? `${((verdictCounts["approve"] || 0) / allJudge.length * 100).toFixed(0)}%`
-            : "N/A"
-        } />
+        <MetricCard
+          label="Rejected"
+          value={String(rejectedCount)}
+          sub={pct(rejectedCount)}
+        />
+        <MetricCard
+          label="Needs Review"
+          value={String(reviewCount)}
+          sub={pct(reviewCount)}
+        />
+        <MetricCard
+          accent
+          label="Avg Confidence"
+          value={avgConfidence.toFixed(2)}
+          sub="trailing 30d"
+        />
       </div>
 
-      <Card className="mb-6">
-        <CardTitle>Trade Proposals</CardTitle>
-        <CardContent>
+      <div className="grid gap-4 mb-4" style={{ gridTemplateColumns: "1fr 2fr" }}>
+        <Card>
+          <CardTitle meta={`${totalVerdicts} total`}>Judge Verdicts</CardTitle>
+          <CardContent>
+            {pieData.length > 0 ? (
+              <div className="flex items-center gap-4">
+                <div className="relative shrink-0" style={{ width: 150, height: 150 }}>
+                  <ResponsiveContainer width={150} height={150}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={42}
+                        outerRadius={68}
+                        dataKey="value"
+                        nameKey="name"
+                        stroke="none"
+                        paddingAngle={2}
+                      >
+                        {pieData.map((d) => (
+                          <Cell key={d.name} fill={d.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value, _name, item) => [`${value}`, (item?.payload as { label: string })?.label || ""]}
+                        contentStyle={tooltipStyle}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="font-mono text-[16px] font-medium tabular-nums text-foreground">
+                      {totalVerdicts}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex-1 font-mono text-[12px] space-y-0.5">
+                  {pieData.map((d) => (
+                    <div key={d.name} className="flex items-center gap-2 py-1">
+                      <span
+                        className="inline-block h-[10px] w-[10px] rounded-[2px]"
+                        style={{ backgroundColor: d.color }}
+                      />
+                      <span className="flex-1 text-fg-dim">{d.label}</span>
+                      <span className="tabular-nums text-foreground">{d.value}</span>
+                      <span className="tabular-nums text-muted-2 min-w-[38px] text-right">
+                        {totalVerdicts > 0 ? `${((d.value / totalVerdicts) * 100).toFixed(0)}%` : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-12">No verdicts yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardTitle meta={`${allProposals.length} most recent`}>Proposals</CardTitle>
           <DataTable
             columns={proposalColumns}
             data={allProposals}
@@ -176,69 +335,19 @@ export default function DecisionLog() {
             emptyMessage="No proposals logged yet."
             compact
           />
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-3 gap-6">
-        <Card className="col-span-2">
-          <CardTitle>LLM Judge Log</CardTitle>
-          <CardContent>
-            <DataTable
-              columns={judgeColumns}
-              data={allJudge}
-              rowKey={(e) => e.log_id}
-              emptyMessage="No judge decisions logged yet."
-              compact
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardTitle>Verdict Distribution</CardTitle>
-          <CardContent>
-            {pieData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={85}
-                      dataKey="value"
-                      nameKey="name"
-                      stroke="none"
-                      paddingAngle={2}
-                    >
-                      {pieData.map((d) => (
-                        <Cell key={d.name} fill={VERDICT_COLORS[d.name] || "#a1a1aa"} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={tooltipStyle} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="mt-3 space-y-2">
-                  {pieData.map((d) => (
-                    <div key={d.name} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="inline-block h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: VERDICT_COLORS[d.name] || "#a1a1aa" }}
-                        />
-                        <span className="text-muted-foreground capitalize">{d.name}</span>
-                      </div>
-                      <span className="font-medium">{d.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-12">No data yet</p>
-            )}
-          </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardTitle meta="LLM evaluation history">Judge Log</CardTitle>
+        <DataTable
+          columns={judgeColumns}
+          data={allJudge}
+          rowKey={(e) => e.log_id}
+          emptyMessage="No judge decisions logged yet."
+          compact
+        />
+      </Card>
     </>
   )
 }

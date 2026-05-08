@@ -4,11 +4,11 @@ import { api } from "@/lib/api"
 import type { Proposal } from "@/lib/api"
 import { usePipeline } from "@/contexts/pipeline-context"
 import { PageHeader } from "@/components/layout/page-header"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MetricCard } from "@/components/ui/metric-card"
-import { Check, X, ChevronDown, ChevronUp, Clock, ShieldCheck, Sparkles, Trash2 } from "lucide-react"
+import { Check, X, ChevronDown, ChevronRight, ShieldAlert, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/contexts/toast-context"
 
@@ -140,7 +140,7 @@ function actionBadgeClasses(action: string): string {
     return "bg-loss/15 text-loss border-loss/30"
   }
   if (a === "HOLD" || a === "STAY") {
-    return "bg-blue-500/15 text-blue-400 border-blue-500/30"
+    return "bg-info/15 text-info border-info/30"
   }
   return ""
 }
@@ -443,120 +443,110 @@ function TradeCard({
   const signalHasContent = signal && Object.keys(signal).length > 0
   const judgeHasContent = judge && Object.keys(judge).length > 0
 
+  const isBuy = proposal.action === "BUY" || proposal.action === "ADD"
+
   return (
-    <div className="rounded-lg border border-border/40 bg-card/50 px-5 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "inline-flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold",
-              proposal.action === "BUY" || proposal.action === "ADD"
-                ? "bg-profit/15 text-profit"
-                : "bg-loss/15 text-loss",
-            )}
-          >
-            {proposal.action}
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-base font-semibold">{proposal.ticker}</span>
-              <span className="text-sm text-muted-foreground">
-                {proposal.shares} shares
-              </span>
-            </div>
-            {proposal.reason && (
-              <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl truncate">
-                {proposal.reason}
-              </p>
-            )}
-            {proposal.human_decision && (
-              <p className="text-xs text-muted-foreground/60 mt-0.5">{proposal.human_decision}</p>
-            )}
+    <div className="border-b border-line last:border-b-0">
+      <div
+        className="grid items-center gap-[14px] px-4 py-[14px]"
+        style={{ gridTemplateColumns: "70px 90px 1fr auto auto" }}
+      >
+        <Badge variant={isBuy ? "profit" : "loss"}>
+          {isBuy ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />}
+          {proposal.action}
+        </Badge>
+
+        <div>
+          <div className="font-mono text-[15px] font-semibold text-foreground leading-tight">
+            {proposal.ticker}
+          </div>
+          <div className="font-mono text-[10px] text-muted-foreground">
+            {proposal.shares} shares
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Badge variant={statusVariant(proposal.status)}>{proposal.status}</Badge>
+        <div className="text-[12px] leading-[1.5] text-fg-dim min-w-0">
+          {proposal.reason || <span className="text-muted-2 italic">No reason provided</span>}
+          {proposal.human_decision && (
+            <div className="text-[11px] text-muted-2 mt-0.5">{proposal.human_decision}</div>
+          )}
+        </div>
+
+        <Badge variant={statusVariant(proposal.status)}>{proposal.status}</Badge>
+
+        <div className="flex items-center gap-1.5">
           {canAct && (
-            <div className="flex gap-1.5">
-              <Button
-                size="sm"
-                onClick={onApprove}
-                disabled={approving}
-              >
-                <Check className="h-3.5 w-3.5 mr-1" />
+            <>
+              <Button size="sm" variant="primary" onClick={onApprove} disabled={approving}>
+                <Check className="h-3 w-3" />
                 Approve
               </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={onReject}
-                disabled={rejecting}
-              >
-                <X className="h-3.5 w-3.5 mr-1" />
+              <Button size="sm" variant="destructive" onClick={onReject} disabled={rejecting}>
+                <X className="h-3 w-3" />
                 Reject
               </Button>
-            </div>
+            </>
           )}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center justify-center h-[24px] w-[24px] rounded-[4px] text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-colors"
+            title={expanded ? "Hide details" : "Show details"}
+          >
+            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
         </div>
       </div>
 
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        {expanded ? "Hide details" : "Show details"}
-      </button>
-
       {expanded && (
-        <div className="mt-3 space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              Signal Data
-            </p>
-            <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3 space-y-3">
-              {signalHasContent ? (
-                <DetailList data={signal!} />
-              ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  No signal data — this proposal was created directly by the
-                  judge's portfolio review, not by the factor pipeline.
-                </p>
-              )}
-              {constraintBlocked && (
-                <div className="rounded-md border border-loss/30 bg-loss/10 px-3 py-2">
-                  <p className="text-[10.5px] font-semibold uppercase tracking-wider text-loss mb-1.5">
-                    Blocked by Constraints
+        <div className="px-4 pt-2 pb-[18px] bg-bg-2 border-t border-line">
+          <div className="grid grid-cols-2 gap-[14px]">
+            <div>
+              <div className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+                Signal Data
+              </div>
+              <div className="rounded-[4px] border border-line bg-surface px-3 py-2.5 space-y-3">
+                {signalHasContent ? (
+                  <DetailList data={signal!} />
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">
+                    No signal data — this proposal was created directly by the
+                    judge's portfolio review, not by the factor pipeline.
                   </p>
-                  <ul className="space-y-1 text-xs text-foreground/90">
-                    {violations.map((v, i) => (
-                      <li key={i} className="flex gap-1.5">
-                        <span className="text-loss">•</span>
-                        <span>{v}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                )}
+                {constraintBlocked && (
+                  <div className="rounded-[4px] border border-loss/30 bg-loss/10 px-3 py-2">
+                    <p className="text-[10.5px] font-mono font-semibold uppercase tracking-wider text-loss mb-1.5">
+                      Blocked by Constraints
+                    </p>
+                    <ul className="space-y-1 text-xs text-foreground/90">
+                      {violations.map((v, i) => (
+                        <li key={i} className="flex gap-1.5">
+                          <span className="text-loss">•</span>
+                          <span>{v}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              Judge Response
-            </p>
-            <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
-              {judgeHasContent ? (
-                <DetailList data={judge!} />
-              ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  {constraintBlocked
-                    ? "Not evaluated — constraint check failed before the judge could run."
-                    : isJudgeOriginated
-                      ? "No per-proposal verdict — this trade was initiated by the judge during a portfolio review, so its reasoning is in the Signal Data above."
-                      : "Judge verdict not available for this proposal."}
-                </p>
-              )}
+            <div>
+              <div className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+                Judge Response
+              </div>
+              <div className="rounded-[4px] border border-line bg-surface px-3 py-2.5">
+                {judgeHasContent ? (
+                  <DetailList data={judge!} />
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">
+                    {constraintBlocked
+                      ? "Not evaluated — constraint check failed before the judge could run."
+                      : isJudgeOriginated
+                        ? "No per-proposal verdict — this trade was initiated by the judge during a portfolio review, so its reasoning is in the Signal Data above."
+                        : "Judge verdict not available for this proposal."}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -573,53 +563,48 @@ function StayCard({ proposal }: { proposal: Proposal }) {
   const verdict = judge?.overall_verdict as string | undefined
 
   return (
-    <div className="rounded-lg border border-border/40 bg-card/50 px-5 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/15 text-blue-400">
-            <ShieldCheck className="h-5 w-5" />
-          </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-base font-semibold">No Trades</span>
-              <span className="text-sm text-muted-foreground">Pipeline declared HOLD</span>
-            </div>
-            {assessment && (
-              <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">{assessment}</p>
-            )}
-          </div>
+    <div className="border-b border-line last:border-b-0">
+      <div className="flex items-center gap-4 px-6 py-6 bg-bg-2">
+        <div className="flex items-center justify-center h-11 w-11 rounded-full bg-warn/15 text-warn shrink-0">
+          <ShieldAlert className="h-[22px] w-[22px]" />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <div className="text-[13px] font-semibold mb-1">No Trades — Pipeline declared HOLD</div>
+          {assessment && (
+            <div className="text-[12px] text-muted-foreground leading-[1.5] max-w-2xl">
+              {assessment}
+            </div>
+          )}
+        </div>
+        <div className="text-right shrink-0">
           {verdict && (
-            <Badge variant={verdict === "agree" ? "muted" : "warn"}>
-              Judge {verdict === "agree" ? "agrees" : "disagrees"}
-              {confidence != null ? ` (${(confidence * 100).toFixed(0)}%)` : ""}
+            <Badge variant={verdict === "agree" ? "warn" : "loss"}>
+              VERDICT: {verdict === "agree" ? "AGREE" : "DISAGREE"}
             </Badge>
           )}
-          <Badge variant="default" className="bg-blue-500/20 text-blue-400 border-blue-500/30">
-            HOLD
-          </Badge>
+          {confidence != null && (
+            <div className="font-mono text-[11px] text-muted-foreground mt-1">
+              Confidence {(confidence * 100).toFixed(0)}%
+            </div>
+          )}
         </div>
       </div>
 
       {judge && (
-        <>
+        <div className="px-4 py-2 border-t border-line">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 font-mono text-[10.5px] text-muted-foreground hover:text-foreground transition-colors uppercase tracking-[0.08em]"
           >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {expanded ? "Hide review" : "Show portfolio review"}
+            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {expanded ? "Hide portfolio review" : "Show portfolio review"}
           </button>
-
           {expanded && (
-            <div className="mt-3">
-              <div className="rounded-lg bg-muted/40 border border-border/40 px-4 py-3">
-                <DetailList data={judge} />
-              </div>
+            <div className="mt-2 mb-2 rounded-[4px] border border-line bg-surface px-3 py-2.5">
+              <DetailList data={judge} />
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   )
@@ -651,6 +636,12 @@ function buildRunSummary(proposals: Proposal[]): string {
   return `${parts.join(", ")} across ${unique.length} stock${unique.length > 1 ? "s" : ""} (${unique.join(", ")})`
 }
 
+// Window during which we treat a STAY-only run as "still in progress" rather
+// than a finalized HOLD. The pipeline writes the STAY pre-judge and may add
+// real trades up to ~60s later; this buffer prevents a HOLD card from
+// appearing and then flipping to trades.
+const STAY_SETTLE_MS = 120_000
+
 function groupByRun(proposals: Proposal[]): RunGroup[] {
   const groups = new Map<string, Proposal[]>()
   for (const p of proposals) {
@@ -658,13 +649,37 @@ function groupByRun(proposals: Proposal[]): RunGroup[] {
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(p)
   }
-  // Sort groups by most recent proposal timestamp
+  const now = Date.now()
+
   return Array.from(groups.entries())
-    .map(([run_id, proposals]) => ({
-      run_id,
-      timestamp: proposals[0]?.created_at || "",
-      proposals,
-    }))
+    .map(([run_id, proposals]) => {
+      // Once any real trade exists for a run, the early STAY is obsolete —
+      // drop it so the UI shows only the real trades.
+      const hasTrades = proposals.some((p) => p.action !== "STAY")
+      const visible = hasTrades
+        ? proposals.filter((p) => p.action !== "STAY")
+        : proposals
+      const newest = proposals.reduce((max, p) => {
+        const t = p.created_at ? new Date(p.created_at).getTime() : 0
+        return t > max ? t : max
+      }, 0)
+      return {
+        run_id,
+        timestamp: visible[0]?.created_at || proposals[0]?.created_at || "",
+        proposals: visible,
+        hasTrades,
+        newest,
+      }
+    })
+    // Hide STAY-only runs that are still within the settle window — the
+    // pipeline may still be writing real trade proposals to this run. Once
+    // the window passes with no new proposals arriving, the run is treated
+    // as a confirmed HOLD and rendered.
+    .filter((g) => {
+      if (g.hasTrades) return true
+      return now - g.newest > STAY_SETTLE_MS
+    })
+    .map(({ run_id, timestamp, proposals }) => ({ run_id, timestamp, proposals }))
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 }
 
@@ -678,6 +693,15 @@ export default function PendingTrades() {
     queryKey: ["proposals"],
     queryFn: () => api.getProposals(undefined, 100),
   })
+
+  // Tick state forces groupByRun to re-evaluate its time-based settle filter
+  // periodically, so a STAY-only run becomes visible once the window passes
+  // even if no fresh data has arrived.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (lastCompletedRunId && highlightRef.current) {
@@ -732,10 +756,10 @@ export default function PendingTrades() {
   if (isLoading) {
     return (
       <>
-        <PageHeader title="Pending Trades" />
+        <PageHeader title="Trades" />
         <div className="space-y-4">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-24 rounded-xl border border-border/60 bg-card animate-shimmer" />
+            <div key={i} className="h-24 rounded-md border border-line bg-surface animate-shimmer" />
           ))}
         </div>
       </>
@@ -752,139 +776,131 @@ export default function PendingTrades() {
   const executed = all.filter((p) => p.status === "EXECUTED").length
   const rejected = all.filter((p) => ["REJECTED", "JUDGE_REJECTED"].includes(p.status)).length
 
+  const totalRuns = groupByRun(all).length
+  const description = `${all.length} total proposal${all.length === 1 ? "" : "s"} across ${totalRuns} pipeline run${totalRuns === 1 ? "" : "s"}`
+
   return (
     <>
-      <PageHeader title="Trades" description={`${all.length} total proposals`} />
+      <PageHeader title="Trades" description={description} />
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <MetricCard label="Pending Review" value={String(pending)} />
-        <MetricCard label="Approved" value={String(approved)} />
-        <MetricCard label="Executed" value={String(executed)} />
-        <MetricCard label="Rejected" value={String(rejected)} />
+      <div className="grid grid-cols-4 gap-4 mb-[18px]">
+        <MetricCard accent label="Pending Review" value={String(pending)} sub="awaiting approval" />
+        <MetricCard label="Approved" value={String(approved)} sub="judge-cleared" />
+        <MetricCard label="Executed" value={String(executed)} sub="confirmed fills" />
+        <MetricCard label="Rejected" value={String(rejected)} sub="declined" />
       </div>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex items-center gap-1.5 mb-[14px]">
         {statuses.map((s) => (
           <Button
             key={s}
-            variant={filter === s ? "default" : "outline"}
+            variant={filter === s ? "primary" : "default"}
             size="sm"
             onClick={() => setFilter(s)}
           >
             {s}
           </Button>
         ))}
+        <span className="flex-1" />
+        <span className="font-mono text-[11px] text-muted-foreground">
+          Showing {runGroups.length} run{runGroups.length === 1 ? "" : "s"}
+        </span>
       </div>
 
       {runGroups.length === 0 ? (
         <Card>
-          <CardContent>
-            <p className="text-sm text-muted-foreground py-12 text-center">
-              No trade proposals. Run the pipeline to generate signals.
-            </p>
-          </CardContent>
+          <p className="text-sm text-muted-foreground py-12 text-center">
+            No trade proposals. Run the pipeline to generate signals.
+          </p>
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {runGroups.map((group) => {
-            const isLatestRun = lastCompletedRunId && group.run_id === lastCompletedRunId
+            const isLatestRun = !!(lastCompletedRunId && group.run_id === lastCompletedRunId)
+            const tradeCount = group.proposals.filter((p) => p.action !== "STAY").length
+            const shortRunId = group.run_id === "unknown" ? "—" : (
+              group.run_id.length > 28 ? group.run_id.slice(0, 28) + "…" : group.run_id
+            )
             return (
-            <Card
-              key={group.run_id}
-              ref={isLatestRun ? highlightRef : undefined}
-              className={cn(isLatestRun && "ring-2 ring-primary/50 shadow-lg shadow-primary/10")}
-            >
-              <div className={cn(
-                "px-6 pt-4 pb-3 border-b border-border/40",
-                isLatestRun && "bg-primary/[0.03]",
-              )}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {isLatestRun ? (
-                      <Sparkles className="h-4 w-4 text-primary" />
-                    ) : (
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <span className="text-sm font-medium">
-                      Pipeline Run{" "}
-                      <span className="font-mono text-muted-foreground">
-                        {group.run_id === "unknown" ? "—" : group.run_id}
-                      </span>
-                    </span>
-                    {isLatestRun && (
-                      <Badge variant="default" className="bg-primary/20 text-primary border-primary/30 text-[10px]">
-                        LATEST
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimestamp(group.timestamp)}
-                    </span>
-                    <Badge variant="muted">
-                      {(() => {
-                        const trades = group.proposals.filter((p) => p.action !== "STAY")
-                        if (trades.length === 0) return "hold"
-                        return `${trades.length} trade${trades.length !== 1 ? "s" : ""}`
-                      })()}
-                    </Badge>
-                    {isLatestRun && (
+              <Card
+                key={group.run_id}
+                ref={isLatestRun ? highlightRef : undefined}
+                className={cn(isLatestRun && "ring-1 ring-primary/40")}
+              >
+                {/* Card head */}
+                <div className={cn(
+                  "flex items-center gap-3 px-4 py-3 border-b border-line",
+                  isLatestRun && "bg-primary/[0.06]",
+                )}>
+                  <span className={cn(
+                    "font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em]",
+                    isLatestRun ? "text-primary" : "text-muted-foreground",
+                  )}>
+                    {shortRunId}
+                  </span>
+                  {isLatestRun && <Badge variant="solid-accent">LATEST</Badge>}
+                  <span className="font-mono text-[10.5px] text-muted-2 tracking-[0.04em]">
+                    {formatTimestamp(group.timestamp)}
+                  </span>
+                  <Badge variant="muted">
+                    {tradeCount === 0 ? "HOLD" : `${tradeCount} TRADE${tradeCount === 1 ? "" : "S"}`}
+                  </Badge>
+                  <span className="flex-1" />
+                  {isLatestRun && (
+                    <button
+                      onClick={clearLastCompletedRunId}
+                      className="flex items-center justify-center h-[24px] w-[24px] rounded-[4px] text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-colors"
+                      title="Dismiss highlight"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                  {group.run_id !== "unknown" && (
+                    <div className="relative" ref={menuOpenRunId === group.run_id ? menuRef : undefined}>
                       <button
-                        onClick={clearLastCompletedRunId}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        title="Dismiss highlight"
+                        onClick={() => setMenuOpenRunId(menuOpenRunId === group.run_id ? null : group.run_id)}
+                        className="flex items-center justify-center h-[24px] w-[24px] rounded-[4px] text-muted-foreground hover:bg-loss/10 hover:text-loss transition-colors"
+                        title="Delete this pipeline run"
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3 w-3" />
                       </button>
-                    )}
-                    {group.run_id !== "unknown" && (
-                      <div className="relative" ref={menuOpenRunId === group.run_id ? menuRef : undefined}>
-                        <button
-                          onClick={() => setMenuOpenRunId(menuOpenRunId === group.run_id ? null : group.run_id)}
-                          className="p-1.5 rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="Delete this pipeline run"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                        {menuOpenRunId === group.run_id && (
-                          <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-lg border border-border/60 bg-card shadow-xl shadow-black/40 py-1">
-                            <button
-                              onClick={() => deleteRunMut.mutate(group.run_id)}
-                              disabled={deleteRunMut.isPending}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              {deleteRunMut.isPending ? "Deleting..." : "Delete run"}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  {buildRunSummary(group.proposals)}
-                </p>
-              </div>
-              <CardContent>
-                <div className="space-y-2 pt-2">
-                  {group.proposals.map((p) =>
-                    p.action === "STAY" ? (
-                      <StayCard key={p.proposal_id} proposal={p} />
-                    ) : (
-                      <TradeCard
-                        key={p.proposal_id}
-                        proposal={p}
-                        onApprove={() => approveMut.mutate(p.proposal_id)}
-                        onReject={() => rejectMut.mutate(p.proposal_id)}
-                        approving={approveMut.isPending}
-                        rejecting={rejectMut.isPending}
-                      />
-                    ),
+                      {menuOpenRunId === group.run_id && (
+                        <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-[4px] border border-line bg-surface shadow-xl shadow-black/40 py-1">
+                          <button
+                            onClick={() => deleteRunMut.mutate(group.run_id)}
+                            disabled={deleteRunMut.isPending}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-loss hover:bg-loss/10 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            {deleteRunMut.isPending ? "Deleting..." : "Delete run"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+
+                {/* Summary row */}
+                <div className="px-4 py-2.5 text-[12px] text-fg-dim border-b border-line">
+                  {buildRunSummary(group.proposals)}
+                </div>
+
+                {/* Proposals */}
+                {group.proposals.map((p) =>
+                  p.action === "STAY" ? (
+                    <StayCard key={p.proposal_id} proposal={p} />
+                  ) : (
+                    <TradeCard
+                      key={p.proposal_id}
+                      proposal={p}
+                      onApprove={() => approveMut.mutate(p.proposal_id)}
+                      onReject={() => rejectMut.mutate(p.proposal_id)}
+                      approving={approveMut.isPending}
+                      rejecting={rejectMut.isPending}
+                    />
+                  ),
+                )}
+              </Card>
             )
           })}
         </div>

@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { GateReviewPanel } from "@/components/pipeline/GateReviewPanel"
 import {
-  Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight,
-  Trash2, RotateCcw, StickyNote, X, Save, ImagePlus,
-  Hand, Eye, ChevronDown, ChevronUp, Database, ExternalLink,
+  Play, Loader2, Check, X as XIcon, ArrowRight,
+  Trash2, RotateCcw, X, Save, ImagePlus,
+  Eye, ChevronDown, ChevronUp, ExternalLink,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -34,23 +34,50 @@ const stepLabels: Record<string, string> = {
   complete: "Complete",
 }
 
-function stepIcon(status: string, size = "h-4 w-4") {
-  switch (status) {
-    case "running":
-      return <Loader2 className={cn(size, "animate-spin text-primary")} />
-    case "done":
-      return <CheckCircle className={cn(size, "text-profit")} />
-    case "error":
-      return <XCircle className={cn(size, "text-loss")} />
-    case "skipped":
-      return <Clock className={cn(size, "text-muted-foreground")} />
-    case "gate":
-      return <Hand className={cn(size, "text-amber-500 animate-pulse")} />
-    case "data":
-      return <Database className={cn(size, "text-blue-400")} />
-    default:
-      return <Clock className={cn(size, "text-muted-foreground/40")} />
-  }
+type StepState = "ok" | "run" | "err" | "gate" | "idle"
+
+function stepStateFromEvent(ev: PipelineEvent | undefined): StepState {
+  if (!ev) return "idle"
+  if (ev.status === "running") return "run"
+  if (ev.status === "done") return "ok"
+  if (ev.status === "error") return "err"
+  if (ev.status === "gate") return "gate"
+  return "idle"
+}
+
+const STEP_COLOR: Record<StepState, string> = {
+  ok: "text-profit",
+  run: "text-primary",
+  err: "text-loss",
+  gate: "text-warn",
+  idle: "text-muted-2",
+}
+
+const STEP_BORDER: Record<StepState, string> = {
+  ok: "border-profit",
+  run: "border-primary",
+  err: "border-loss",
+  gate: "border-warn",
+  idle: "border-line",
+}
+
+function StepIndicator({ state }: { state: StepState }) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center h-[22px] w-[22px] rounded-full shrink-0 border-[1.5px]",
+        state === "idle" ? "bg-bg-2" : "bg-surface",
+        STEP_BORDER[state],
+        STEP_COLOR[state],
+      )}
+    >
+      {state === "ok" && <Check className="h-[11px] w-[11px]" />}
+      {state === "run" && <Loader2 className="h-[11px] w-[11px] animate-spin" />}
+      {state === "err" && <XIcon className="h-[11px] w-[11px]" />}
+      {state === "gate" && <span className="h-[8px] w-[8px] rounded-full bg-warn animate-pulse" />}
+      {state === "idle" && <span className="h-[6px] w-[6px] rounded-full bg-muted-2" />}
+    </div>
+  )
 }
 
 function StepTracker({ events, eventTimestamps }: { events: PipelineEvent[]; eventTimestamps: Map<number, number> }) {
@@ -76,60 +103,56 @@ function StepTracker({ events, eventTimestamps }: { events: PipelineEvent[]; eve
     return s > 0 ? `${m}m ${s}s` : `${m}m`
   }
 
+  // Find the index of the currently-running step so the connector line above
+  // it can be colored as completed.
+  const lastDoneIdx = stepOrder.reduce((maxIdx, step, i) => {
+    const ev = latestByStep.get(step)
+    return ev?.status === "done" ? i : maxIdx
+  }, -1)
+
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col">
       {stepOrder.map((step, i) => {
         const ev = latestByStep.get(step)
-        const isActive = ev?.status === "running"
-        const isGate = ev?.status === "gate"
+        const state = stepStateFromEvent(ev)
         const elapsed = stepElapsed.get(step)
-
+        const isLast = i === stepOrder.length - 1
+        const lineDone = i <= lastDoneIdx
         return (
-          <div key={step}>
-            <div
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
-                isActive && "bg-primary/5 border border-primary/20",
-                isGate && "bg-amber-500/5 border border-amber-500/30",
-                !isActive && !isGate && "border border-transparent",
-              )}
-            >
-              {ev ? stepIcon(ev.status) : stepIcon("pending")}
-              <div className="flex-1 min-w-0">
-                <p
+          <div key={step} className="flex items-start gap-2.5 relative py-2">
+            <div className="relative">
+              <StepIndicator state={state} />
+              {!isLast && (
+                <div
                   className={cn(
-                    "text-sm font-medium",
-                    ev ? "text-foreground" : "text-muted-foreground/50",
-                    isActive && "text-primary",
-                    isGate && "text-amber-400",
+                    "absolute left-[10.5px] top-[22px] w-px",
+                    lineDone ? "bg-profit" : "bg-line",
                   )}
-                >
-                  {stepLabels[step] || step}
-                </p>
-                {ev?.message && (
-                  <p className="text-xs text-muted-foreground truncate">{ev.message}</p>
-                )}
-              </div>
-              {elapsed !== undefined && (
-                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                  {formatElapsed(elapsed)}
-                </span>
-              )}
-              {isActive && (
-                <ArrowRight className="h-3.5 w-3.5 text-primary animate-pulse" />
-              )}
-              {isGate && (
-                <Badge variant="default" className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px]">
-                  REVIEW
-                </Badge>
-              )}
-              {ev?.status === "data" && ev.gate_data && (
-                <Eye className="h-3.5 w-3.5 text-blue-400" />
+                  style={{ height: 16 }}
+                />
               )}
             </div>
-            {i < stepOrder.length - 1 && (
-              <div className="ml-5 h-2 border-l border-border/40" />
-            )}
+            <div className="flex-1 min-w-0">
+              <div
+                className={cn(
+                  "text-[12.5px]",
+                  state === "idle" ? "text-muted-foreground font-medium" : "text-foreground font-semibold",
+                  state === "gate" && "text-warn",
+                  state === "run" && "text-primary",
+                )}
+              >
+                {stepLabels[step] || step}
+              </div>
+              {state !== "idle" && (
+                <div className="font-mono text-[10.5px] text-muted-2">
+                  {state === "ok" && elapsed != null ? `completed in ${formatElapsed(elapsed)}` : null}
+                  {state === "run" ? "running…" : null}
+                  {state === "err" ? "error" : null}
+                  {state === "gate" ? "awaiting review" : null}
+                </div>
+              )}
+            </div>
+            {state === "gate" && <Badge variant="warn">REVIEW</Badge>}
           </div>
         )
       })}
@@ -144,10 +167,10 @@ function StepDataDisplay({ event }: { event: PipelineEvent }) {
   if (!data) return null
 
   return (
-    <div className="rounded-lg border border-blue-500/20 bg-blue-500/[0.02] mt-1">
+    <div className="rounded-[4px] border border-info/20 bg-info/[0.02] mt-1">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-3 py-1.5 text-left">
-        <Eye className="h-3 w-3 text-blue-400" />
-        <span className="text-[11px] text-blue-400 font-medium">{event.step} data</span>
+        <Eye className="h-3 w-3 text-info" />
+        <span className="text-[11px] text-info font-medium">{event.step} data</span>
         <span className="flex-1" />
         {open ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
       </button>
@@ -161,9 +184,6 @@ function StepDataDisplay({ event }: { event: PipelineEvent }) {
     </div>
   )
 }
-
-// AutoModeToggle — commented out for now, will re-enable later
-// function AutoModeToggle() { ... }
 
 function ReviewModeToggle() {
   const queryClient = useQueryClient()
@@ -192,50 +212,37 @@ function ReviewModeToggle() {
   const enabled = reviewMode?.enabled ?? true
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border-2 p-4 transition-all",
-        enabled
-          ? "border-blue-500/60 bg-blue-500/5"
-          : "border-border/60 bg-card",
-      )}
-    >
-      <div className="flex items-center gap-3">
-        <div className={cn(
-          "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
-          enabled ? "bg-blue-500/15" : "bg-muted/60",
-        )}>
-          {enabled
-            ? <Hand className="h-5 w-5 text-blue-400" />
-            : <Eye className="h-5 w-5 text-muted-foreground" />
-          }
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold">Review Mode</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {enabled ? "Pipeline pauses at each stage for review" : "Pipeline runs without pausing"}
-          </p>
-        </div>
-        <button
-          onClick={() => mutation.mutate(!enabled)}
-          disabled={mutation.isPending}
-          className={cn(
-            "relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-            enabled
-              ? "bg-blue-500 border-blue-500"
-              : "bg-muted border-border/80",
-          )}
-        >
-          <span
+    <Card>
+      <CardTitle meta="Pause at gates for human review">Review Mode</CardTitle>
+      <CardContent>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => mutation.mutate(!enabled)}
+            disabled={mutation.isPending}
             className={cn(
-              "pointer-events-none inline-block rounded-full bg-white shadow-sm transition-transform duration-200",
-              enabled ? "translate-x-[17px]" : "translate-x-[1px]",
+              "relative h-[24px] w-[44px] rounded-full border border-line-2 transition-colors disabled:opacity-50",
+              enabled ? "bg-primary" : "bg-bg-2",
             )}
-            style={{ height: 16, width: 16, marginTop: 2 }}
-          />
-        </button>
-      </div>
-    </div>
+            aria-pressed={enabled}
+          >
+            <span
+              className={cn(
+                "absolute top-px h-[20px] w-[20px] rounded-full transition-all",
+                enabled ? "left-[21px] bg-background" : "left-px bg-muted-foreground",
+              )}
+            />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-medium">{enabled ? "Enabled" : "Disabled"}</div>
+            <div className="text-[11.5px] text-muted-foreground">
+              {enabled
+                ? "Pipeline pauses at gates for approval/override"
+                : "Pipeline runs end-to-end without interruption"}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -244,8 +251,7 @@ function UserNotesPanel() {
   const { toast } = useToast()
   const [draft, setDraft] = useState("")
   const [images, setImages] = useState<{ name: string; dataUrl: string }[]>([])
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: notes } = useQuery({
@@ -259,7 +265,6 @@ function UserNotesPanel() {
     onSuccess: (data) => {
       queryClient.setQueryData(["user-notes"], data)
       toast("success", "Notes Saved", "Your context will be included in the next pipeline run")
-      setDropdownOpen(false)
     },
   })
 
@@ -288,16 +293,6 @@ function UserNotesPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes?.text, notes?.images])
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false)
-      }
-    }
-    if (dropdownOpen) document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [dropdownOpen])
-
   const handleSave = () => {
     const imagePayloads = images.map((img) => {
       const match = img.dataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
@@ -308,10 +303,6 @@ function UserNotesPanel() {
       }
     })
     saveMutation.mutate({ text: draft, images: imagePayloads })
-  }
-
-  const handleClear = () => {
-    clearMutation.mutate()
   }
 
   const addImageFile = (file: File) => {
@@ -351,87 +342,53 @@ function UserNotesPanel() {
   }
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <div
-        className={cn(
-          "rounded-xl border-2 p-4 transition-all",
-          hasNotes
-            ? "border-blue-500/40 bg-blue-500/5"
-            : "border-border/60 bg-card",
-        )}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              "flex items-center justify-center h-9 w-9 rounded-lg",
-              hasNotes ? "bg-blue-500/15" : "bg-muted/60",
-            )}>
-              <StickyNote className={cn("h-5 w-5", hasNotes ? "text-blue-400" : "text-muted-foreground")} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold">Pipeline Notes</p>
-                {hasNotes && (
-                  <Badge variant="default" className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
-                    ACTIVE
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {hasNotes
-                  ? "Your notes will be reviewed by the judge"
-                  : "Add context for the LLM judge"}
-              </p>
-            </div>
-          </div>
-
+    <Card>
+      <CardTitle
+        meta="Inject context into next run"
+        action={
           <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-              dropdownOpen
-                ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
-                : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60",
-            )}
+            onClick={() => setOpen(!open)}
+            className="flex items-center gap-1 h-[24px] px-2 rounded-[4px] font-mono text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors"
           >
-            {dropdownOpen ? "Close" : hasNotes ? "Edit" : "Add Notes"}
-            {dropdownOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            {open ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+            {open ? "Hide" : "Show"}
           </button>
-        </div>
-      </div>
-
-      {dropdownOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border-2 border-blue-500/30 bg-card shadow-2xl shadow-black/40 p-4 space-y-3">
+        }
+      >
+        User Notes
+        {hasNotes && <Badge variant="accent">ACTIVE</Badge>}
+      </CardTitle>
+      {open && (
+        <CardContent>
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onPaste={handlePaste}
-            placeholder={"Share context for the judge to consider...\n\nExamples:\n• \"NVDA earnings beat expectations, see: [link]\"\n• \"Tariff concerns in semiconductor sector\""}
-            className="w-full h-32 rounded-lg bg-[#0a0a0f] border border-border/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20"
+            placeholder={"Share context for the judge to consider...\n\nExamples:\n• \"NVDA earnings beat expectations\"\n• \"Tariff concerns in semiconductor sector\""}
+            className="w-full h-28 rounded-[4px] bg-bg-2 border border-line px-3 py-2.5 font-mono text-[12px] text-foreground placeholder:text-muted-2 resize-none focus:outline-none focus:border-primary/50"
           />
 
           {images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 mt-2">
               {images.map((img, idx) => (
                 <div key={idx} className="relative group">
                   <img
                     src={img.dataUrl}
                     alt={img.name}
-                    className="h-20 w-20 object-cover rounded-lg border border-border/60"
+                    className="h-16 w-16 object-cover rounded-[4px] border border-line"
                   />
                   <button
                     onClick={() => removeImage(idx)}
-                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-loss text-background flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <X className="h-3 w-3" />
                   </button>
-                  <p className="text-[10px] text-muted-foreground truncate w-20 mt-0.5">{img.name}</p>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center gap-1.5 mt-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -440,40 +397,35 @@ function UserNotesPanel() {
               className="hidden"
               onChange={handleImageAdd}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              className="h-8 text-xs"
-            >
-              <ImagePlus className="h-3 w-3 mr-1" />
-              Add Image
+            <Button size="sm" variant="default" onClick={() => fileInputRef.current?.click()}>
+              <ImagePlus className="h-3 w-3" />
+              Attach
             </Button>
             {hasNotes && (
               <Button
-                variant="outline"
                 size="sm"
-                onClick={handleClear}
+                variant="default"
+                onClick={() => clearMutation.mutate()}
                 disabled={clearMutation.isPending}
-                className="border-red-500/30 text-red-400 hover:bg-red-500/10 h-8 text-xs"
               >
-                {clearMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3 mr-1" />}
+                {clearMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
                 Clear
               </Button>
             )}
+            <span className="flex-1" />
             <Button
               size="sm"
+              variant="primary"
               onClick={handleSave}
               disabled={saveMutation.isPending || (!draft.trim() && images.length === 0)}
-              className="bg-blue-600 hover:bg-blue-700 text-white border-blue-600 h-8 text-xs"
             >
-              {saveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Save className="h-3 w-3 mr-1" />}
+              {saveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
               Save Notes
             </Button>
           </div>
-        </div>
+        </CardContent>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -498,30 +450,32 @@ function StartOverButton() {
   return (
     <>
       <Button
-        variant="outline"
+        size="sm"
+        variant="destructive"
         onClick={() => setConfirming(true)}
-        className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50"
       >
-        <RotateCcw className="mr-2 h-4 w-4" />
+        <RotateCcw className="h-3 w-3" />
         Start Over
       </Button>
 
       {confirming && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border-2 border-red-500/40 bg-card p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-md border border-loss/40 bg-surface p-5">
             <div className="flex items-center gap-3 mb-4">
-              <div className="flex items-center justify-center h-10 w-10 rounded-full bg-red-500/15">
-                <Trash2 className="h-6 w-6 text-red-500" />
+              <div className="flex items-center justify-center h-10 w-10 rounded-full bg-loss/15">
+                <Trash2 className="h-5 w-5 text-loss" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold">Start Over?</h3>
-                <p className="text-sm text-muted-foreground">This will delete all trading data</p>
+                <h3 className="text-[15px] font-semibold">Start Over?</h3>
+                <p className="text-[12px] text-muted-foreground">This will delete all trading data</p>
               </div>
             </div>
 
-            <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 mb-4">
-              <p className="text-xs font-semibold text-red-400 mb-2">The following will be permanently deleted:</p>
-              <ul className="text-xs text-red-200/80 space-y-1 list-disc list-inside">
+            <div className="rounded-[4px] bg-loss/10 border border-loss/20 p-3 mb-4">
+              <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-loss mb-2">
+                Permanently deleted:
+              </p>
+              <ul className="text-[12px] text-loss/80 space-y-1 list-disc list-inside">
                 <li>All trade proposals and execution history</li>
                 <li>All decision outcomes and learning patterns</li>
                 <li>All judge evaluation logs</li>
@@ -536,30 +490,23 @@ function StartOverButton() {
                 type="checkbox"
                 checked={keepPrices}
                 onChange={(e) => setKeepPrices(e.target.checked)}
-                className="rounded border-border/60 bg-muted accent-primary h-4 w-4"
+                className="accent-primary h-4 w-4"
               />
-              <span className="text-sm text-muted-foreground">Keep price & fundamental data (recommended)</span>
+              <span className="text-[12.5px] text-muted-foreground">Keep price &amp; fundamental data (recommended)</span>
             </label>
 
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setConfirming(false)}
-              >
+            <div className="flex gap-2">
+              <Button variant="default" className="flex-1" onClick={() => setConfirming(false)}>
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white border-red-600"
+                variant="destructive"
+                className="flex-1"
                 onClick={() => mutation.mutate()}
                 disabled={mutation.isPending}
               >
-                {mutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="mr-2 h-4 w-4" />
-                )}
-                Delete & Reset
+                {mutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                Delete &amp; Reset
               </Button>
             </div>
           </div>
@@ -569,8 +516,25 @@ function StartOverButton() {
   )
 }
 
+function formatLogTime(ts: number): string {
+  const d = new Date(ts)
+  const hh = String(d.getHours()).padStart(2, "0")
+  const mm = String(d.getMinutes()).padStart(2, "0")
+  const ss = String(d.getSeconds()).padStart(2, "0")
+  return `${hh}:${mm}:${ss}`
+}
+
+function logCheck(status: string): { char: string; cls: string } {
+  if (status === "done") return { char: "✓", cls: "text-profit" }
+  if (status === "running") return { char: "▶", cls: "text-primary" }
+  if (status === "error") return { char: "✗", cls: "text-loss" }
+  if (status === "gate") return { char: "⏸", cls: "text-warn" }
+  if (status === "data") return { char: "◆", cls: "text-info" }
+  return { char: "·", cls: "text-muted-2" }
+}
+
 export default function PipelineControl() {
-  const { running, events, error, activeGate, lastCompletedRunId, startPipeline, respondToGate } = usePipeline()
+  const { running, events, error, activeGate, lastCompletedRunId: _lastCompletedRunId, startPipeline, respondToGate } = usePipeline()
   const { toast } = useToast()
   const navigate = useNavigate()
   const logRef = useRef<HTMLDivElement>(null)
@@ -618,103 +582,96 @@ export default function PipelineControl() {
   const isComplete = events.some((e) => e.step === "complete")
   const hasError = events.some((e) => e.status === "error")
   const completedSteps = new Set(events.filter((e) => e.status === "done").map((e) => e.step)).size
+  const totalSteps = stepOrder.length - 1
+  const progressPct = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0
+
+  const statusLabel = running ? "RUNNING" : hasError ? "ERROR" : isComplete ? "COMPLETE" : "IDLE"
+  const statusVariant: "accent" | "loss" | "profit" | "muted" = running ? "accent" : hasError ? "loss" : isComplete ? "profit" : "muted"
 
   return (
     <>
       <PageHeader
         title="Pipeline Control"
         description="Manually trigger the EOD pipeline and watch progress in real-time"
+        prefix={<Badge variant={statusVariant}>{statusLabel}</Badge>}
         actions={
-          <div className="flex items-center gap-3">
-            {isComplete && <Badge variant="profit">Complete</Badge>}
-            {hasError && <Badge variant="loss">Error</Badge>}
-            {error && <Badge variant="loss">{error}</Badge>}
+          <div className="flex items-center gap-2">
             <StartOverButton />
             <Button
-              variant="outline"
+              size="sm"
+              variant="primary"
               onClick={startPipeline}
               disabled={running}
-              className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50"
             >
-              {running ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Running...
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-4 w-4" />
-                  Run Pipeline
-                </>
-              )}
+              {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+              {running ? "Running…" : "Run Pipeline"}
             </Button>
           </div>
         }
       />
 
-      {running && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-            <span>Pipeline progress</span>
-            <span>{completedSteps} / {stepOrder.length - 1} steps</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+      {/* Progress */}
+      <Card className="mb-[14px]">
+        <div className="flex items-center gap-3.5 px-[18px] py-3">
+          <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            Progress
+          </span>
+          <span className="font-mono text-[13px] font-semibold tabular-nums text-foreground">
+            {completedSteps} / {totalSteps}
+          </span>
+          <div className="relative flex-1 h-1.5 rounded-[3px] bg-line overflow-hidden">
             <div
-              className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
-              style={{ width: `${(completedSteps / (stepOrder.length - 1)) * 100}%` }}
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-[3px] transition-all duration-500 ease-out",
+                hasError ? "bg-loss" : running ? "bg-primary" : isComplete ? "bg-profit" : "bg-muted-2",
+              )}
+              style={{ width: `${progressPct}%` }}
             />
           </div>
+          <span className="font-mono text-[11px] text-muted-2 tabular-nums min-w-[40px] text-right">
+            {progressPct.toFixed(0)}%
+          </span>
         </div>
-      )}
+      </Card>
 
-      {/* Pipeline completed banner */}
+      {/* Pipeline complete banner */}
       {isComplete && !hasError && !running && (
-        <div className="mb-4 rounded-xl border-2 border-profit/40 bg-profit/5 p-4">
+        <div className="mb-[14px] rounded-md border border-profit/40 bg-profit/[0.06] p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-profit/15">
-                <CheckCircle className="h-5 w-5 text-profit" />
+              <div className="flex items-center justify-center h-9 w-9 rounded-[4px] bg-profit/15">
+                <Check className="h-5 w-5 text-profit" />
               </div>
               <div>
-                <p className="text-sm font-semibold">Pipeline Complete</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-[13px] font-semibold">Pipeline Complete</p>
+                <p className="text-[11.5px] text-muted-foreground mt-0.5">
                   {events.find((e) => e.step === "complete")?.message || "All steps finished successfully"}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate("/")}
-                className="h-8 text-xs"
-              >
+              <Button size="sm" variant="default" onClick={() => navigate("/")}>
                 Portfolio
-                <ExternalLink className="ml-1.5 h-3 w-3" />
+                <ExternalLink className="h-3 w-3" />
               </Button>
-              <Button
-                size="sm"
-                onClick={() => navigate("/trades")}
-                className="bg-profit/90 hover:bg-profit text-white border-profit h-8 text-xs"
-              >
+              <Button size="sm" variant="primary" onClick={() => navigate("/trades")}>
                 View Trades
-                <ArrowRight className="ml-1.5 h-3 w-3" />
+                <ArrowRight className="h-3 w-3" />
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="grid grid-cols-2 gap-3">
-          <UserNotesPanel />
-          <ReviewModeToggle />
-        </div>
+      {/* Two control panels */}
+      <div className="grid grid-cols-2 gap-[14px] mb-[14px]">
+        <UserNotesPanel />
+        <ReviewModeToggle />
       </div>
 
       {/* Active Gate Review Panel */}
       {activeGate && (
-        <div className="mb-4">
+        <div className="mb-[14px]">
           <GateReviewPanel
             gate={activeGate}
             onContinue={(overrides) => respondToGate("continue", overrides)}
@@ -723,57 +680,67 @@ export default function PipelineControl() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-6">
-        <Card className="col-span-1">
-          <CardTitle>Steps</CardTitle>
+      {/* Steps + Live Log */}
+      <div className="grid gap-[14px] items-start" style={{ gridTemplateColumns: "1fr 2fr" }}>
+        <Card>
+          <CardTitle meta={`${stepOrder.length} stages`}>Steps</CardTitle>
           <CardContent>
             <StepTracker events={events} eventTimestamps={eventTimestamps.current} />
           </CardContent>
         </Card>
 
-        <Card className="col-span-2">
-          <CardTitle>Live Log</CardTitle>
+        <Card>
+          <CardTitle meta={`${events.length} entr${events.length === 1 ? "y" : "ies"} · auto-scroll`}>
+            Live Log
+          </CardTitle>
           <CardContent>
             <div
               ref={logRef}
-              className="h-[28rem] overflow-y-auto rounded-lg bg-[#0a0a0f] border border-border/40 p-4 font-mono text-xs space-y-0.5"
+              className="rounded-[4px] border border-line bg-[#050706] p-3.5 font-mono text-[11.5px] text-fg-dim overflow-y-auto"
+              style={{ minHeight: 460, maxHeight: 460 }}
             >
               {events.length === 0 ? (
-                <p className="text-muted-foreground/50">
-                  Click "Run Pipeline" to start...
-                </p>
+                <p className="text-muted-2">Click "Run Pipeline" to start…</p>
               ) : (
-                events.map((e, i) => (
-                  <div key={i}>
-                    <div className="flex gap-2 py-0.5">
-                      <span className="text-muted-foreground/60 w-24 shrink-0 text-right">
-                        [{e.step}]
-                      </span>
-                      <span
-                        className={cn(
-                          e.status === "error"
-                            ? "text-loss"
-                            : e.status === "done"
-                              ? "text-profit"
-                              : e.status === "running"
-                                ? "text-primary"
-                                : e.status === "gate"
-                                  ? "text-amber-400"
-                                  : e.status === "data"
-                                    ? "text-blue-400"
-                                    : "text-foreground/70",
+                events.map((e, i) => {
+                  const ts = eventTimestamps.current.get(i)
+                  const { char, cls } = logCheck(e.status)
+                  const isLast = i === events.length - 1
+                  return (
+                    <div key={i}>
+                      <div className="flex items-start gap-2.5 py-0.5">
+                        <span className="text-muted-2 w-7 text-right shrink-0">
+                          {String(i + 1).padStart(3, "0")}
+                        </span>
+                        <span className={cn("w-[14px] shrink-0", cls)}>{char}</span>
+                        {ts && (
+                          <span className="text-muted-2 shrink-0" style={{ minWidth: 52 }}>
+                            {formatLogTime(ts)}
+                          </span>
                         )}
-                      >
-                        {e.status === "gate" && "⏸ "}
-                        {e.status === "data" && "📊 "}
-                        {e.message}
-                      </span>
+                        <span className="text-primary font-semibold shrink-0">
+                          [{e.step}]
+                        </span>
+                        <span
+                          className={cn(
+                            "flex-1 break-words",
+                            e.status === "error" && "text-loss",
+                            e.status === "running" && "text-foreground",
+                            e.status === "done" && "text-fg-dim",
+                            e.status === "gate" && "text-warn",
+                            e.status === "data" && "text-info",
+                          )}
+                        >
+                          {e.message}
+                          {isLast && running && (
+                            <span className="inline-block w-[7px] h-[12px] bg-primary align-[-2px] ml-1 animate-blink" />
+                          )}
+                        </span>
+                      </div>
+                      {e.status === "data" && e.gate_data && <StepDataDisplay event={e} />}
                     </div>
-                    {e.status === "data" && e.gate_data && (
-                      <StepDataDisplay event={e} />
-                    )}
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </CardContent>

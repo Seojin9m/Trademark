@@ -733,9 +733,22 @@ def get_holding_times():
                 days_held = (now - last_buy_dt).days
                 buy_date = last_buy_dt.strftime("%Y-%m-%d")
             else:
-                # No pipeline trade record — position was synced from brokerage
-                days_held = None
-                buy_date = None
+                # No pipeline trade record — fall back to first_seen_at, which
+                # the brokerage sync writes when a position is first observed.
+                # This lets us protect freshly bought positions from being
+                # marked "tradeable" the moment they appear.
+                first_seen_str = pos.get("first_seen_at")
+                if first_seen_str:
+                    try:
+                        first_seen_dt = datetime.fromisoformat(first_seen_str)
+                        days_held = (now - first_seen_dt).days
+                        buy_date = first_seen_dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        days_held = None
+                        buy_date = None
+                else:
+                    days_held = None
+                    buy_date = None
 
             decile = q.get("score_decile", 5)
             is_good = q.get("is_good_stock", False)
@@ -754,7 +767,10 @@ def get_holding_times():
                 else:
                     hold_status = "tradeable"
             else:
-                hold_status = "tradeable"
+                # Genuinely no holding history — be conservative and protect
+                # so we don't suggest trimming a position whose age we can't
+                # determine.
+                hold_status = "protected"
 
             results.append({
                 "ticker": ticker,

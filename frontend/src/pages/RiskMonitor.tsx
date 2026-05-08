@@ -1,43 +1,131 @@
 import { useQuery } from "@tanstack/react-query"
+import { useState } from "react"
 import { api } from "@/lib/api"
-import type { RiskMetrics } from "@/lib/api"
-import { formatCurrency, formatPercent, cn } from "@/lib/utils"
+import type { RiskMetrics, PortfolioSnapshot } from "@/lib/api"
+import { formatPercent, cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
-import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react"
 import {
+  AreaChart,
+  Area,
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  CartesianGrid,
   ReferenceLine,
 } from "recharts"
 
 const tooltipStyle = {
-  backgroundColor: "#111113",
-  border: "1px solid #1f1f2e",
-  borderRadius: "0.75rem",
-  color: "#fafafa",
+  backgroundColor: "#0f1310",
+  border: "1px solid #262d27",
+  borderRadius: "6px",
+  color: "#e8efe6",
   fontSize: "12px",
-  boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+  fontFamily: "'JetBrains Mono', monospace",
+  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+}
+
+function formatShortDate(dateStr: string): string {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number)
+  const dt = new Date(y, m - 1, d)
+  return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" })
+}
+
+// Compute per-snapshot drawdown from peak (in percentage points). Returns the
+// snapshots in chronological order with `drawdown` added.
+function computeDrawdownSeries(snapshots: PortfolioSnapshot[]): Array<{
+  date: string
+  drawdown: number
+}> {
+  if (snapshots.length === 0) return []
+  // Snapshots come newest-first from the API; reverse to chronological.
+  const chrono = [...snapshots].reverse()
+  let peak = chrono[0].total_value
+  return chrono.map((s) => {
+    if (s.total_value > peak) peak = s.total_value
+    const dd = peak > 0 ? ((s.total_value - peak) / peak) * 100 : 0
+    return {
+      date: formatShortDate(s.snapshot_date),
+      drawdown: +dd.toFixed(2),
+    }
+  })
 }
 
 export default function RiskMonitor() {
+  const [currency, setCurrency] = useState<"USD" | "CAD">("CAD")
+
   const { data: risk, isLoading } = useQuery<RiskMetrics>({
     queryKey: ["risk"],
     queryFn: api.getRisk,
   })
 
+  const { data: history } = useQuery<PortfolioSnapshot[]>({
+    queryKey: ["portfolio-history"],
+    queryFn: () => api.getPortfolioHistory(60),
+    staleTime: 60 * 1000,
+  })
+
+  const { data: rateData } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn: () => api.getExchangeRate("USD", "CAD"),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const rate = currency === "CAD" ? (rateData?.rate ?? 1.38) : 1
+
+  const fmtMoney = (value: number): string => {
+    const v = value * rate
+    const abs = Math.abs(v)
+    const sign = v < 0 ? "-" : ""
+    if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
+    if (abs >= 1_000) return `${sign}$${abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return `${sign}$${abs.toFixed(2)}`
+  }
+
+  const currencyToggle = (
+    <div className="flex overflow-hidden rounded-[4px] border border-line-2">
+      <button
+        onClick={() => setCurrency("USD")}
+        className={cn(
+          "h-[28px] px-3 font-mono text-[12px] font-medium transition-colors border-r border-line-2",
+          currency === "USD"
+            ? "bg-primary/8 text-primary"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        USD
+      </button>
+      <button
+        onClick={() => setCurrency("CAD")}
+        className={cn(
+          "h-[28px] px-3 font-mono text-[12px] font-medium transition-colors",
+          currency === "CAD"
+            ? "bg-primary/8 text-primary"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        CAD
+      </button>
+    </div>
+  )
+
   if (isLoading) {
     return (
       <>
-        <PageHeader title="Risk Monitor" />
-        <div className="grid grid-cols-3 gap-4">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 rounded-xl border border-border/60 bg-card animate-shimmer" />
+        <PageHeader title="Risk Monitor" actions={currencyToggle} />
+        <div className="grid grid-cols-4 gap-4 mb-[18px]">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-24 rounded-md border border-line bg-surface animate-shimmer" />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          {[0, 1].map((i) => (
+            <div key={i} className="h-64 rounded-md border border-line bg-surface animate-shimmer" />
           ))}
         </div>
       </>
@@ -46,176 +134,201 @@ export default function RiskMonitor() {
 
   if (!risk) {
     return (
-      <PageHeader title="Risk Monitor" description="Failed to load risk data." />
+      <PageHeader
+        title="Risk Monitor"
+        description="Failed to load risk data."
+        actions={currencyToggle}
+      />
     )
   }
 
-  const drawdown = risk.total_return_pct < 0 ? risk.total_return_pct : 0
-  const drawdownPct = Math.abs(drawdown * 100)
-  const alertPct = Math.abs(risk.drawdown_alert_level * 100)
-  const haltPct = Math.abs(risk.drawdown_halt_level * 100)
+  const alertPctNum = risk.drawdown_alert_level * 100
+  const haltPctNum = risk.drawdown_halt_level * 100
 
-  const isAlert = drawdown < risk.drawdown_alert_level
-  const isHalt = drawdown < risk.drawdown_halt_level
+  const ddSeries = computeDrawdownSeries(history ?? [])
+  const ddMin = ddSeries.length > 0 ? Math.min(...ddSeries.map((d) => d.drawdown)) : 0
+  // Current drawdown = peak-to-current from history if we have data,
+  // otherwise fall back to total_return_pct (which is current return from
+  // cost basis — close enough when no history exists).
+  const currentDrawdown = ddSeries.length > 0
+    ? ddSeries[ddSeries.length - 1].drawdown
+    : (risk.total_return_pct < 0 ? risk.total_return_pct * 100 : 0)
 
-  const sectorData = Object.entries(risk.sector_weights).map(([sector, weight]) => ({
-    sector,
-    weight,
-  }))
+  const isHalt = currentDrawdown < haltPctNum
+  const isAlert = !isHalt && currentDrawdown < alertPctNum
+  const statusLabel = isHalt ? "STATUS: HALT" : isAlert ? "STATUS: ALERT" : "STATUS: OK"
+  const deltaValue = isHalt ? -1 : isAlert ? -0.5 : 1
 
-  const statusColor = isHalt ? "text-loss" : isAlert ? "text-warn" : "text-profit"
-  const statusLabel = isHalt ? "HALT" : isAlert ? "ALERT" : "OK"
+  const cashDollar = risk.portfolio_value * risk.cash_pct
+  const sectorCount = Object.keys(risk.sector_weights).length
+
+  const sectorData = Object.entries(risk.sector_weights)
+    .map(([sector, weight]) => ({ sector, weight: weight * 100 }))
+    .sort((a, b) => b.weight - a.weight)
+
+  const ddDomainBottom = Math.min(ddMin, haltPctNum) * 1.1
+  const drawdownColor = isHalt ? "#ff6b6b" : isAlert ? "#fbbf24" : "#7ee787"
 
   return (
     <>
-      <PageHeader title="Risk Monitor" />
+      <PageHeader
+        title="Risk Monitor"
+        description="Drawdown, exposure, and concentration tracking"
+        actions={currencyToggle}
+      />
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-[18px]">
         <MetricCard
+          accent
           label="Portfolio Drawdown"
-          value={formatPercent(drawdown)}
+          value={`${currentDrawdown.toFixed(2)}%`}
+          valueNode={
+            <span className={cn(isHalt ? "text-loss" : isAlert ? "text-warn" : "text-profit")}>
+              {currentDrawdown.toFixed(2)}%
+            </span>
+          }
           delta={statusLabel}
-          deltaValue={isHalt ? -1 : isAlert ? -0.5 : 1}
+          deltaValue={deltaValue}
+          sub={`${alertPctNum.toFixed(0)}% alert · ${haltPctNum.toFixed(0)}% halt`}
         />
-        <MetricCard label="Portfolio Value" value={formatCurrency(risk.portfolio_value)} />
-        <MetricCard label="Cash Allocation" value={formatPercent(risk.cash_pct)} />
-        <MetricCard label="Positions" value={String(risk.n_positions)} />
+        <MetricCard
+          label={`Portfolio Value (${currency})`}
+          value={fmtMoney(risk.portfolio_value)}
+          sub={`${risk.n_positions} position${risk.n_positions === 1 ? "" : "s"}`}
+        />
+        <MetricCard
+          label="Cash Allocation"
+          value={formatPercent(risk.cash_pct)}
+          sub={fmtMoney(cashDollar)}
+        />
+        <MetricCard
+          label="Position Count"
+          value={String(risk.n_positions)}
+          sub={sectorCount > 0 ? `across ${sectorCount} sector${sectorCount === 1 ? "" : "s"}` : undefined}
+        />
       </div>
 
-      {/* Status Banner */}
-      {isHalt && (
-        <div className="mb-6 flex items-center gap-3 rounded-xl bg-loss/10 border border-loss/30 p-4">
-          <ShieldX className="h-5 w-5 text-loss shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-loss">Drawdown Halt Active</p>
-            <p className="text-xs text-loss/80">All new positions require manual confirmation.</p>
-          </div>
-        </div>
-      )}
-      {isAlert && !isHalt && (
-        <div className="mb-6 flex items-center gap-3 rounded-xl bg-warn/10 border border-warn/30 p-4">
-          <ShieldAlert className="h-5 w-5 text-warn shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-warn">Drawdown Alert</p>
-            <p className="text-xs text-warn/80">New buy signals are blocked until drawdown recovers.</p>
-          </div>
-        </div>
-      )}
-      {!isAlert && !isHalt && (
-        <div className="mb-6 flex items-center gap-3 rounded-xl bg-profit/10 border border-profit/30 p-4">
-          <ShieldCheck className="h-5 w-5 text-profit shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-profit">All Clear</p>
-            <p className="text-xs text-profit/80">Drawdown within acceptable limits.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Drawdown Gauge */}
-      <Card className="mb-6">
-        <CardTitle>Drawdown Gauge</CardTitle>
-        <CardContent>
-          <div className="relative">
-            <div className="h-3 rounded-full bg-muted/60 overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-700 ease-out",
-                  isHalt ? "bg-loss" : isAlert ? "bg-warn" : "bg-profit",
-                )}
-                style={{ width: `${Math.min((drawdownPct / haltPct) * 100, 100)}%` }}
-              />
-            </div>
-            {/* Alert marker */}
-            <div
-              className="absolute top-0 h-3 border-r-2 border-warn border-dashed"
-              style={{ left: `${(alertPct / haltPct) * 100}%` }}
-            />
-            {/* Halt marker */}
-            <div className="absolute top-0 right-0 h-3 border-r-2 border-loss" />
-          </div>
-          <div className="flex justify-between mt-2 text-xs">
-            <span className="text-muted-foreground">0%</span>
-            <span className="text-muted-foreground">
-              Current: <span className={cn("font-medium", statusColor)}>{drawdownPct.toFixed(1)}%</span>
-            </span>
-          </div>
-          <div className="flex justify-between mt-1 text-[11px]">
-            <span />
-            <div className="flex gap-6">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 rounded-full bg-warn" />
-                <span className="text-muted-foreground">Alert {alertPct.toFixed(0)}%</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 rounded-full bg-loss" />
-                <span className="text-muted-foreground">Halt {haltPct.toFixed(0)}%</span>
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-2 gap-4">
         <Card>
-          <CardTitle>Sector Concentration</CardTitle>
+          <CardTitle meta={ddSeries.length > 0 ? `trailing ${ddSeries.length} sessions` : undefined}>
+            Drawdown Progression
+          </CardTitle>
           <CardContent>
-            {sectorData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={sectorData} layout="vertical">
+            {ddSeries.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">
+                No history yet — run the pipeline to start tracking.
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart
+                  data={ddSeries}
+                  margin={{ top: 10, right: 16, left: 0, bottom: 6 }}
+                >
+                  <defs>
+                    <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={drawdownColor} stopOpacity={0.05} />
+                      <stop offset="100%" stopColor={drawdownColor} stopOpacity={0.35} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="#1d231e" strokeDasharray="3 3" />
                   <XAxis
-                    type="number"
-                    tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
-                    domain={[0, 0.4]}
-                    tick={{ fontSize: 11, fill: "#71717a" }}
-                    axisLine={{ stroke: "#27272a" }}
+                    dataKey="date"
+                    tick={{ fontSize: 10, fill: "#7a8479" }}
+                    axisLine={{ stroke: "#1d231e" }}
                     tickLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
                   />
                   <YAxis
-                    type="category"
-                    dataKey="sector"
-                    width={120}
-                    tick={{ fontSize: 12, fill: "#a1a1aa" }}
+                    domain={[ddDomainBottom, 0]}
+                    tickFormatter={(v: number) => `${v.toFixed(1)}%`}
+                    tick={{ fontSize: 10, fill: "#7a8479" }}
                     axisLine={false}
                     tickLine={false}
+                    width={50}
                   />
                   <Tooltip
-                    formatter={(value) => formatPercent(Number(value))}
+                    formatter={(v) => [`${Number(v).toFixed(2)}%`, "Drawdown"]}
                     contentStyle={tooltipStyle}
+                    labelStyle={{ color: "#7a8479" }}
+                    cursor={{ stroke: drawdownColor, strokeWidth: 1, strokeDasharray: "4 2" }}
                   />
-                  <Bar dataKey="weight" fill="#6366f1" radius={[0, 6, 6, 0]} />
                   <ReferenceLine
-                    x={0.35}
-                    stroke="#ef4444"
+                    y={alertPctNum}
+                    stroke="#fbbf24"
                     strokeDasharray="4 4"
-                    label={{ value: "35% Limit", fill: "#ef4444", fontSize: 10 }}
+                    strokeWidth={1}
+                    label={{ value: `Alert ${alertPctNum.toFixed(0)}%`, fill: "#fbbf24", fontSize: 9, position: "insideTopRight" }}
                   />
-                </BarChart>
+                  <ReferenceLine
+                    y={haltPctNum}
+                    stroke="#ff6b6b"
+                    strokeDasharray="4 4"
+                    strokeWidth={1}
+                    label={{ value: `Halt ${haltPctNum.toFixed(0)}%`, fill: "#ff6b6b", fontSize: 9, position: "insideBottomRight" }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="drawdown"
+                    stroke={drawdownColor}
+                    strokeWidth={2}
+                    fill="url(#ddGrad)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: drawdownColor, stroke: "#0f1310", strokeWidth: 2 }}
+                  />
+                </AreaChart>
               </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-12">No sector data</p>
             )}
           </CardContent>
         </Card>
 
         <Card>
-          <CardTitle>Portfolio Summary</CardTitle>
+          <CardTitle meta="% of portfolio">Sector Weight Breakdown</CardTitle>
           <CardContent>
-            <div className="space-y-4">
-              {[
-                ["Portfolio Value", formatCurrency(risk.portfolio_value)],
-                ["Unrealized P&L", formatCurrency(risk.unrealized_pnl)],
-                ["Total Return", formatPercent(risk.total_return_pct)],
-                ["Cash %", formatPercent(risk.cash_pct)],
-                ["Positions", String(risk.n_positions)],
-                ["Alert Level", formatPercent(risk.drawdown_alert_level)],
-                ["Halt Level", formatPercent(risk.drawdown_halt_level)],
-              ].map(([label, value]) => (
-                <div key={label} className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-medium">{value}</span>
-                </div>
-              ))}
-            </div>
+            {sectorData.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">No sector data</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={sectorData} margin={{ top: 16, right: 12, left: 0, bottom: 12 }}>
+                  <CartesianGrid vertical={false} stroke="#1d231e" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="sector"
+                    tick={{ fontSize: 10, fill: "#b3bcb1", fontWeight: 600 }}
+                    axisLine={{ stroke: "#1d231e" }}
+                    tickLine={false}
+                    interval={0}
+                    angle={sectorData.length > 5 ? -25 : 0}
+                    textAnchor={sectorData.length > 5 ? "end" : "middle"}
+                    height={sectorData.length > 5 ? 50 : 28}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                    tick={{ fontSize: 10, fill: "#7a8479" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={42}
+                  />
+                  <Tooltip
+                    formatter={(v) => [`${Number(v).toFixed(1)}%`, "Weight"]}
+                    contentStyle={tooltipStyle}
+                    labelStyle={{ color: "#7a8479" }}
+                    cursor={{ fill: "rgba(197, 251, 69, 0.06)" }}
+                  />
+                  <ReferenceLine
+                    y={35}
+                    stroke="#ff6b6b"
+                    strokeDasharray="4 4"
+                    strokeWidth={1}
+                    label={{ value: "35% Limit", fill: "#ff6b6b", fontSize: 9, position: "insideTopRight" }}
+                  />
+                  <Bar dataKey="weight" radius={[4, 4, 0, 0]} maxBarSize={48}>
+                    {sectorData.map((d, i) => (
+                      <Cell key={i} fill={d.weight > 35 ? "#ff6b6b" : "#c5fb45"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>

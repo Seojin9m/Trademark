@@ -20,20 +20,20 @@ interface DataTableProps<T> {
 export function DataTable<T>({ columns, data, rowKey, emptyMessage = "No data", compact }: DataTableProps<T>) {
   if (data.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground">{emptyMessage}</p>
+      <p className="py-12 text-center font-mono text-[12px] text-muted-foreground">{emptyMessage}</p>
     )
   }
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full font-mono text-[12px] tabular-nums">
         <thead>
-          <tr className="border-b border-border/60">
+          <tr>
             {columns.map((col) => (
               <th
                 key={col.key}
                 className={cn(
-                  "pb-3 px-3 first:pl-0 last:pr-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground",
+                  "sticky top-0 z-[1] border-b border-line bg-bg-2 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground",
                   col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
                   col.className,
                 )}
@@ -47,13 +47,14 @@ export function DataTable<T>({ columns, data, rowKey, emptyMessage = "No data", 
           {data.map((row) => (
             <tr
               key={rowKey(row)}
-              className="border-b border-border/30 transition-colors hover:bg-accent/30"
+              className="border-b border-line transition-colors hover:bg-surface-2"
             >
               {columns.map((col) => (
                 <td
                   key={col.key}
                   className={cn(
-                    compact ? "py-1.5 px-3 first:pl-0 last:pr-0" : "py-2.5 px-3 first:pl-0 last:pr-0",
+                    compact ? "px-3 py-1.5" : "px-3 py-[9px]",
+                    "text-fg-dim",
                     col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
                     col.className,
                   )}
