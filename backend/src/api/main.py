@@ -720,23 +720,26 @@ def get_holding_times():
             for _, row in executions.iterrows():
                 exec_map[row["ticker"]] = row["executed_at"]
 
+        # Hold-status thresholds based on |P&L %|. Rationale: a freshly bought
+        # position sits at ~0% P&L because price hasn't diverged from cost
+        # yet; established positions almost always have moved meaningfully.
+        # Using P&L magnitude as the freshness signal sidesteps the need for
+        # accurate buy-date tracking on brokerage-synced positions.
+        PROTECTED_PNL_THRESHOLD = 0.015  # < 1.5% absolute → PROTECTED
+        TRADEABLE_PNL_THRESHOLD = 0.05   # ≥ 5% absolute → TRADEABLE
+
         for pos in portfolio["positions"]:
             ticker = pos["ticker"]
             last_buy = exec_map.get(ticker)
             q = quality_map.get(ticker, {})
 
+            # buy_date / days_held are kept for tooltip context only; they no
+            # longer drive hold_status.
             if last_buy is not None:
-                if isinstance(last_buy, str):
-                    last_buy_dt = datetime.fromisoformat(last_buy)
-                else:
-                    last_buy_dt = last_buy
+                last_buy_dt = datetime.fromisoformat(last_buy) if isinstance(last_buy, str) else last_buy
                 days_held = (now - last_buy_dt).days
                 buy_date = last_buy_dt.strftime("%Y-%m-%d")
             else:
-                # No pipeline trade record — fall back to first_seen_at, which
-                # the brokerage sync writes when a position is first observed.
-                # This lets us protect freshly bought positions from being
-                # marked "tradeable" the moment they appear.
                 first_seen_str = pos.get("first_seen_at")
                 if first_seen_str:
                     try:
@@ -759,18 +762,25 @@ def get_holding_times():
             else:
                 recommended_days = min_hold
 
-            if days_held is not None:
-                if days_held < min_hold:
-                    hold_status = "protected"
-                elif days_held < recommended_days:
-                    hold_status = "maturing"
-                else:
-                    hold_status = "tradeable"
+            # Compute |P&L %| from cost basis vs last price.
+            cost_per_share = float(pos.get("cost_basis_per_share") or 0)
+            last_price = float(pos.get("last_price") or 0)
+            if cost_per_share > 0 and last_price > 0:
+                pnl_pct = (last_price - cost_per_share) / cost_per_share
             else:
-                # Genuinely no holding history — be conservative and protect
-                # so we don't suggest trimming a position whose age we can't
-                # determine.
+                pnl_pct = 0.0
+            abs_pnl = abs(pnl_pct)
+
+            if abs_pnl < PROTECTED_PNL_THRESHOLD:
                 hold_status = "protected"
+            elif abs_pnl < TRADEABLE_PNL_THRESHOLD:
+                hold_status = "maturing"
+            else:
+                hold_status = "tradeable"
+
+            # 0..1 progress toward TRADEABLE — the frontend uses this to size
+            # the hold-status bar without needing to know thresholds.
+            hold_progress = min(abs_pnl / TRADEABLE_PNL_THRESHOLD, 1.0)
 
             results.append({
                 "ticker": ticker,
@@ -779,6 +789,9 @@ def get_holding_times():
                 "min_hold_days": min_hold,
                 "recommended_hold_days": recommended_days,
                 "hold_status": hold_status,
+                "hold_pnl_pct": round(pnl_pct, 4),
+                "hold_progress": round(hold_progress, 4),
+                "hold_tradeable_threshold_pct": TRADEABLE_PNL_THRESHOLD,
                 "is_good_stock": is_good,
                 "score_decile": decile,
             })

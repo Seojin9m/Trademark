@@ -50,6 +50,14 @@ def fetch_yfinance_bulk(
 
     # yfinance returns MultiIndex columns: (Price, Ticker)
     # Melt into long format: ticker, date, open, high, low, close, volume
+    #
+    # IMPORTANT: when yfinance bulk-downloads and a ticker fails (rate-limit
+    # error, delisting, etc.), it still includes the ticker in the result
+    # but with all-NaN OHLCV columns. We must drop those before returning,
+    # or store_prices() will DELETE-then-INSERT NaN rows on top of any
+    # existing good data for that ticker. Filtering on `close.notna().any()`
+    # is the simplest reliable check.
+    skipped_nan = 0
     records = []
     for ticker in tickers:
         try:
@@ -57,6 +65,16 @@ def fetch_yfinance_bulk(
             if ticker_data.empty:
                 print(f"  WARNING: No data for {ticker}")
                 continue
+
+            # Guard against NaN-only frames from rate-limited / failed fetches
+            if "Close" in ticker_data.columns:
+                if not ticker_data["Close"].notna().any():
+                    skipped_nan += 1
+                    continue
+            elif "close" in ticker_data.columns:
+                if not ticker_data["close"].notna().any():
+                    skipped_nan += 1
+                    continue
 
             df = ticker_data.reset_index()
             df.columns = [c.lower() if isinstance(c, str) else c for c in df.columns]
@@ -72,6 +90,9 @@ def fetch_yfinance_bulk(
         except (KeyError, Exception) as e:
             print(f"  WARNING: Failed to process {ticker}: {e}")
             continue
+
+    if skipped_nan:
+        print(f"  Skipped {skipped_nan} tickers with all-NaN data (likely rate-limited or delisted)")
 
     if not records:
         return pd.DataFrame()

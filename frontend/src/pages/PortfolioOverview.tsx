@@ -667,6 +667,17 @@ export default function PortfolioOverview() {
     (a, b) => b.market_value - a.market_value,
   )
 
+  // Today's return — compare the most recent snapshot to the prior one.
+  // historyData is ordered newest → oldest, so [0] is today and [1] is the
+  // previous trading session. Both values are pre-rate-conversion (USD).
+  const todayReturn: { dollar: number; pct: number } | null = (() => {
+    if (!historyData || historyData.length < 2) return null
+    const today = historyData[0].total_value
+    const prev = historyData[1].total_value
+    if (prev <= 0) return null
+    return { dollar: today - prev, pct: (today - prev) / prev }
+  })()
+
   // Allocation pie — cohesive OKLCH palette: tickers get green→teal→blue hues at
   // consistent lightness/chroma; cash gets a muted gray so it visually recedes.
   const tickerEntries = Object.entries(weights)
@@ -755,13 +766,9 @@ export default function PortfolioOverview() {
       render: (r: PositionRow) => {
         const h = holdMap.get(r.ticker)
         if (!h) return <span className="text-muted-foreground/50">—</span>
-        // Bar shows progress through the hold window (0% = just bought,
-        // 100% = past the recommended hold). Floor at 6% so a freshly
-        // protected position still shows a visible amber sliver instead
-        // of an empty track.
-        const rawPct = h.days_held != null
-          ? Math.min(h.days_held / h.recommended_hold_days, 1)
-          : 1
+        // Bar fills as |P&L %| approaches the tradeable threshold. Floor at
+        // 6% so a freshly protected position still shows a visible sliver.
+        const rawPct = h.hold_progress ?? 0
         const pct = Math.max(rawPct, 0.06)
         const statusColor =
           h.hold_status === "protected" ? "text-amber-400" :
@@ -771,12 +778,13 @@ export default function PortfolioOverview() {
           h.hold_status === "protected" ? "PROTECTED" :
           h.hold_status === "maturing" ? "MATURING" :
           "TRADEABLE"
-        const tooltip = h.buy_date
-          ? `Bought ${h.buy_date} · ${h.days_held}d / ${h.recommended_hold_days}d recommended`
-          : "Synced from brokerage · tradeable"
+        const pnlPct = h.hold_pnl_pct ?? 0
+        const thresholdPct = h.hold_tradeable_threshold_pct ?? 0.05
+        const pnlLabel = `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%`
+        const tooltip = `P&L ${pnlLabel} · tradeable at ±${(thresholdPct * 100).toFixed(0)}%`
         return (
-          <div className="flex items-center gap-2 justify-end" title={tooltip} style={{ minWidth: 160 }}>
-            <div className="h-1.5 rounded-full bg-line-2 overflow-hidden flex-1 max-w-[80px]">
+          <div className="flex items-center gap-2.5 justify-end" title={tooltip}>
+            <div className="h-1.5 w-[80px] shrink-0 rounded-full bg-line-2 overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all",
@@ -787,7 +795,7 @@ export default function PortfolioOverview() {
                 style={{ width: `${pct * 100}%` }}
               />
             </div>
-            <span className={cn("font-mono text-[10px] font-semibold tracking-[0.06em]", statusColor)}>
+            <span className={cn("font-mono text-[10px] font-semibold tracking-[0.06em] w-[64px] text-left", statusColor)}>
               {statusLabel}
             </span>
           </div>
@@ -841,9 +849,11 @@ export default function PortfolioOverview() {
           className={cashFlash === "up" ? "flash-card-up" : cashFlash === "down" ? "flash-card-down" : ""}
         />
         <MetricCard
-          label="Position Count"
-          value={String(positions.length)}
-          sub={positions.length > 0 ? `${positions.length} ticker${positions.length === 1 ? "" : "s"}` : undefined}
+          label="Today's Return"
+          value={todayReturn ? `${todayReturn.dollar >= 0 ? "+" : ""}${fmt(todayReturn.dollar)}` : "—"}
+          delta={todayReturn ? formatPercent(todayReturn.pct) : undefined}
+          deltaValue={todayReturn?.dollar}
+          sub={todayReturn ? "vs prior snapshot" : "needs 2+ snapshots"}
         />
       </div>
 
