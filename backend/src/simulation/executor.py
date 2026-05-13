@@ -247,6 +247,13 @@ def snapshot_portfolio(
         benchmark_price = row[0] if row else None
 
     con = get_connection()
+    # ON CONFLICT uses EXCLUDED.column refs instead of re-binding $N. Two
+    # reasons: (1) Postgres convention — EXCLUDED is the cleaner upsert
+    # idiom. (2) Our PgConnectionAdapter regex-translates every $N to %s,
+    # so reusing $1/$3/... in the SET clause used to balloon the expected
+    # param count from 13 to 24 and trigger psycopg2 IndexError
+    # ("list index out of range"). EXCLUDED keeps each parameter $N
+    # appearing exactly once.
     con.execute("""
         INSERT INTO portfolio_snapshots
         (snapshot_id, snapshot_date, total_value, cash, positions_value,
@@ -254,17 +261,17 @@ def snapshot_portfolio(
          benchmark_value, snapshot_source, positions_detail, created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         ON CONFLICT (snapshot_date, snapshot_source) DO UPDATE SET
-            snapshot_id = $1,
-            total_value = $3,
-            cash = $4,
-            positions_value = $5,
-            n_positions = $6,
-            total_cost_basis = $7,
-            unrealized_pnl = $8,
-            total_return_pct = $9,
-            benchmark_value = $10,
-            positions_detail = $12,
-            created_at = $13
+            snapshot_id = EXCLUDED.snapshot_id,
+            total_value = EXCLUDED.total_value,
+            cash = EXCLUDED.cash,
+            positions_value = EXCLUDED.positions_value,
+            n_positions = EXCLUDED.n_positions,
+            total_cost_basis = EXCLUDED.total_cost_basis,
+            unrealized_pnl = EXCLUDED.unrealized_pnl,
+            total_return_pct = EXCLUDED.total_return_pct,
+            benchmark_value = EXCLUDED.benchmark_value,
+            positions_detail = EXCLUDED.positions_detail,
+            created_at = EXCLUDED.created_at
     """, [
         snapshot_id,
         today,

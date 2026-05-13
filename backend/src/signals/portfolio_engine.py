@@ -213,12 +213,16 @@ def build_trade_proposals(
         }
         proposals.append(proposal)
 
-    # Cap BUY proposals by available cash — prioritize by composite score
+    # Allocate available cash across BUY proposals in score order. Previously
+    # any BUY that didn't fit was silently dropped, which made it look like
+    # the pipeline produced no signals when in fact it had several it
+    # couldn't fund. We now keep the unfunded proposals in the return list
+    # but mark them constraint-failed so the dashboard surfaces them and
+    # the judge step skips them naturally.
     cash = portfolio.get("cash", 0)
     buys = [p for p in proposals if p["action"] == "BUY"]
     non_buys = [p for p in proposals if p["action"] != "BUY"]
 
-    # Sort buys by composite score descending (best signals first)
     buys.sort(
         key=lambda p: p.get("signal_data", {}).get("composite_score", 0),
         reverse=True,
@@ -230,7 +234,15 @@ def build_trade_proposals(
         if p["estimated_value"] <= remaining_cash:
             capped_buys.append(p)
             remaining_cash -= p["estimated_value"]
-        # else: skip — not enough cash
+        else:
+            cc = p.get("constraint_check") or {"passed": True, "violations": []}
+            cc["passed"] = False
+            cc["violations"] = list(cc.get("violations", [])) + [
+                f"Insufficient cash: need ${p['estimated_value']:,.0f}, "
+                f"have ${remaining_cash:,.0f} (after higher-priority buys)"
+            ]
+            p["constraint_check"] = cc
+            capped_buys.append(p)
 
     return non_buys + capped_buys
 
