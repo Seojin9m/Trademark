@@ -8,7 +8,7 @@ Flow:
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -288,6 +288,50 @@ def sync_portfolio(account_id: str | None = None) -> dict:
         account_id=account_id,
     )
 
+    # Load existing portfolio to preserve first_seen_at across syncs. New
+    # positions appearing in this sync get a fresh first_seen_at; existing
+    # positions keep theirs so we don't reset their hold-window protection
+    # on every refresh.
+    #
+    # Migrations applied here:
+    # 1. Positions with no first_seen_at field (predates this feature) are
+    #    backdated 1 year so they don't all flip to PROTECTED.
+    # 2. Positions sharing an identical first_seen_at timestamp with 3+ other
+    #    positions are treated as a sync-batch artifact (the early version of
+    #    this feature wrote `now` to every position simultaneously). Real
+    #    purchase events almost never share an exact-second timestamp across
+    #    multiple holdings, so we backdate the whole cluster.
+    backdated_iso = (datetime.now() - timedelta(days=365)).isoformat()
+    existing_first_seen: dict[str, str] = {}
+    try:
+        if settings.paths.portfolio_state_path.exists():
+            with open(settings.paths.portfolio_state_path) as _f:
+                _existing = json.load(_f)
+                _existing_positions = _existing.get("positions", [])
+                # Count timestamp occurrences to detect batch-write artifacts.
+                _ts_counts: dict[str, int] = {}
+                for _p in _existing_positions:
+                    _fs = _p.get("first_seen_at")
+                    if _fs:
+                        _ts_counts[_fs] = _ts_counts.get(_fs, 0) + 1
+                _suspect_batch_ts = {ts for ts, n in _ts_counts.items() if n >= 3}
+
+                for _p in _existing_positions:
+                    _t = _p.get("ticker")
+                    if not _t:
+                        continue
+                    _fs = _p.get("first_seen_at")
+                    if not _fs:
+                        existing_first_seen[_t] = backdated_iso
+                    elif _fs in _suspect_batch_ts:
+                        existing_first_seen[_t] = backdated_iso
+                    else:
+                        existing_first_seen[_t] = _fs
+    except Exception:
+        pass
+
+    now_iso = datetime.now().isoformat()
+
     positions = []
     for pos in positions_resp.body:
         # Convert to plain dict first to avoid SnapTrade SDK object issues
@@ -329,12 +373,14 @@ def sync_portfolio(account_id: str | None = None) -> dict:
         if units <= 0 or not ticker:
             continue
 
+        first_seen = existing_first_seen.get(ticker, now_iso)
         positions.append({
             "ticker": ticker,
             "shares": int(units) if units == int(units) else units,
             "cost_basis_per_share": round(avg_cost, 2),
             "last_price": round(current_price, 4) if current_price > 0 else None,
             "date_acquired": "synced",
+            "first_seen_at": first_seen,
         })
 
     # Build portfolio state

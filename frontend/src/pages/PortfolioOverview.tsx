@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect, useRef } from "react"
-import { useToast } from "@/contexts/toast-context"
 import { api } from "@/lib/api"
 import type { PortfolioData, PortfolioSnapshot, QuarterlyFundamental, HoldingTime, BrokerageStatus } from "@/lib/api"
 import { formatPercent, pnlColor, cn } from "@/lib/utils"
@@ -8,40 +7,35 @@ import { PageHeader } from "@/components/layout/page-header"
 import { MetricCard } from "@/components/ui/metric-card"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Badge } from "@/components/ui/badge"
-import { RefreshCw, Loader2, TrendingUp, BarChart3, ChevronDown, ChevronUp } from "lucide-react"
+import { Loader2, TrendingUp, BarChart3, ChevronDown, ChevronUp } from "lucide-react"
 import {
   PieChart,
   Pie,
   Cell,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
-  ReferenceLine,
   CartesianGrid,
   AreaChart,
   Area,
 } from "recharts"
-
-const COLORS = [
-  "#6366f1", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b",
-  "#f43f5e", "#ec4899", "#3b82f6", "#14b8a6", "#f97316",
-  "#84cc16", "#a855f7", "#0ea5e9", "#22d3ee", "#e879f9",
-]
+import { Treemap } from "@/components/charts/Treemap"
+import { Waterfall } from "@/components/charts/Waterfall"
+import { BubbleChart } from "@/components/charts/BubbleChart"
+import { Sparkline } from "@/components/charts/Sparkline"
 
 const tooltipStyle = {
-  backgroundColor: "#111113",
-  border: "1px solid #1f1f2e",
-  borderRadius: "0.75rem",
-  color: "#fafafa",
+  backgroundColor: "#0f1310",
+  border: "1px solid #262d27",
+  borderRadius: "6px",
+  color: "#e8efe6",
   fontSize: "12px",
-  boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+  fontFamily: "'JetBrains Mono', monospace",
+  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
 }
 
-const tooltipLabelStyle = { color: "#a1a1aa" }
+const tooltipLabelStyle = { color: "#7a8479" }
 
 interface PositionRow {
   ticker: string
@@ -53,11 +47,6 @@ interface PositionRow {
   unrealized_pct: number
   weight?: number
 }
-
-const financialChartCSS = `
-.financial-charts .recharts-wrapper,
-.financial-charts .recharts-surface { overflow: visible !important; }
-`
 
 const slotCSS = `
 @keyframes slot-in-up {
@@ -117,22 +106,22 @@ function SlotValue({ value, dir, className }: {
 const flashCSS = `
 @keyframes flash-up {
   0%   { box-shadow: none; }
-  20%  { box-shadow: 0 0 0 2px rgba(34,197,94,0.55), 0 0 16px rgba(34,197,94,0.15); }
+  20%  { box-shadow: 0 0 0 2px rgba(126,231,135,0.45), 0 0 12px rgba(126,231,135,0.10); }
   100% { box-shadow: none; }
 }
 @keyframes flash-down {
   0%   { box-shadow: none; }
-  20%  { box-shadow: 0 0 0 2px rgba(239,68,68,0.55), 0 0 16px rgba(239,68,68,0.15); }
+  20%  { box-shadow: 0 0 0 2px rgba(255,107,107,0.45), 0 0 12px rgba(255,107,107,0.10); }
   100% { box-shadow: none; }
 }
 @keyframes cell-flash-up {
   0%   { background-color: transparent; }
-  25%  { background-color: rgba(34,197,94,0.22); border-radius: 4px; }
+  25%  { background-color: rgba(126,231,135,0.18); border-radius: 4px; }
   100% { background-color: transparent; }
 }
 @keyframes cell-flash-down {
   0%   { background-color: transparent; }
-  25%  { background-color: rgba(239,68,68,0.22); border-radius: 4px; }
+  25%  { background-color: rgba(255,107,107,0.18); border-radius: 4px; }
   100% { background-color: transparent; }
 }
 .flash-card-up   { animation: flash-up   0.9s ease-out; }
@@ -244,22 +233,21 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
   const maxVal = isEmpty ? 0 : Math.max(...chartData.map((d) => d.total_value))
   const domain: [number, number] = isEmpty ? [0, 1] : [minVal * 0.985, maxVal * 1.015]
 
-  const LINE_COLOR = "#22c55e"  // always green
+  const LINE_COLOR = "#c5fb45"
+
+  const firstDate = !isEmpty ? snapshots[snapshots.length - 1].snapshot_date.slice(0, 10) : ""
+  const lastDate = !isEmpty ? snapshots[0].snapshot_date.slice(0, 10) : ""
 
   return (
     <Card className="mb-4">
-      <CardTitle>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-primary" />
-            Portfolio History
-          </div>
-          {!isEmpty && (
-            <span className="text-xs font-normal text-muted-foreground">
-              {chartData.length} pipeline run{chartData.length !== 1 ? "s" : ""} · last {formatSnapshotDate(snapshots[0].snapshot_date)}
-            </span>
-          )}
-        </div>
+      <CardTitle
+        meta={
+          !isEmpty
+            ? `${chartData.length} snapshot${chartData.length === 1 ? "" : "s"} · ${firstDate} → ${lastDate}`
+            : undefined
+        }
+      >
+        Portfolio History
       </CardTitle>
       <CardContent>
         {isEmpty ? (
@@ -276,11 +264,11 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
                   <stop offset="95%" stopColor={LINE_COLOR} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
+              <CartesianGrid vertical={false} stroke="#1d231e" strokeDasharray="3 3" />
               <XAxis
                 dataKey="shortDate"
-                tick={{ fontSize: 11, fill: "#71717a" }}
-                axisLine={{ stroke: "#27272a" }}
+                tick={{ fontSize: 11, fill: "#7a8479" }}
+                axisLine={{ stroke: "#1d231e" }}
                 tickLine={false}
                 interval={chartData.length <= 10 ? 0 : Math.floor(chartData.length / 8)}
                 padding={{ left: 12, right: 12 }}
@@ -293,7 +281,7 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
                   if (abs >= 1_000) return `$${(abs / 1_000).toFixed(1)}k`
                   return `$${abs.toFixed(0)}`
                 }}
-                tick={{ fontSize: 11, fill: "#71717a", dy: -4 }}
+                tick={{ fontSize: 11, fill: "#7a8479", dy: -4 }}
                 axisLine={false}
                 tickLine={false}
                 width={62}
@@ -319,7 +307,7 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
                       cy={cy}
                       r={isLast ? 4 : 2.5}
                       fill={LINE_COLOR}
-                      stroke="#111113"
+                      stroke="#0f1310"
                       strokeWidth={2}
                     />
                   )
@@ -337,7 +325,7 @@ function PortfolioHistoryChart({ snapshots, rate, currency }: {
 function formatQtr(dateStr: string): string {
   const [y, m] = dateStr.slice(0, 10).split("-").map(Number)
   const q = Math.ceil(m / 3)
-  return `${y} Q${q}`
+  return `Q${q} ${String(y).slice(-2)}`
 }
 
 function fmtCompact(value: number): string {
@@ -347,61 +335,6 @@ function fmtCompact(value: number): string {
   if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(0)}M`
   if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`
   return `${sign}$${abs.toFixed(0)}`
-}
-
-function FinancialTooltip({ active, payload, label, valueKey, valueLabel, fmtValue }: {
-  active?: boolean
-  payload?: Array<{ payload: Record<string, unknown> }>
-  label?: string
-  valueKey: string
-  valueLabel: string
-  fmtValue: (v: number) => string
-}) {
-  if (!active || !payload?.length) return null
-  const d = payload[0].payload
-  const value = d[valueKey] as number | null
-  const yoy = d.yoy as number | null
-  if (value == null) return null
-  return (
-    <div style={{ ...tooltipStyle, padding: "8px 12px", minWidth: 140 }}>
-      <p className="text-xs text-muted-foreground mb-1.5">{label}</p>
-      <div className="flex justify-between gap-4">
-        <span className="text-xs text-muted-foreground">{valueLabel}</span>
-        <span className="text-xs font-semibold">{fmtValue(value)}</span>
-      </div>
-      {yoy != null && (
-        <div className="flex justify-between gap-4 mt-0.5">
-          <span className="text-xs text-muted-foreground">YoY</span>
-          <span className={cn("text-xs font-semibold", yoy >= 0 ? "text-profit" : "text-loss")}>
-            {yoy >= 0 ? "+" : ""}{(yoy * 100).toFixed(1)}%
-          </span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function YoYDot(props: {
-  cx?: number; cy?: number; index?: number
-  data: Array<{ yoy: number | null }>
-  color: string
-  payload?: Record<string, unknown>
-}) {
-  const { cx = 0, cy = 0, index, data, color } = props
-  const yoy = index != null && data[index] ? data[index].yoy : null
-  const isLast = index === data.length - 1
-  const showLabel = isLast && yoy != null
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={isLast ? 6 : 4} fill={color} stroke="#111113" strokeWidth={2} />
-      {showLabel && (
-        <text x={cx} y={cy - 14} textAnchor="middle" fontSize={10}
-          fill={yoy >= 0 ? "#22c55e" : "#ef4444"} fontWeight={600}>
-          {yoy >= 0 ? "+" : ""}{(yoy * 100).toFixed(1)}%
-        </text>
-      )}
-    </g>
-  )
 }
 
 function FinancialStats({ tickers }: { tickers: string[] }) {
@@ -427,51 +360,35 @@ function FinancialStats({ tickers }: { tickers: string[] }) {
     .filter((f) => f.ticker === selectedTicker)
     .slice(-8)
 
-  const revenueData = quarters.map((q) => ({
-    quarter: formatQtr(q.fiscal_period_end),
-    revenue: q.revenue,
-    yoy: q.revenue_yoy,
-  }))
-
-  const epsData = quarters.map((q) => ({
-    quarter: formatQtr(q.fiscal_period_end),
-    eps: q.eps_diluted,
-    yoy: q.eps_diluted_yoy,
-  }))
-
-  const netIncomeData = quarters.map((q) => ({
-    quarter: formatQtr(q.fiscal_period_end),
-    net_income: q.net_income,
-    yoy: q.net_income_yoy,
-  }))
-
   return (
     <Card className="mb-4">
-      <CardTitle>
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center justify-between w-full"
-        >
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-primary" />
-            Financial Statistics
-          </div>
-          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-        </button>
+      <CardTitle
+        meta={`Last 8 quarters · ${selectedTicker}`}
+        action={
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 h-[24px] px-2 rounded-[4px] font-mono text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors"
+          >
+            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        }
+      >
+        Financial Statistics
       </CardTitle>
       {expanded && (
         <CardContent>
           {/* Ticker selector */}
-          <div className="flex flex-wrap gap-1.5 mb-5">
+          <div className="flex flex-wrap gap-1 mb-5">
             {tickers.map((t) => (
               <button
                 key={t}
                 onClick={() => setSelectedTicker(t)}
                 className={cn(
-                  "px-3 py-1 rounded-md text-xs font-semibold transition-colors",
+                  "h-[24px] px-2 rounded-[4px] font-mono text-[11px] font-medium transition-colors",
                   t === selectedTicker
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card border border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40",
+                    ? "bg-primary text-background"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface",
                 )}
               >
                 {t}
@@ -492,127 +409,107 @@ function FinancialStats({ tickers }: { tickers: string[] }) {
             </div>
           ) : (
             <>
-              {/* Revenue + Net Income + EPS Charts */}
-              <div className="financial-charts grid grid-cols-3 gap-4 mb-5">
-                {/* Revenue Chart */}
-                <div style={{ overflow: "visible" }}>
-                  <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly Revenue</p>
-                  <ResponsiveContainer width="100%" height={210} style={{ overflow: "visible" }}>
-                    <AreaChart data={revenueData} margin={{ top: 30, right: 30, left: 5, bottom: 18 }}>
-                      <defs>
-                        <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.35} />
-                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                      <XAxis dataKey="quarter" tick={{ fontSize: 10, fill: "#71717a", dy: 4 }} axisLine={{ stroke: "#27272a" }} tickLine={false} />
-                      <YAxis domain={["auto", "auto"]} tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={55} />
-                      <Tooltip
-                        content={<FinancialTooltip valueKey="revenue" valueLabel="Revenue" fmtValue={fmtCompact} />}
-                        cursor={{ stroke: "#8b5cf6", strokeWidth: 1, strokeDasharray: "4 2" }}
-                      />
-                      <Area type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2.5}
-                        fill="url(#revGrad)"
-                        dot={(props) => <YoYDot {...props} data={revenueData} color="#8b5cf6" />}
-                        activeDot={{ r: 7, fill: "#8b5cf6", stroke: "#111113", strokeWidth: 2 }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* Net Income Chart */}
-                <div style={{ overflow: "visible" }}>
-                  <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly Net Income</p>
-                  <ResponsiveContainer width="100%" height={210} style={{ overflow: "visible" }}>
-                    <AreaChart data={netIncomeData} margin={{ top: 30, right: 30, left: 5, bottom: 18 }}>
-                      <defs>
-                        <linearGradient id="niGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
-                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                      <XAxis dataKey="quarter" tick={{ fontSize: 10, fill: "#71717a", dy: 4 }} axisLine={{ stroke: "#27272a" }} tickLine={false} />
-                      <YAxis domain={["auto", "auto"]} tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={55} />
-                      <Tooltip
-                        content={<FinancialTooltip valueKey="net_income" valueLabel="Net Income" fmtValue={fmtCompact} />}
-                        cursor={{ stroke: "#22c55e", strokeWidth: 1, strokeDasharray: "4 2" }}
-                      />
-                      <Area type="monotone" dataKey="net_income" stroke="#22c55e" strokeWidth={2.5}
-                        fill="url(#niGrad)"
-                        dot={(props) => <YoYDot {...props} data={netIncomeData} color="#22c55e" />}
-                        activeDot={{ r: 7, fill: "#22c55e", stroke: "#111113", strokeWidth: 2 }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* EPS Chart */}
-                <div style={{ overflow: "visible" }}>
-                  <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly EPS (Diluted)</p>
-                  <ResponsiveContainer width="100%" height={210} style={{ overflow: "visible" }}>
-                    <AreaChart data={epsData} margin={{ top: 30, right: 30, left: 5, bottom: 18 }}>
-                      <defs>
-                        <linearGradient id="epsGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35} />
-                          <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                      <XAxis dataKey="quarter" tick={{ fontSize: 10, fill: "#71717a", dy: 4 }} axisLine={{ stroke: "#27272a" }} tickLine={false} />
-                      <YAxis domain={["auto", "auto"]} tickFormatter={(v: number) => `$${v.toFixed(2)}`} tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={50} />
-                      <Tooltip
-                        content={<FinancialTooltip valueKey="eps" valueLabel="EPS" fmtValue={(v) => `$${v.toFixed(2)}`} />}
-                        cursor={{ stroke: "#06b6d4", strokeWidth: 1, strokeDasharray: "4 2" }}
-                      />
-                      <Area type="monotone" dataKey="eps" stroke="#06b6d4" strokeWidth={2.5}
-                        fill="url(#epsGrad)"
-                        dot={(props) => <YoYDot {...props} data={epsData} color="#06b6d4" />}
-                        activeDot={{ r: 7, fill: "#06b6d4", stroke: "#111113", strokeWidth: 2 }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+              {/* Revenue + Net Income + EPS Stat Boxes */}
+              {(() => {
+                const latest = quarters[quarters.length - 1]
+                const stats = [
+                  {
+                    label: "Quarterly Revenue ($B)",
+                    series: quarters.map((q) => q.revenue ?? 0),
+                    latest: latest?.revenue ?? null,
+                    suffix: "B",
+                    stroke: "#c5fb45",
+                    fill: "rgba(197, 251, 69, 0.12)",
+                    scale: 1e9,
+                  },
+                  {
+                    label: "Quarterly Net Income ($B)",
+                    series: quarters.map((q) => q.net_income ?? 0),
+                    latest: latest?.net_income ?? null,
+                    suffix: "B",
+                    stroke: "#7ee787",
+                    fill: "rgba(126, 231, 135, 0.12)",
+                    scale: 1e9,
+                  },
+                  {
+                    label: "Quarterly EPS ($)",
+                    series: quarters.map((q) => q.eps_diluted ?? 0),
+                    latest: latest?.eps_diluted ?? null,
+                    suffix: "",
+                    stroke: "#6cb4ee",
+                    fill: "rgba(108, 180, 238, 0.12)",
+                    scale: 1,
+                  },
+                ]
+                return (
+                  <div className="grid grid-cols-3 gap-4 mb-5">
+                    {stats.map((s) => (
+                      <div
+                        key={s.label}
+                        className="rounded-md border border-line bg-bg-2 px-3 py-2.5"
+                      >
+                        <div className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1">
+                          {s.label}
+                        </div>
+                        <div className="font-mono text-[16px] font-medium tabular-nums text-foreground">
+                          {s.latest != null
+                            ? `$${(s.latest / s.scale).toFixed(2)}${s.suffix}`
+                            : "—"}
+                        </div>
+                        <div className="mt-1.5">
+                          <Sparkline
+                            data={s.series}
+                            width={220}
+                            height={36}
+                            stroke={s.stroke}
+                            fill={s.fill}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
 
               {/* Quarterly Financials Table */}
               <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-2">Quarterly Financials</p>
+                <div className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground mb-2">
+                  Quarterly Financials
+                </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                  <table className="w-full font-mono text-[11px] tabular-nums">
                     <thead>
-                      <tr className="border-b border-border/60">
-                        <th className="text-left py-2 px-2 text-muted-foreground font-medium">Quarter</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Revenue</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">YoY</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Gross Profit</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Op. Income</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Net Income</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">YoY</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">EPS</th>
-                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">YoY</th>
+                      <tr className="border-b border-line">
+                        <th className="text-left py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">Quarter</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">Revenue</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">YoY%</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">Gross Profit</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">Operating Inc</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">Net Income</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">YoY%</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">EPS</th>
+                        <th className="text-right py-2 px-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-semibold">YoY%</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {[...quarters].reverse().map((q) => (
-                        <tr key={q.fiscal_period_end} className="border-b border-border/30 hover:bg-muted/30">
-                          <td className="py-1.5 px-2 font-medium">{formatQtr(q.fiscal_period_end)}</td>
-                          <td className="text-right py-1.5 px-2">{q.revenue != null ? fmtCompact(q.revenue) : "-"}</td>
-                          <td className={cn("text-right py-1.5 px-2 font-medium", q.revenue_yoy != null ? (q.revenue_yoy >= 0 ? "text-profit" : "text-loss") : "")}>
-                            {q.revenue_yoy != null ? `${q.revenue_yoy >= 0 ? "+" : ""}${(q.revenue_yoy * 100).toFixed(1)}%` : "-"}
+                      {quarters.map((q) => (
+                        <tr key={q.fiscal_period_end} className="border-b border-line/40 hover:bg-surface-2">
+                          <td className="py-1.5 px-2 font-semibold text-foreground">{formatQtr(q.fiscal_period_end)}</td>
+                          <td className="text-right py-1.5 px-2 text-fg-dim">{q.revenue != null ? fmtCompact(q.revenue) : "—"}</td>
+                          <td className={cn("text-right py-1.5 px-2", q.revenue_yoy != null ? (q.revenue_yoy >= 0 ? "text-profit" : "text-loss") : "text-muted-2")}>
+                            {q.revenue_yoy != null ? `${q.revenue_yoy >= 0 ? "+" : ""}${(q.revenue_yoy * 100).toFixed(1)}%` : "—"}
                           </td>
-                          <td className="text-right py-1.5 px-2">{q.gross_profit != null ? fmtCompact(q.gross_profit) : "-"}</td>
-                          <td className="text-right py-1.5 px-2">{q.operating_income != null ? fmtCompact(q.operating_income) : "-"}</td>
-                          <td className={cn("text-right py-1.5 px-2", (q.net_income ?? 0) < 0 ? "text-loss" : "")}>
-                            {q.net_income != null ? fmtCompact(q.net_income) : "-"}
+                          <td className="text-right py-1.5 px-2 text-fg-dim">{q.gross_profit != null ? fmtCompact(q.gross_profit) : "—"}</td>
+                          <td className="text-right py-1.5 px-2 text-fg-dim">{q.operating_income != null ? fmtCompact(q.operating_income) : "—"}</td>
+                          <td className={cn("text-right py-1.5 px-2", (q.net_income ?? 0) < 0 ? "text-loss" : "text-fg-dim")}>
+                            {q.net_income != null ? fmtCompact(q.net_income) : "—"}
                           </td>
-                          <td className={cn("text-right py-1.5 px-2 font-medium", q.net_income_yoy != null ? (q.net_income_yoy >= 0 ? "text-profit" : "text-loss") : "")}>
-                            {q.net_income_yoy != null ? `${q.net_income_yoy >= 0 ? "+" : ""}${(q.net_income_yoy * 100).toFixed(1)}%` : "-"}
+                          <td className={cn("text-right py-1.5 px-2", q.net_income_yoy != null ? (q.net_income_yoy >= 0 ? "text-profit" : "text-loss") : "text-muted-2")}>
+                            {q.net_income_yoy != null ? `${q.net_income_yoy >= 0 ? "+" : ""}${(q.net_income_yoy * 100).toFixed(1)}%` : "—"}
                           </td>
-                          <td className="text-right py-1.5 px-2 font-medium">{q.eps_diluted != null ? `$${q.eps_diluted.toFixed(2)}` : "-"}</td>
-                          <td className={cn("text-right py-1.5 px-2 font-medium", q.eps_diluted_yoy != null ? (q.eps_diluted_yoy >= 0 ? "text-profit" : "text-loss") : "")}>
-                            {q.eps_diluted_yoy != null ? `${q.eps_diluted_yoy >= 0 ? "+" : ""}${(q.eps_diluted_yoy * 100).toFixed(1)}%` : "-"}
+                          <td className="text-right py-1.5 px-2 text-fg-dim">{q.eps_diluted != null ? `$${q.eps_diluted.toFixed(2)}` : "—"}</td>
+                          <td className={cn("text-right py-1.5 px-2", q.eps_diluted_yoy != null ? (q.eps_diluted_yoy >= 0 ? "text-profit" : "text-loss") : "text-muted-2")}>
+                            {q.eps_diluted_yoy != null ? `${q.eps_diluted_yoy >= 0 ? "+" : ""}${(q.eps_diluted_yoy * 100).toFixed(1)}%` : "—"}
                           </td>
                         </tr>
                       ))}
@@ -632,12 +529,11 @@ export default function PortfolioOverview() {
   const [currency, setCurrency] = useState<"USD" | "CAD">("CAD")
   const queryClient = useQueryClient()
 
-  const { toast } = useToast()
-
+  // Background sync runs on a 10s interval (silent — no toasts on transient
+  // brokerage errors so we don't spam the user when the upstream is flaky).
   const syncMutation = useMutation({
     mutationFn: () => api.syncPortfolio(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio"] }),
-    onError: (e: Error) => toast("error", "Sync Failed", e.message.replace(/^Error:\s*/, "")),
   })
 
   const { data, isLoading, error } = useQuery<PortfolioData>({
@@ -671,6 +567,22 @@ export default function PortfolioOverview() {
   const brokerageConnected = brokerageStatus?.connected ?? false
   const holdMap = new Map((holdingTimes ?? []).map((h) => [h.ticker, h]))
 
+  // Auto-sync the portfolio every 10s while the page is open and a brokerage
+  // is connected. Skips firing while a previous sync is still in flight to
+  // prevent stacking when the brokerage call runs slow.
+  const syncMutate = syncMutation.mutate
+  const isPending = syncMutation.isPending
+  useEffect(() => {
+    if (!brokerageConnected) return
+    const tick = () => {
+      if (!isPending) syncMutate()
+    }
+    tick() // fire once immediately
+    const id = setInterval(tick, 10_000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brokerageConnected])
+
   const rate = currency === "CAD" ? (rateData?.rate ?? 1.38) : 1
 
   const portfolioFlash = useFlash(data?.pnl?.total_portfolio_value ?? 0)
@@ -687,24 +599,13 @@ export default function PortfolioOverview() {
   }
 
   const toggleActions = (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => syncMutation.mutate()}
-        disabled={syncMutation.isPending}
-        className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
-      >
-        {syncMutation.isPending
-          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          : <RefreshCw className="h-3.5 w-3.5" />}
-        Sync
-      </button>
-      <div className="flex items-center rounded-lg border border-border/60 bg-card overflow-hidden text-sm">
+    <div className="flex overflow-hidden rounded-[4px] border border-line-2">
       <button
         onClick={() => setCurrency("USD")}
         className={cn(
-          "px-3 py-1.5 font-medium transition-colors",
+          "h-[28px] px-3 font-mono text-[12px] font-medium transition-colors border-r border-line-2",
           currency === "USD"
-            ? "bg-primary text-primary-foreground"
+            ? "bg-primary/8 text-primary"
             : "text-muted-foreground hover:text-foreground",
         )}
       >
@@ -713,36 +614,30 @@ export default function PortfolioOverview() {
       <button
         onClick={() => setCurrency("CAD")}
         className={cn(
-          "px-3 py-1.5 font-medium transition-colors",
+          "h-[28px] px-3 font-mono text-[12px] font-medium transition-colors",
           currency === "CAD"
-            ? "bg-primary text-primary-foreground"
+            ? "bg-primary/8 text-primary"
             : "text-muted-foreground hover:text-foreground",
         )}
       >
         CAD
       </button>
     </div>
-    </div>
   )
 
-  const portfolioTitle = (
-    <>
-      Portfolio
-      {brokerageConnected && (
-        <img
-          src="/brokerages/wealthsimple_logo.jpg"
-          alt="Wealthsimple"
-          className="h-7 w-7 rounded-lg object-cover border border-border/40"
-          title="Connected to Wealthsimple"
-        />
-      )}
-    </>
-  )
+  const portfolioTitle = "Portfolio"
+  const portfolioPrefix = brokerageConnected ? (
+    <img
+      src="/brokerages/wealthsimple_logo.jpg"
+      alt="Wealthsimple"
+      className="h-6 w-6 rounded-sm object-cover"
+    />
+  ) : undefined
 
   if (isLoading) {
     return (
       <>
-        <PageHeader title={portfolioTitle} actions={toggleActions} />
+        <PageHeader title={portfolioTitle} prefix={portfolioPrefix} actions={toggleActions} />
         <div className="grid grid-cols-4 gap-3 mb-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-28 rounded-xl border border-border/60 bg-card animate-shimmer" />
@@ -772,32 +667,28 @@ export default function PortfolioOverview() {
     (a, b) => b.market_value - a.market_value,
   )
 
-  // Chart data: P&L by position (keep green/red for P&L)
-  const pnlChartData = positions.map((p) => ({
-    ticker: p.ticker,
-    pnl: p.unrealized_pnl * rate,
-    fill: p.unrealized_pnl >= 0 ? "#22c55e" : "#ef4444",
-  }))
+  // Today's return — compare the most recent snapshot to the prior one.
+  // historyData is ordered newest → oldest, so [0] is today and [1] is the
+  // previous trading session. Both values are pre-rate-conversion (USD).
+  const todayReturn: { dollar: number; pct: number } | null = (() => {
+    if (!historyData || historyData.length < 2) return null
+    const today = historyData[0].total_value
+    const prev = historyData[1].total_value
+    if (prev <= 0) return null
+    return { dollar: today - prev, pct: (today - prev) / prev }
+  })()
 
-  // Chart data: Return % by position (keep green/red)
-  const returnChartData = positions.map((p) => ({
-    ticker: p.ticker,
-    return_pct: +(p.unrealized_pct * 100).toFixed(2),
-    fill: p.unrealized_pct >= 0 ? "#22c55e" : "#ef4444",
-  }))
-
-  // Chart data: single market value bar per position, colored by P&L
-  const valueChartData = positions.map((p) => ({
-    ticker: p.ticker,
-    value: p.market_value * rate,
-    fill: p.unrealized_pnl >= 0 ? "#22c55e" : "#ef4444",
-  }))
-
-  // Allocation pie
-  const cashWeight = Math.max(0, 1 - Object.values(weights).reduce((a, b) => a + b, 0))
+  // Allocation pie — cohesive OKLCH palette: tickers get green→teal→blue hues at
+  // consistent lightness/chroma; cash gets a muted gray so it visually recedes.
+  const tickerEntries = Object.entries(weights)
+  const cashWeight = Math.max(0, 1 - tickerEntries.reduce((a, [, v]) => a + v, 0))
   const pieData = [
-    ...Object.entries(weights).map(([name, value]) => ({ name, value })),
-    { name: "Cash", value: cashWeight },
+    ...tickerEntries.map(([name, value], i) => ({
+      name,
+      value,
+      color: `oklch(${0.62 + (i % 3) * 0.06} 0.16 ${130 + i * 22})`,
+    })),
+    { name: "Cash", value: cashWeight, color: "#525a52" },
   ].filter((d) => d.value > 0.001)
 
   const columns = [
@@ -824,7 +715,7 @@ export default function PortfolioOverview() {
     },
     {
       key: "mktval",
-      header: "Mkt Value",
+      header: "Market Value",
       align: "right" as const,
       render: (r: PositionRow) => (
         <FlashCell value={r.market_value}>
@@ -836,21 +727,27 @@ export default function PortfolioOverview() {
       key: "pnl",
       header: "P&L",
       align: "right" as const,
-      render: (r: PositionRow) => (
-        <FlashCell value={r.unrealized_pnl} className={cn("font-medium", pnlColor(r.unrealized_pnl))}>
-          <SlotValue value={fmt(r.unrealized_pnl)} dir={r.unrealized_pnl >= 0 ? "up" : "down"} />
-        </FlashCell>
-      ),
+      render: (r: PositionRow) => {
+        const sign = r.unrealized_pnl >= 0 ? "+" : ""
+        return (
+          <FlashCell value={r.unrealized_pnl} className={cn("font-medium", pnlColor(r.unrealized_pnl))}>
+            <SlotValue value={`${sign}${fmt(r.unrealized_pnl)}`} dir={r.unrealized_pnl >= 0 ? "up" : "down"} />
+          </FlashCell>
+        )
+      },
     },
     {
       key: "pnlpct",
       header: "P&L %",
       align: "right" as const,
-      render: (r: PositionRow) => (
-        <Badge variant={r.unrealized_pct > 0 ? "profit" : r.unrealized_pct < 0 ? "loss" : "muted"}>
-          {formatPercent(r.unrealized_pct)}
-        </Badge>
-      ),
+      render: (r: PositionRow) => {
+        const sign = r.unrealized_pct >= 0 ? "+" : ""
+        return (
+          <span className={cn("font-medium tabular-nums", pnlColor(r.unrealized_pct))}>
+            {sign}{(r.unrealized_pct * 100).toFixed(2)}%
+          </span>
+        )
+      },
     },
     {
       key: "weight",
@@ -869,32 +766,36 @@ export default function PortfolioOverview() {
       render: (r: PositionRow) => {
         const h = holdMap.get(r.ticker)
         if (!h) return <span className="text-muted-foreground/50">—</span>
-        const pct = h.days_held != null ? Math.min(h.days_held / h.recommended_hold_days, 1) : 1
+        // Bar fills as |P&L %| approaches the tradeable threshold. Floor at
+        // 6% so a freshly protected position still shows a visible sliver.
+        const rawPct = h.hold_progress ?? 0
+        const pct = Math.max(rawPct, 0.06)
         const statusColor =
           h.hold_status === "protected" ? "text-amber-400" :
-          h.hold_status === "maturing" ? "text-blue-400" :
+          h.hold_status === "maturing" ? "text-primary" :
           "text-profit"
         const statusLabel =
-          h.hold_status === "protected" ? "Hold" :
-          h.hold_status === "maturing" ? "Maturing" :
-          "Tradeable"
-        const tooltip = h.buy_date
-          ? `Bought ${h.buy_date} · ${h.days_held}d / ${h.recommended_hold_days}d recommended`
-          : "Synced from brokerage · tradeable"
+          h.hold_status === "protected" ? "PROTECTED" :
+          h.hold_status === "maturing" ? "MATURING" :
+          "TRADEABLE"
+        const pnlPct = h.hold_pnl_pct ?? 0
+        const thresholdPct = h.hold_tradeable_threshold_pct ?? 0.05
+        const pnlLabel = `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%`
+        const tooltip = `P&L ${pnlLabel} · tradeable at ±${(thresholdPct * 100).toFixed(0)}%`
         return (
-          <div className="flex items-center gap-2 justify-end" title={tooltip}>
-            <div className="w-12 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="flex items-center gap-2.5 justify-end" title={tooltip}>
+            <div className="h-1.5 w-[80px] shrink-0 rounded-full bg-line-2 overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all",
                   h.hold_status === "protected" ? "bg-amber-400" :
-                  h.hold_status === "maturing" ? "bg-blue-400" :
+                  h.hold_status === "maturing" ? "bg-primary" :
                   "bg-profit",
                 )}
                 style={{ width: `${pct * 100}%` }}
               />
             </div>
-            <span className={cn("text-[11px] font-medium", statusColor)}>
+            <span className={cn("font-mono text-[10px] font-semibold tracking-[0.06em] w-[64px] text-left", statusColor)}>
               {statusLabel}
             </span>
           </div>
@@ -905,32 +806,55 @@ export default function PortfolioOverview() {
 
   return (
     <>
-      <style>{slotCSS + flashCSS + financialChartCSS}</style>
-      <PageHeader title={portfolioTitle} actions={toggleActions} />
+      <style>{slotCSS + flashCSS}</style>
+      <PageHeader title={portfolioTitle} prefix={portfolioPrefix} actions={toggleActions} />
 
       {/* Metric Cards */}
       <div className="grid grid-cols-4 gap-3 mb-4">
         <MetricCard
+          accent
           label={`Portfolio Value (${currency})`}
           value={fmt(pnl.total_portfolio_value)}
           valueNode={<SlotValue value={fmt(pnl.total_portfolio_value)} dir={portfolioFlash} />}
+          delta={formatPercent(pnl.total_return_pct)}
+          deltaValue={pnl.total_return_pct}
+          sparkline={
+            (historyData?.length ?? 0) > 1 ? (
+              <Sparkline
+                data={[...(historyData ?? [])].reverse().slice(-30).map((s) => s.total_value * rate)}
+                width={70}
+                height={20}
+              />
+            ) : undefined
+          }
           className={portfolioFlash === "up" ? "flash-card-up" : portfolioFlash === "down" ? "flash-card-down" : ""}
         />
         <MetricCard
           label="Unrealized P&L"
           value={fmt(pnl.total_unrealized_pnl)}
           valueNode={<SlotValue value={fmt(pnl.total_unrealized_pnl)} dir={unrealizedFlash} />}
-          delta={formatPercent(pnl.total_return_pct)}
-          deltaValue={pnl.total_return_pct}
+          delta={`${formatPercent(pnl.total_return_pct)} return`}
+          deltaValue={pnl.total_unrealized_pnl}
           className={unrealizedFlash === "up" ? "flash-card-up" : unrealizedFlash === "down" ? "flash-card-down" : ""}
         />
         <MetricCard
           label="Cash"
           value={fmt(pnl.cash)}
           valueNode={<SlotValue value={fmt(pnl.cash)} dir={cashFlash} />}
+          sub={
+            pnl.total_portfolio_value > 0
+              ? `${((pnl.cash / pnl.total_portfolio_value) * 100).toFixed(1)}% of portfolio`
+              : undefined
+          }
           className={cashFlash === "up" ? "flash-card-up" : cashFlash === "down" ? "flash-card-down" : ""}
         />
-        <MetricCard label="Positions" value={String(positions.length)} />
+        <MetricCard
+          label="Today's Return"
+          value={todayReturn ? `${todayReturn.dollar >= 0 ? "+" : ""}${fmt(todayReturn.dollar)}` : "—"}
+          delta={todayReturn ? formatPercent(todayReturn.pct) : undefined}
+          deltaValue={todayReturn?.dollar}
+          sub={todayReturn ? "vs prior snapshot" : "needs 2+ snapshots"}
+        />
       </div>
 
       {/* Portfolio History */}
@@ -938,7 +862,9 @@ export default function PortfolioOverview() {
 
       {/* Current Holdings — full width */}
       <Card className="mb-4">
-        <CardTitle>Current Holdings</CardTitle>
+        <CardTitle meta={positions.length > 0 ? `${positions.length} position${positions.length === 1 ? "" : "s"}` : undefined}>
+          Current Holdings
+        </CardTitle>
         <CardContent>
           <DataTable
             columns={columns}
@@ -949,191 +875,166 @@ export default function PortfolioOverview() {
         </CardContent>
       </Card>
 
-      {/* P&L Bar Chart + Return % Chart */}
-      {positions.length > 0 && (() => {
-        const chartHeight = Math.max(200, pnlChartData.length * 36)
-        return (
-        <div className="grid grid-cols-2 gap-4 mb-4">
+      {/* Position Heatmap (Treemap) + Allocation */}
+      {positions.length > 0 && (
+        <div className="grid gap-4 mb-4" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
           <Card>
-            <CardTitle>P&L by Position</CardTitle>
+            <CardTitle meta="Sized by market value · Colored by return">
+              Position Heatmap
+            </CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={chartHeight}>
-                <BarChart data={pnlChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
-                  <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                  <XAxis
-                    type="number"
-                    tickFormatter={(v: number) =>
-                      v >= 0 ? `$${v.toLocaleString()}` : `-$${Math.abs(v).toLocaleString()}`
-                    }
-                    tick={{ fontSize: 11, fill: "#71717a" }}
-                    axisLine={{ stroke: "#27272a" }}
-                    tickLine={false}
+              <Treemap
+                data={positions}
+                width={680}
+                height={340}
+                accessor={(p) => p.market_value}
+                colorAccessor={(p) => p.unrealized_pct * 100}
+                formatValue={(v) => `$${(v / 1000).toFixed(1)}k`}
+                formatLabel={(p) => p.ticker}
+              />
+              <div className="flex items-center justify-between mt-3 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">
+                <span>RETURN %</span>
+                <div className="flex items-center gap-2 flex-1 mx-4">
+                  <span className="text-loss">−15%</span>
+                  <div
+                    className="flex-1 h-1.5 rounded-[1px]"
+                    style={{
+                      background:
+                        "linear-gradient(90deg, oklch(0.65 0.22 25), oklch(0.55 0.05 142), oklch(0.80 0.22 142))",
+                    }}
                   />
-                  <YAxis
-                    type="category"
-                    dataKey="ticker"
-                    width={50}
-                    interval={0}
-                    tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    formatter={(value) => [fmt(Number(value) / rate), "P&L"]}
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    itemStyle={{ color: "#fafafa" }}
-                    cursor={{ fill: "rgba(99, 102, 241, 0.08)" }}
-                  />
-                  <ReferenceLine x={0} stroke="#3f3f46" />
-                  <Bar dataKey="pnl" radius={[0, 4, 4, 0]} maxBarSize={28}>
-                    {pnlChartData.map((entry, i) => (
-                      <Cell key={i} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                  <span className="text-profit">+15%</span>
+                </div>
+                <span>{positions.length} POSITIONS</span>
+              </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardTitle>Return % by Position</CardTitle>
+            <CardTitle meta="Including cash">Allocation</CardTitle>
             <CardContent>
-              <ResponsiveContainer width="100%" height={chartHeight}>
-                <BarChart data={returnChartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
-                  <CartesianGrid vertical={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="ticker"
-                    tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
-                    axisLine={{ stroke: "#27272a" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tickFormatter={(v: number) => `${v}%`}
-                    tick={{ fontSize: 11, fill: "#71717a" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    formatter={(value) => [`${Number(value).toFixed(2)}%`, "Return"]}
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    itemStyle={{ color: "#fafafa" }}
-                    cursor={{ fill: "rgba(99, 102, 241, 0.08)" }}
-                  />
-                  <ReferenceLine y={0} stroke="#3f3f46" />
-                  <Bar dataKey="return_pct" radius={[4, 4, 0, 0]}>
-                    {returnChartData.map((entry, i) => (
-                      <Cell key={i} fill={entry.fill} />
+              {pieData.length > 0 ? (
+                <>
+                  <div className="relative">
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={85}
+                          dataKey="value"
+                          nameKey="name"
+                          stroke="none"
+                          paddingAngle={2}
+                        >
+                          {pieData.map((d) => (
+                            <Cell key={d.name} fill={d.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value) => formatPercent(Number(value))}
+                          contentStyle={tooltipStyle}
+                          labelStyle={tooltipLabelStyle}
+                          itemStyle={{ color: "#fafafa" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                        Total
+                      </span>
+                      <span className="font-mono text-[14px] font-medium tabular-nums text-foreground mt-0.5">
+                        {fmt(pnl.total_portfolio_value)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-2.5 border-t border-line space-y-1 font-mono text-[11px]">
+                    {pieData.map((d) => (
+                      <div key={d.name} className="flex items-center gap-2 py-[3px]">
+                        <span
+                          className="inline-block h-[9px] w-[9px] rounded-[2px]"
+                          style={{ backgroundColor: d.color }}
+                        />
+                        <span className="flex-1 text-fg-dim">{d.name}</span>
+                        <span className="tabular-nums text-foreground min-w-[40px] text-right">
+                          {(d.value * 100).toFixed(1)}%
+                        </span>
+                      </div>
                     ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No allocation data</p>
+              )}
             </CardContent>
           </Card>
         </div>
-        )
-      })()}
+      )}
+
+      {/* P&L Attribution (Waterfall) */}
+      {positions.length > 0 && (
+        <Card className="mb-4">
+          <CardTitle meta="Per-position contribution to unrealized P&L">
+            P&L Attribution
+          </CardTitle>
+          <CardContent>
+            <Waterfall
+              data={[...positions]
+                .sort((a, b) => b.unrealized_pnl - a.unrealized_pnl)
+                .map((p) => ({
+                  label: p.ticker,
+                  value: Math.round(p.unrealized_pnl * rate),
+                }))}
+              width={1100}
+              height={260}
+              formatValue={(v) => (v >= 0 ? "$" : "-$") + Math.abs(v).toLocaleString()}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Risk / Return Profile (BubbleChart) */}
+      {positions.length > 1 && (
+        <Card className="mb-4">
+          <CardTitle meta="Each circle = one position · X: return % · Y: capital deployed · Size: market value">
+            Risk / Return Profile
+          </CardTitle>
+          <CardContent>
+            <BubbleChart
+              data={positions.map((p) => ({
+                ticker: p.ticker,
+                return_pct: p.unrealized_pct * 100,
+                cost_basis: (p.market_value - p.unrealized_pnl) * rate,
+                market_value: p.market_value * rate,
+                pnl: p.unrealized_pnl,
+              }))}
+              width={1100}
+              height={320}
+              x={(d) => d.return_pct}
+              y={(d) => d.cost_basis}
+              size={(d) => d.market_value}
+              label={(d) => d.ticker}
+              color={(d) => (d.pnl >= 0 ? "#7ee787" : "#ff6b6b")}
+              formatX={(v) => `${v.toFixed(1)}%`}
+              formatY={(v) => {
+                const abs = Math.abs(v)
+                if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(1)}M`
+                if (abs >= 1_000) return `$${(abs / 1_000).toFixed(1)}k`
+                return `$${abs.toFixed(0)}`
+              }}
+              xLabel="RETURN %"
+              yLabel="CAPITAL DEPLOYED"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Financial Statistics */}
       {positions.length > 0 && (
         <FinancialStats tickers={positions.map((p) => p.ticker)} />
       )}
-
-      {/* Value Breakdown + Allocation */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
-        {positions.length > 0 && (
-          <Card className="col-span-2">
-            <CardTitle>Position Value Breakdown</CardTitle>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={Math.max(160, valueChartData.length * 36)}>
-                <BarChart data={valueChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
-                  <CartesianGrid horizontal={false} stroke="#1f1f2e" strokeDasharray="3 3" />
-                  <XAxis
-                    type="number"
-                    tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
-                    tick={{ fontSize: 11, fill: "#71717a" }}
-                    axisLine={{ stroke: "#27272a" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="ticker"
-                    width={50}
-                    interval={0}
-                    tick={{ fontSize: 12, fill: "#a1a1aa", fontWeight: 600 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    formatter={(value) => [fmt(Number(value) / rate), "Market Value"]}
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    itemStyle={{ color: "#fafafa" }}
-                    cursor={{ fill: "rgba(99, 102, 241, 0.08)" }}
-                  />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={20}>
-                    {valueChartData.map((entry, i) => (
-                      <Cell key={i} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardTitle>Allocation</CardTitle>
-          <CardContent>
-            {pieData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={180}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={75}
-                      dataKey="value"
-                      nameKey="name"
-                      stroke="none"
-                      paddingAngle={2}
-                    >
-                      {pieData.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) => formatPercent(Number(value))}
-                      contentStyle={tooltipStyle}
-                      labelStyle={tooltipLabelStyle}
-                      itemStyle={{ color: "#fafafa" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="mt-2 space-y-1.5">
-                  {pieData.map((d, i) => (
-                    <div key={d.name} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="inline-block h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: COLORS[i % COLORS.length] }}
-                        />
-                        <span className="text-muted-foreground">{d.name}</span>
-                      </div>
-                      <span className="font-medium">{formatPercent(d.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No allocation data</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
     </>
   )
 }

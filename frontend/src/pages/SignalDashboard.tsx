@@ -1,66 +1,90 @@
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import type { FactorScore } from "@/lib/api"
-import { formatNumber, cn } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/layout/page-header"
-import { Card, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { DataTable } from "@/components/ui/data-table"
 
-function factorColor(val: number | null): string {
-  if (val == null) return "bg-muted/50"
-  if (val > 1) return "bg-profit/40 text-profit"
-  if (val > 0.5) return "bg-profit/20 text-profit"
-  if (val > -0.5) return "bg-muted/50 text-foreground"
-  if (val > -1) return "bg-loss/20 text-loss"
-  return "bg-loss/40 text-loss"
+const FACTORS: Array<{ key: keyof FactorScore; label: string }> = [
+  { key: "momentum_12m1m", label: "Momentum" },
+  { key: "eps_growth_yoy", label: "EPS" },
+  { key: "revenue_growth_yoy", label: "Revenue" },
+  { key: "gross_margin_trend", label: "Margin" },
+  { key: "relative_valuation", label: "Valuation" },
+]
+
+function heatColor(z: number | null): { bg: string; color: string } {
+  if (z == null) return { bg: "transparent", color: "var(--color-muted-foreground)" }
+  const intensity = Math.min(1, Math.abs(z) / 2.5)
+  if (z > 0.1) return {
+    bg: `rgba(126, 231, 135, ${0.12 + intensity * 0.45})`,
+    color: Math.abs(z) > 1.6 ? "#0a0d0a" : "#e8efe6",
+  }
+  if (z < -0.1) return {
+    bg: `rgba(255, 107, 107, ${0.12 + intensity * 0.45})`,
+    color: Math.abs(z) > 1.6 ? "#0a0d0a" : "#e8efe6",
+  }
+  return { bg: "transparent", color: "#e8efe6" }
 }
 
-function FactorCell({ val }: { val: number | null }) {
+function fmtSigned(v: number | null, digits = 2): string {
+  if (v == null) return "—"
+  const sign = v >= 0 ? "+" : ""
+  return `${sign}${v.toFixed(digits)}`
+}
+
+function pnlText(v: number | null): string {
+  if (v == null) return "text-muted-2"
+  return v >= 0 ? "text-profit" : "text-loss"
+}
+
+function CandidateTable({
+  rows,
+  variant,
+}: {
+  rows: FactorScore[]
+  variant: "profit" | "loss"
+}) {
   return (
-    <span className={cn("inline-block w-14 rounded-md px-1.5 py-0.5 text-center text-xs", factorColor(val))}>
-      {val != null ? formatNumber(val, 2) : "-"}
-    </span>
+    <div className="overflow-x-auto">
+      <table className="w-full font-mono text-[12px] tabular-nums">
+        <thead>
+          <tr>
+            <th className="border-b border-line bg-bg-2 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Ticker</th>
+            <th className="border-b border-line bg-bg-2 px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Composite</th>
+            <th className="border-b border-line bg-bg-2 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Decile</th>
+            <th className="border-b border-line bg-bg-2 px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Momentum</th>
+            <th className="border-b border-line bg-bg-2 px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">EPS</th>
+            <th className="border-b border-line bg-bg-2 px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((s) => (
+            <tr key={s.ticker} className="border-b border-line hover:bg-surface-2 transition-colors">
+              <td className="px-3 py-1.5 text-foreground font-semibold">{s.ticker}</td>
+              <td className={cn("px-3 py-1.5 text-right font-bold", variant === "profit" ? "text-profit" : "text-loss")}>
+                {s.composite_score.toFixed(2)}
+              </td>
+              <td className="px-3 py-1.5 text-center">
+                <Badge variant={variant}>{s.score_decile}</Badge>
+              </td>
+              <td className={cn("px-3 py-1.5 text-right", pnlText(s.momentum_12m1m))}>
+                {fmtSigned(s.momentum_12m1m)}
+              </td>
+              <td className={cn("px-3 py-1.5 text-right", pnlText(s.eps_growth_yoy))}>
+                {fmtSigned(s.eps_growth_yoy)}
+              </td>
+              <td className={cn("px-3 py-1.5 text-right", pnlText(s.revenue_growth_yoy))}>
+                {fmtSigned(s.revenue_growth_yoy)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
-
-const scoreColumns = (variant: "profit" | "loss") => [
-  {
-    key: "ticker",
-    header: "Ticker",
-    render: (s: FactorScore) => <span className="font-semibold">{s.ticker}</span>,
-  },
-  {
-    key: "score",
-    header: "Score",
-    align: "right" as const,
-    render: (s: FactorScore) => <span>{formatNumber(s.composite_score, 3)}</span>,
-  },
-  {
-    key: "decile",
-    header: "Decile",
-    align: "right" as const,
-    render: (s: FactorScore) => <Badge variant={variant}>{s.score_decile}</Badge>,
-  },
-  {
-    key: "mom",
-    header: "Mom",
-    align: "right" as const,
-    render: (s: FactorScore) => <FactorCell val={s.momentum_12m1m} />,
-  },
-  {
-    key: "eps",
-    header: "EPS",
-    align: "right" as const,
-    render: (s: FactorScore) => <FactorCell val={s.eps_growth_yoy} />,
-  },
-  {
-    key: "rev",
-    header: "Rev",
-    align: "right" as const,
-    render: (s: FactorScore) => <FactorCell val={s.revenue_growth_yoy} />,
-  },
-]
 
 export default function SignalDashboard() {
   const { data: scores, isLoading, error } = useQuery<FactorScore[]>({
@@ -72,9 +96,9 @@ export default function SignalDashboard() {
     return (
       <>
         <PageHeader title="Signal Dashboard" />
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 gap-4">
           {[0, 1].map((i) => (
-            <div key={i} className="h-64 rounded-xl border border-border/60 bg-card animate-shimmer" />
+            <div key={i} className="h-64 rounded-md border border-line bg-surface animate-shimmer" />
           ))}
         </div>
       </>
@@ -93,81 +117,82 @@ export default function SignalDashboard() {
   const top10 = scores.slice(0, 10)
   const bottom10 = scores.slice(-10).reverse()
   const scoreDate = scores[0]?.date || "N/A"
+  const description = `Most recent scoring · ${scoreDate} · ${scores.length.toLocaleString()} stocks ranked`
 
   return (
     <>
-      <PageHeader title="Signal Dashboard" description={`Scores as of ${scoreDate}`} />
+      <PageHeader title="Signal Dashboard" description={description} />
 
-      <div className="grid grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-2 gap-4 mb-4">
         <Card>
-          <CardTitle>Top 10 - Buy Candidates</CardTitle>
-          <CardContent>
-            <DataTable
-              columns={scoreColumns("profit")}
-              data={top10}
-              rowKey={(s) => s.ticker}
-              compact
-            />
-          </CardContent>
+          <CardTitle meta="DECILE 1">Top 10 Buy Candidates</CardTitle>
+          <CandidateTable rows={top10} variant="profit" />
         </Card>
 
         <Card>
-          <CardTitle>Bottom 10 - Sell Candidates</CardTitle>
-          <CardContent>
-            <DataTable
-              columns={scoreColumns("loss")}
-              data={bottom10}
-              rowKey={(s) => s.ticker}
-              compact
-            />
-          </CardContent>
+          <CardTitle meta="DECILE 9-10">Bottom 10 Sell Candidates</CardTitle>
+          <CandidateTable rows={bottom10} variant="loss" />
         </Card>
       </div>
 
       <Card>
-        <CardTitle>Factor Heatmap</CardTitle>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border/60">
-                  <th className="pb-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-20">
-                    Ticker
+        <CardTitle meta={`${scores.length.toLocaleString()} stocks · z-score`}>
+          Factor Heatmap
+        </CardTitle>
+        <div className="overflow-auto" style={{ maxHeight: 540 }}>
+          <table className="w-full font-mono text-[12px] tabular-nums" style={{ minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th className="sticky top-0 z-[1] border-b border-line bg-bg-2 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground" style={{ width: 80 }}>
+                  Ticker
+                </th>
+                {FACTORS.map((f) => (
+                  <th
+                    key={f.key}
+                    className="sticky top-0 z-[1] border-b border-line bg-bg-2 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+                  >
+                    {f.label}
                   </th>
-                  {["Momentum", "EPS Growth", "Rev Growth", "Margin", "Valuation"].map((h) => (
-                    <th key={h} className="pb-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {h}
-                    </th>
-                  ))}
-                  <th className="pb-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Composite
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {scores.map((s) => (
-                  <tr key={s.ticker} className="border-b border-border/20 hover:bg-accent/20 transition-colors">
-                    <td className="py-1.5 font-medium text-sm">{s.ticker}</td>
-                    {[
-                      s.momentum_12m1m,
-                      s.eps_growth_yoy,
-                      s.revenue_growth_yoy,
-                      s.gross_margin_trend,
-                      s.relative_valuation,
-                    ].map((val, i) => (
-                      <td key={i} className="py-1.5 text-center">
-                        <FactorCell val={val} />
-                      </td>
-                    ))}
-                    <td className="py-1.5 text-right font-medium text-sm">
-                      {formatNumber(s.composite_score, 3)}
-                    </td>
-                  </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
+                <th className="sticky top-0 z-[1] border-b border-line bg-bg-2 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                  Composite
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {scores.map((s) => (
+                <tr key={s.ticker} className="border-b border-line/40">
+                  <td className="px-3 py-1.5 text-foreground font-semibold">{s.ticker}</td>
+                  {FACTORS.map((f) => {
+                    const v = s[f.key] as number | null
+                    const { bg, color } = heatColor(v)
+                    return (
+                      <td
+                        key={f.key}
+                        className="px-3 py-1.5 text-center border-l border-line"
+                        style={{ background: bg, color }}
+                      >
+                        {fmtSigned(v)}
+                      </td>
+                    )
+                  })}
+                  {(() => {
+                    const v = s.composite_score
+                    const { bg, color } = heatColor(v)
+                    return (
+                      <td
+                        className="px-3 py-1.5 text-center border-l border-line font-semibold"
+                        style={{ background: bg, color }}
+                      >
+                        {fmtSigned(v)}
+                      </td>
+                    )
+                  })()}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </>
   )

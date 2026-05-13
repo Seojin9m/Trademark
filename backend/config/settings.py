@@ -16,7 +16,6 @@ load_dotenv(REPO_ROOT / ".env")
 class APIKeys(BaseSettings):
     polygon_api_key: str = Field(default="")
     simfin_api_key: str = Field(default="")
-    tiingo_api_key: str = Field(default="")
     fred_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
     snaptrade_client_id: str = Field(default="")

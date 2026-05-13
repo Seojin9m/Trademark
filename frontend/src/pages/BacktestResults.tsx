@@ -2,30 +2,34 @@ import { PageHeader } from "@/components/layout/page-header"
 import { Card, CardTitle, CardContent } from "@/components/ui/card"
 import { MetricCard } from "@/components/ui/metric-card"
 import { Badge } from "@/components/ui/badge"
+import { SectionTitle } from "@/components/ui/section-title"
 import { Terminal } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-const performanceMetrics = [
-  { label: "Annualized Return", value: "15.21%", delta: "+15.21%", deltaValue: 1 },
-  { label: "Sharpe Ratio", value: "0.42" },
-  { label: "Sortino Ratio", value: "0.60" },
-  { label: "Max Drawdown", value: "-32.83%", delta: "-32.83%", deltaValue: -1 },
-  { label: "Alpha vs QQQ", value: "+2.14%", delta: "+2.14%", deltaValue: 1 },
-  { label: "Information Ratio", value: "0.17" },
-]
+type MetricSign = "profit" | "loss" | "neutral"
 
-const tradingMetrics = [
-  { label: "Annualized Turnover", value: "139.58%" },
-  { label: "Total Trades", value: "340" },
-  { label: "Hit Rate", value: "53.81%", delta: "53.81%", deltaValue: 0.5 },
-]
-
-const config = {
-  rebalance_freq: "2W-FRI (biweekly)",
-  min_decile_change: 2,
-  max_position_weight: "10%",
-  drawdown_alert: "-15%",
-  benchmarks: ["QQQ", "XLK"],
+interface MetricSpec {
+  label: string
+  value: string
+  sub?: string
+  sign?: MetricSign
+  accent?: boolean
 }
+
+const performanceMetrics: MetricSpec[] = [
+  { label: "Annualized Return", value: "15.21%", sub: "vs QQQ 13.85%", sign: "profit", accent: true },
+  { label: "Sharpe Ratio", value: "0.42", sub: "risk-adjusted return" },
+  { label: "Sortino Ratio", value: "0.60", sub: "downside-adjusted" },
+  { label: "Max Drawdown", value: "-32.83%", sub: "peak-to-trough", sign: "loss" },
+  { label: "Alpha vs QQQ", value: "+2.14%", sub: "annualized excess", sign: "profit" },
+  { label: "Information Ratio", value: "0.17", sub: "tracking error 12.3%" },
+]
+
+const tradingMetrics: MetricSpec[] = [
+  { label: "Annualized Turnover", value: "139.58%", sub: "position-weighted" },
+  { label: "Total Trades", value: "340", sub: "across backtest" },
+  { label: "Hit Rate", value: "53.81%", sub: "winners / total", sign: "profit" },
+]
 
 const factorWeights = [
   { name: "Momentum (12m-1m)", weight: 0.2 },
@@ -35,49 +39,81 @@ const factorWeights = [
   { name: "Relative Valuation", weight: 0.2 },
 ]
 
+const strategyConfig: Array<[string, string | string[]]> = [
+  ["Rebalance frequency", "Biweekly (2W-FRI)"],
+  ["Min decile change", "2 deciles"],
+  ["Max position weight", "10%"],
+  ["Drawdown alert", "-15%"],
+  ["Universe", "S&P 500 + Russell 2000 top quintile"],
+  ["Benchmarks", ["QQQ", "XLK"]],
+]
+
+function MetricCardRendered({ spec }: { spec: MetricSpec }) {
+  if (!spec.sign || spec.sign === "neutral") {
+    return (
+      <MetricCard
+        accent={spec.accent}
+        label={spec.label}
+        value={spec.value}
+        sub={spec.sub}
+      />
+    )
+  }
+  return (
+    <MetricCard
+      accent={spec.accent}
+      label={spec.label}
+      value={spec.value}
+      valueNode={
+        <span className={cn(spec.sign === "profit" ? "text-profit" : "text-loss")}>
+          {spec.value}
+        </span>
+      }
+      sub={spec.sub}
+    />
+  )
+}
+
 export default function BacktestResults() {
   return (
     <>
       <PageHeader
         title="Backtest Results"
-        description="Best results from biweekly equal-weight configuration"
+        description="Configuration: biweekly rebal · S&P 500 + Russell 2000 universe · benchmarks QQQ / XLK"
       />
 
-      {/* Performance Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
+      <SectionTitle>Performance Metrics</SectionTitle>
+      <div className="grid grid-cols-3 gap-4 mb-[14px]">
         {performanceMetrics.map((m) => (
-          <MetricCard key={m.label} {...m} />
+          <MetricCardRendered key={m.label} spec={m} />
         ))}
       </div>
 
-      {/* Trading Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <SectionTitle>Trading Metrics</SectionTitle>
+      <div className="grid grid-cols-3 gap-4 mb-[14px]">
         {tradingMetrics.map((m) => (
-          <MetricCard key={m.label} {...m} />
+          <MetricCardRendered key={m.label} spec={m} />
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Factor Weights */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
         <Card>
           <CardTitle>Factor Weights</CardTitle>
           <CardContent>
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               {factorWeights.map((f) => (
-                <div key={f.name} className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-muted-foreground">{f.name}</span>
-                      <span className="text-sm font-medium">
-                        {(f.weight * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-primary/60"
-                        style={{ width: `${f.weight * 100}%` }}
-                      />
-                    </div>
+                <div key={f.name}>
+                  <div className="flex font-mono text-[12px] mb-1">
+                    <span className="flex-1 text-foreground">{f.name}</span>
+                    <span className="font-semibold text-primary tabular-nums">
+                      {(f.weight * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-[3px] bg-line overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-[3px]"
+                      style={{ width: `${Math.min(100, f.weight * 100 * 3)}%` }}
+                    />
                   </div>
                 </div>
               ))}
@@ -85,25 +121,28 @@ export default function BacktestResults() {
           </CardContent>
         </Card>
 
-        {/* Strategy Config */}
         <Card>
           <CardTitle>Strategy Configuration</CardTitle>
           <CardContent>
-            <div className="space-y-3">
-              {Object.entries(config).map(([key, value]) => (
-                <div key={key} className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">{key.replace(/_/g, " ")}</span>
-                  <span className="font-medium">
-                    {Array.isArray(value) ? (
-                      <div className="flex gap-1.5">
-                        {value.map((v) => (
-                          <Badge key={v} variant="muted">{v}</Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      String(value)
-                    )}
-                  </span>
+            <div className="flex flex-col font-mono text-[12px]">
+              {strategyConfig.map(([label, value], i) => (
+                <div
+                  key={label}
+                  className={cn(
+                    "flex items-center gap-3 py-2",
+                    i < strategyConfig.length - 1 && "border-b border-dashed border-line",
+                  )}
+                >
+                  <span className="flex-1 text-muted-foreground">{label}</span>
+                  {Array.isArray(value) ? (
+                    <div className="flex gap-1.5">
+                      {value.map((v) => (
+                        <Badge key={v} variant="accent">{v}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="font-semibold text-primary text-right">{value}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -111,20 +150,19 @@ export default function BacktestResults() {
         </Card>
       </div>
 
-      {/* How to Run */}
       <Card>
         <CardTitle>
-          <div className="flex items-center gap-2">
-            <Terminal className="h-4 w-4" />
+          <span className="inline-flex items-center gap-1.5">
+            <Terminal className="h-3.5 w-3.5" />
             How to Run
-          </div>
+          </span>
         </CardTitle>
         <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">
+          <p className="text-[12.5px] text-fg-dim mb-3 leading-[1.5]">
             Run a backtest from the backend directory:
           </p>
-          <div className="rounded-lg bg-[#0a0a0f] border border-border/40 px-4 py-3 font-mono text-sm text-foreground/80">
-            cd backend && python -c "from src.backtest.engine import run_full_backtest; run_full_backtest()"
+          <div className="rounded-[4px] bg-[#050706] border border-line px-4 py-3 font-mono text-[12px] text-fg-dim leading-[1.6]">
+            cd backend &amp;&amp; python -c "from src.backtest.engine import run_full_backtest; run_full_backtest()"
           </div>
         </CardContent>
       </Card>

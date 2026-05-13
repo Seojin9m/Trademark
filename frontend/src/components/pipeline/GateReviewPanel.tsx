@@ -76,11 +76,11 @@ function GateActions({ onContinue, onAbort, continueLabel = "Continue", disabled
 }) {
   return (
     <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-border/40">
-      <Button variant="outline" size="sm" onClick={onAbort} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+      <Button variant="outline" size="sm" onClick={onAbort} className="border-loss/30 text-loss hover:bg-loss/10">
         <XCircle className="h-3.5 w-3.5 mr-1.5" />
         Abort Pipeline
       </Button>
-      <Button size="sm" onClick={onContinue} disabled={disabled} className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
+      <Button size="sm" onClick={onContinue} disabled={disabled} className="bg-primary hover:bg-primary/90 text-background border-primary">
         <Play className="h-3.5 w-3.5 mr-1.5" />
         {continueLabel}
       </Button>
@@ -121,7 +121,7 @@ function ScoringReview({ data, onContinue, onAbort }: { data: Record<string, unk
       header: "",
       render: (r) => (
         <button onClick={() => toggleExclude(r.ticker)} className="p-1 hover:bg-muted/60 rounded">
-          {excluded.has(r.ticker) ? <Trash2 className="h-3.5 w-3.5 text-red-400" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
+          {excluded.has(r.ticker) ? <Trash2 className="h-3.5 w-3.5 text-loss" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
         </button>
       ),
     },
@@ -174,7 +174,7 @@ function SignalsReview({ data, onContinue, onAbort }: { data: Record<string, unk
       header: "",
       render: (r) => (
         <button onClick={() => setRemoved((prev) => { const n = new Set(prev); n.has(r.ticker) ? n.delete(r.ticker) : n.add(r.ticker); return n })} className="p-1 hover:bg-muted/60 rounded">
-          {removed.has(r.ticker) ? <Trash2 className="h-3.5 w-3.5 text-red-400" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
+          {removed.has(r.ticker) ? <Trash2 className="h-3.5 w-3.5 text-loss" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
         </button>
       ),
     },
@@ -232,7 +232,7 @@ function ProposalsReview({ data, onContinue, onAbort }: { data: Record<string, u
       header: "",
       render: (r) => (
         <button onClick={() => toggleRemove(r.proposal_id)} className="p-1 hover:bg-muted/60 rounded">
-          {removedIds.has(r.proposal_id) ? <Trash2 className="h-3.5 w-3.5 text-red-400" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
+          {removedIds.has(r.proposal_id) ? <Trash2 className="h-3.5 w-3.5 text-loss" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
         </button>
       ),
     },
@@ -354,14 +354,14 @@ function ResearchReview({ data, onContinue, onAbort }: { data: Record<string, un
                   )}
                   <div>
                     <div className="flex items-center gap-1 mb-1">
-                      <MessageSquarePlus className="h-3 w-3 text-blue-400" />
-                      <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">Add Your Context</p>
+                      <MessageSquarePlus className="h-3 w-3 text-info" />
+                      <p className="text-[10px] font-semibold text-info uppercase tracking-wider">Add Your Context</p>
                     </div>
                     <textarea
                       value={userContext[r.ticker] ?? ""}
                       onChange={(e) => setUserContext((prev) => ({ ...prev, [r.ticker]: e.target.value }))}
                       placeholder="Add notes, links, or observations for the judge..."
-                      className="w-full h-16 rounded-md bg-[#0a0a0f] border border-border/60 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-blue-500/50"
+                      className="w-full h-16 rounded-md bg-[#050706] border border-border/60 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-info/50"
                     />
                   </div>
                 </div>
@@ -425,7 +425,7 @@ function JudgeReview({ data, onContinue, onAbort }: { data: Record<string, unkno
           return (
             <div key={r.proposal_id} className={cn(
               "rounded-lg border bg-card/50",
-              isApproved ? "border-emerald-500/30" : isRejected ? "border-red-500/30" : "border-amber-500/30",
+              isApproved ? "border-profit/30" : isRejected ? "border-loss/30" : "border-amber-500/30",
             )}>
               <div className="flex items-center gap-3 px-3 py-2.5">
                 <span className="font-medium text-sm w-14">{r.ticker}</span>
@@ -443,8 +443,8 @@ function JudgeReview({ data, onContinue, onAbort }: { data: Record<string, unkno
                     className={cn(
                       "px-2 py-1 rounded text-[10px] font-medium border transition-colors",
                       effectiveVerdict === "approve"
-                        ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
-                        : "border-border/40 text-muted-foreground hover:border-emerald-500/30 hover:text-emerald-400",
+                        ? "bg-profit/20 border-profit/40 text-profit"
+                        : "border-border/40 text-muted-foreground hover:border-profit/30 hover:text-profit",
                     )}
                   >
                     APPROVE
@@ -454,8 +454,8 @@ function JudgeReview({ data, onContinue, onAbort }: { data: Record<string, unkno
                     className={cn(
                       "px-2 py-1 rounded text-[10px] font-medium border transition-colors",
                       effectiveVerdict === "reject"
-                        ? "bg-red-500/20 border-red-500/40 text-red-400"
-                        : "border-border/40 text-muted-foreground hover:border-red-500/30 hover:text-red-400",
+                        ? "bg-loss/20 border-loss/40 text-loss"
+                        : "border-border/40 text-muted-foreground hover:border-loss/30 hover:text-loss",
                     )}
                   >
                     REJECT
@@ -494,7 +494,7 @@ function JudgeReview({ data, onContinue, onAbort }: { data: Record<string, unkno
                         [r.proposal_id]: { ...prev[r.proposal_id], notes: e.target.value },
                       }))}
                       placeholder="Add notes for this override..."
-                      className="w-full h-12 rounded-md bg-[#0a0a0f] border border-border/60 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-blue-500/50"
+                      className="w-full h-12 rounded-md bg-[#050706] border border-border/60 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-info/50"
                     />
                   )}
                 </div>
@@ -539,7 +539,7 @@ function ExecutionReview({ data, onContinue, onAbort }: { data: Record<string, u
       header: "",
       render: (r) => (
         <button onClick={() => setRemovedIds((prev) => { const n = new Set(prev); n.has(r.proposal_id) ? n.delete(r.proposal_id) : n.add(r.proposal_id); return n })} className="p-1 hover:bg-muted/60 rounded">
-          {removedIds.has(r.proposal_id) ? <Trash2 className="h-3.5 w-3.5 text-red-400" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
+          {removedIds.has(r.proposal_id) ? <Trash2 className="h-3.5 w-3.5 text-loss" /> : <Check className="h-3.5 w-3.5 text-muted-foreground/40" />}
         </button>
       ),
     },
@@ -569,7 +569,7 @@ function ExecutionReview({ data, onContinue, onAbort }: { data: Record<string, u
 function GenericReview({ data, onContinue, onAbort }: { data: Record<string, unknown>; onContinue: (o?: Record<string, unknown>) => void; onAbort: () => void }) {
   return (
     <div>
-      <pre className="text-xs text-muted-foreground max-h-[16rem] overflow-y-auto rounded-lg bg-[#0a0a0f] border border-border/40 p-3">
+      <pre className="text-xs text-muted-foreground max-h-[16rem] overflow-y-auto rounded-lg bg-[#050706] border border-border/40 p-3">
         {JSON.stringify(data, null, 2)}
       </pre>
       <GateActions onContinue={() => onContinue()} onAbort={onAbort} />

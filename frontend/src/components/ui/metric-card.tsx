@@ -1,5 +1,4 @@
-import { cn, pnlColor } from "@/lib/utils"
-import { TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface MetricCardProps {
   label: string
@@ -7,42 +6,46 @@ interface MetricCardProps {
   valueNode?: React.ReactNode
   delta?: string
   deltaValue?: number
+  sub?: string
+  accent?: boolean
+  sparkline?: React.ReactNode
   className?: string
 }
 
-export function MetricCard({ label, value, valueNode, delta, deltaValue, className }: MetricCardProps) {
-  const TrendIcon =
-    deltaValue && deltaValue > 0
-      ? TrendingUp
-      : deltaValue && deltaValue < 0
-        ? TrendingDown
-        : Minus
-
+export function MetricCard({ label, value, valueNode, delta, deltaValue, sub, accent, sparkline, className }: MetricCardProps) {
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-xl border border-border/60 bg-card px-5 py-3.5 shadow-sm shadow-black/20 transition-colors hover:border-border",
+        "relative overflow-hidden rounded-md border bg-surface p-[14px_16px]",
+        accent ? "border-primary shadow-[inset_0_0_0_1px_rgba(197,251,69,0.08)]" : "border-line",
         className,
       )}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.03] to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-      <p className="relative text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {label}
-      </p>
-      <p className="relative mt-1 text-xl font-medium tracking-tight">{valueNode ?? value}</p>
-      {delta && (
-        <div className="relative mt-1 flex items-center gap-1.5">
-          {deltaValue !== undefined && (
-            <TrendIcon className={cn("h-3.5 w-3.5", pnlColor(deltaValue))} />
+      </div>
+      <div className="mt-1.5 flex items-end justify-between gap-3">
+        <div className="font-mono text-[22px] font-medium tracking-[-0.01em] tabular-nums text-foreground">
+          {valueNode ?? value}
+        </div>
+        {sparkline && <div className="shrink-0 opacity-90">{sparkline}</div>}
+      </div>
+      {(delta || sub) && (
+        <div className="mt-1 flex items-center gap-1 font-mono text-[11px] tabular-nums">
+          {delta && (
+            <span
+              className={cn(
+                deltaValue !== undefined && deltaValue > 0 && "text-profit",
+                deltaValue !== undefined && deltaValue < 0 && "text-loss",
+                deltaValue === undefined && "text-muted-foreground",
+              )}
+            >
+              {deltaValue !== undefined && deltaValue > 0 && "▲ "}
+              {deltaValue !== undefined && deltaValue < 0 && "▼ "}
+              {delta}
+            </span>
           )}
-          <span
-            className={cn(
-              "text-xs font-medium",
-              deltaValue !== undefined ? pnlColor(deltaValue) : "text-muted-foreground",
-            )}
-          >
-            {delta}
-          </span>
+          {sub && <span className="text-muted-foreground">{sub}</span>}
         </div>
       )}
     </div>
