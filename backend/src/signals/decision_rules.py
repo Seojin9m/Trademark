@@ -75,6 +75,21 @@ def _build_trade_recency(recent_trades: list[dict]) -> dict[str, dict]:
     return recency
 
 
+def _chase_weight_multiplier(recent_change: float, threshold: float, mode: str) -> float:
+    """Position size multiplier based on chase risk.
+
+    Returns 1.0 (full), 0.0 (skip), or a value between for gradient mode.
+    """
+    if mode == "allow":
+        return 1.0
+    if recent_change <= threshold:
+        return 1.0
+    if mode == "strict":
+        return 0.0
+    excess = recent_change - threshold
+    return max(0.0, 1.0 - (excess / 0.10))
+
+
 def generate_signals(
     scores: pd.DataFrame,
     current_holdings: dict[str, float],
@@ -82,6 +97,7 @@ def generate_signals(
     portfolio_drawdown: float = 0.0,
     adaptive_params: dict | None = None,
     recent_trades: list[dict] | None = None,
+    risk_level: int = 3,
 ) -> list[dict]:
     """Generate trade signals with value-investing framework.
 
@@ -91,21 +107,36 @@ def generate_signals(
     3. Among good stocks: price dip improves buy ranking, price rise → WATCH.
     4. Bad stocks with price dips do NOT become buy candidates.
     """
+    from src.signals.risk_profile import get_risk_adjustments
+    risk = get_risk_adjustments(risk_level)
+
     if adaptive_params:
-        min_decile_change = adaptive_params.get("min_decile_change", settings.strategy.min_decile_change_to_trade)
+        min_decile_change = adaptive_params.get("min_decile_change", risk["min_decile_change"])
         max_new = adaptive_params.get("max_new_positions_per_run", settings.strategy.max_new_positions_per_run)
         max_total_trades = adaptive_params.get("max_trades_per_run", settings.strategy.max_trades_per_run)
-        position_scalar = adaptive_params.get("position_size_scalar", 1.0)
+        position_scalar = adaptive_params.get("position_size_scalar", risk["position_size_scalar"])
         dd_schedule = adaptive_params.get("drawdown_schedule")
     else:
-        min_decile_change = settings.strategy.min_decile_change_to_trade
+        min_decile_change = risk["min_decile_change"]
         max_new = settings.strategy.max_new_positions_per_run
         max_total_trades = settings.strategy.max_trades_per_run
-        position_scalar = 1.0
+        position_scalar = risk["position_size_scalar"]
         dd_schedule = None
 
-    dd_alert = settings.strategy.max_portfolio_drawdown_alert
-    dd_halt = settings.strategy.max_portfolio_drawdown_halt
+    buy_min_decile = risk["buy_min_decile"]
+    chase_threshold = risk["chase_threshold"]
+    chase_mode = risk.get("chase_mode", "gradient")
+    max_single_pos = risk["max_single_position"]
+    allowed_risk_tiers = risk.get("allowed_risk_tiers", ["standard", "moderate_risk", "high_risk"])
+
+    # Load universe risk tiers for filtering
+    try:
+        _universe_df = pd.read_csv(settings.paths.universe_path)
+        _ticker_risk_tiers = dict(zip(_universe_df["ticker"], _universe_df.get("risk_tier", "standard")))
+    except Exception:
+        _ticker_risk_tiers = {}
+    dd_alert = risk["drawdown_alert"]
+    dd_halt = risk["drawdown_halt"]
 
     signals = []
     score_map = {}
@@ -139,6 +170,26 @@ def generate_signals(
                 "relative_valuation": row.get("relative_valuation"),
             },
         }
+
+    # Check earnings timing for all scored tickers
+    earnings_flags: dict[str, dict] = {}
+    try:
+        from src.ingest.earnings_calendar import get_upcoming_earnings
+        all_tickers = list(score_map.keys())
+        upcoming = get_upcoming_earnings(all_tickers, days_ahead=14)
+        for t, e in upcoming.items():
+            earnings_flags[t] = e
+    except Exception:
+        pass
+
+    # Penalize composite scores for stocks near earnings (affects ranking)
+    for ticker, einfo in earnings_flags.items():
+        if ticker in score_map:
+            days_until = einfo["days_until"]
+            if days_until <= 2:
+                score_map[ticker]["composite_score"] *= 0.7
+            elif days_until <= 7:
+                score_map[ticker]["composite_score"] *= 0.85
 
     # Check drawdown gates
     if dd_schedule:
@@ -206,25 +257,30 @@ def generate_signals(
             # A good stock at a low composite decile means momentum reversed
             # (price fell) — that's a dip opportunity, not a sell signal.
             # Only sell when quality itself deteriorates (is_good becomes False).
-            if decile >= 9 and decile_change >= min_decile_change:
+            if decile >= buy_min_decile and decile_change >= min_decile_change:
                 if not buys_blocked:
-                    max_w = settings.strategy.max_single_position_weight
+                    max_w = max_single_pos
                     if recent_change < -0.02:
                         add_multiplier = 1.0 + (0.7 * effective_scalar)
                         reason = f"Strong add (dip opportunity): decile {decile}, price down {recent_change:.1%} — good stock at better price"
-                    elif recent_change > 0.05:
-                        hold_signals.append({
-                            "ticker": ticker,
-                            "action": "HOLD",
-                            "reason": f"Watch (avoid chase): decile {decile} but price already up {recent_change:.1%} — wait for better entry",
-                            "current_weight": current_weight,
-                            "target_weight": current_weight,
-                            "score_decile": decile,
-                            "prior_decile": prior_decile,
-                            "signal_data": info,
-                            "gate_note": gate_note,
-                        })
-                        continue
+                    elif recent_change > chase_threshold:
+                        chase_mult = _chase_weight_multiplier(recent_change, chase_threshold, chase_mode)
+                        if chase_mult <= 0.0:
+                            hold_signals.append({
+                                "ticker": ticker,
+                                "action": "HOLD",
+                                "reason": f"Watch (avoid chase): decile {decile} but price already up {recent_change:.1%} — wait for better entry",
+                                "current_weight": current_weight,
+                                "target_weight": current_weight,
+                                "score_decile": decile,
+                                "prior_decile": prior_decile,
+                                "signal_data": info,
+                                "gate_note": gate_note,
+                            })
+                            continue
+                        else:
+                            add_multiplier = 1.0 + (0.5 * effective_scalar * chase_mult)
+                            reason = f"Cautious add (chase {1.0 - chase_mult:.0%} reduced): decile {decile}, price up {recent_change:.1%}"
                     else:
                         add_multiplier = 1.0 + (0.5 * effective_scalar)
                         reason = f"Strong hold/add: decile rose to {decile} (was {prior_decile}), size {effective_scalar:.0%}"
@@ -330,6 +386,11 @@ def generate_signals(
             if not is_good:
                 continue
 
+            # GATE: Risk tier must be allowed for this risk level
+            ticker_tier = _ticker_risk_tiers.get(ticker, "standard")
+            if ticker_tier not in allowed_risk_tiers:
+                continue
+
             # Anti-whipsaw
             recency = trade_recency.get(ticker, {})
             last_sell_days = recency.get("last_sell_days_ago")
@@ -340,22 +401,34 @@ def generate_signals(
             if trade_count >= 3:
                 continue
 
-            if decile >= 9 and decile_change >= min_decile_change:
+            if decile >= buy_min_decile and decile_change >= min_decile_change:
                 base_weight = 0.06
 
                 if recent_change < -0.02:
-                    # Good stock with price dip: BETTER buy opportunity
                     dip_bonus = min(abs(recent_change) * 0.5, 0.03)
                     scaled_weight = round((base_weight + dip_bonus) * effective_scalar, 4)
                     reason = (f"Buy opportunity (dip): decile {decile}, price down {recent_change:.1%} — "
                               f"good stock at discounted price")
-                elif recent_change > 0.05:
-                    # Good stock but price already ran up: WATCH instead of BUY
-                    # Do not generate buy signal — avoid chasing
-                    continue
+                elif recent_change > chase_threshold:
+                    chase_mult = _chase_weight_multiplier(recent_change, chase_threshold, chase_mode)
+                    if chase_mult <= 0.0:
+                        continue
+                    scaled_weight = round(base_weight * effective_scalar * chase_mult, 4)
+                    reason = (f"Buy candidate (chase-reduced {chase_mult:.0%}): decile {decile}, "
+                              f"price up {recent_change:.1%}")
                 else:
                     scaled_weight = round(base_weight * effective_scalar, 4)
                     reason = f"Buy candidate: decile {decile} (was {prior_decile}, change +{decile_change}), size {effective_scalar:.0%}"
+
+                risk_flags = []
+                if ticker in earnings_flags:
+                    days_until = earnings_flags[ticker]["days_until"]
+                    if days_until <= 2:
+                        scaled_weight = round(scaled_weight * 0.5, 4)
+                        risk_flags.append(f"EARNINGS IN {days_until}d — binary event risk, position halved")
+                    elif days_until <= 7:
+                        scaled_weight = round(scaled_weight * 0.75, 4)
+                        risk_flags.append(f"Earnings in {days_until}d — position reduced 25%")
 
                 buy_signals.append({
                     "ticker": ticker,
@@ -367,6 +440,7 @@ def generate_signals(
                     "prior_decile": prior_decile,
                     "signal_data": info,
                     "gate_note": gate_note,
+                    "risk_flags": risk_flags,
                 })
 
     # --- Vol-adjusted position sizing for buy signals ---
@@ -378,6 +452,34 @@ def generate_signals(
             for s in buy_signals:
                 if s["ticker"] in adjusted:
                     s["target_weight"] = adjusted[s["ticker"]]
+        except Exception:
+            pass
+
+    # --- Correlation-aware dedup and penalty for buy signals ---
+    if buy_signals and adaptive_params:
+        try:
+            from src.learning.adaptive import compute_correlation_penalties
+            candidate_tickers = [s["ticker"] for s in buy_signals]
+            holding_tickers = list(current_holdings.keys())
+            corr_penalties, correlated_pairs = compute_correlation_penalties(
+                candidate_tickers, holding_tickers,
+            )
+
+            for t1, t2, corr_val in correlated_pairs:
+                s1 = next((s for s in buy_signals if s["ticker"] == t1), None)
+                s2 = next((s for s in buy_signals if s["ticker"] == t2), None)
+                if s1 and s2:
+                    score1 = s1["signal_data"].get("composite_score", 0)
+                    score2 = s2["signal_data"].get("composite_score", 0)
+                    loser = s2 if score1 >= score2 else s1
+                    buy_signals = [s for s in buy_signals if s["ticker"] != loser["ticker"]]
+
+            for s in buy_signals:
+                penalty = corr_penalties.get(s["ticker"], 1.0)
+                if penalty < 1.0:
+                    s["target_weight"] = round(s["target_weight"] * penalty, 4)
+                    s["signal_data"]["correlation_penalty"] = penalty
+                    s["reason"] += f" [corr penalty {penalty:.0%}]"
         except Exception:
             pass
 

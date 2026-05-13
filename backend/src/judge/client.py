@@ -257,11 +257,20 @@ def _build_historical_section(proposal: dict) -> str:
         return ""
 
 
-def evaluate_proposal(proposal: dict, portfolio_value: float, pnl: dict, news=None) -> JudgeOutput:
+def evaluate_proposal(
+    proposal: dict,
+    portfolio_value: float,
+    pnl: dict,
+    news=None,
+    sector_intel: dict | None = None,
+    risk_level: int = 3,
+) -> JudgeOutput:
     """Send a trade proposal to Claude for evaluation.
 
     Args:
         news: Optional NewsResearch object with recent news context.
+        sector_intel: Optional competitive intelligence from competitive_intel.py.
+        risk_level: Aggressiveness setting (1=conservative, 5=aggressive).
 
     Returns a validated JudgeOutput.
     """
@@ -341,11 +350,98 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
             "Short-term score fluctuations are not sufficient reason to reverse a recent trade."
         )
 
+    # Build sector intelligence section
+    sector_intel_section = ""
+    if sector_intel and sector_intel.get("competitive_dynamics"):
+        si_parts = ["\n\n## Sector Intelligence"]
+        si_parts.append(f"Sub-sector: {sector_intel.get('sub_sector', 'unknown')}")
+        si_parts.append(f"Peers analyzed: {', '.join(sector_intel.get('peers_analyzed', []))}")
+        si_parts.append(f"Sector sentiment: {sector_intel.get('sector_sentiment', 'unknown')}")
+        si_parts.append(f"\nCompetitive dynamics: {sector_intel['competitive_dynamics']}")
+
+        themes = sector_intel.get("key_themes", [])
+        if themes:
+            si_parts.append(f"Key themes: {', '.join(themes)}")
+
+        spillover = sector_intel.get("earnings_spillover", [])
+        if spillover:
+            si_parts.append("\nRecent peer earnings:")
+            for s in spillover[:5]:
+                si_parts.append(f"  {s['peer_ticker']}: {s['event_type']} ({s['sentiment']}) — {s['summary']}")
+
+        fc = sector_intel.get("fundamental_comparison", {})
+        if fc:
+            si_parts.append(f"\nFundamental positioning vs peers:")
+            si_parts.append(f"  Margins: {fc.get('margin_vs_peers', 'unknown')}")
+            si_parts.append(f"  Growth: {fc.get('growth_vs_peers', 'unknown')}")
+            si_parts.append(f"  Valuation: {fc.get('valuation_vs_peers', 'unknown')}")
+
+        si_parts.append(
+            "\nConsider how sector trends, peer earnings, and competitive positioning "
+            "affect the risk/reward profile of this trade."
+        )
+        sector_intel_section = "\n".join(si_parts)
+
+    # Build earnings timing section
+    earnings_timing_section = ""
+    try:
+        from src.ingest.earnings_calendar import get_upcoming_earnings
+        upcoming = get_upcoming_earnings([proposal["ticker"]], days_ahead=14)
+        if proposal["ticker"] in upcoming:
+            e = upcoming[proposal["ticker"]]
+            days_until = e["days_until"]
+            event_date = e["event_date"]
+            eps_est = e.get("eps_estimate")
+            eps_str = f"${eps_est:.2f}" if eps_est else "unknown"
+            earnings_timing_section = (
+                f"\n\n## Earnings Timing Warning"
+                f"\n{proposal['ticker']} reports earnings on {event_date} ({days_until} day(s) away)."
+                f"\nConsensus EPS estimate: {eps_str}"
+            )
+            if days_until <= 2:
+                earnings_timing_section += (
+                    "\n\nCRITICAL: Earnings are IMMINENT. This is a binary event with high uncertainty. "
+                    "Unless the quantitative case is overwhelming, set binary_event_warning=true "
+                    "and consider whether pre-earnings risk justifies this trade."
+                )
+            elif days_until <= 7:
+                earnings_timing_section += (
+                    "\n\nNOTE: Earnings are within a week. Factor in the elevated uncertainty. "
+                    "Set binary_event_warning=true if this event could significantly alter the thesis."
+                )
+    except Exception:
+        pass
+
+    # Build risk level instruction
+    risk_instructions = {
+        1: (
+            "\n\n## Risk Posture: CONSERVATIVE (Level 1)"
+            "\nBe very conservative. Reject trades with even moderate risk factors. "
+            "Require overwhelming quantitative evidence for approval. Flag any uncertainty."
+        ),
+        2: (
+            "\n\n## Risk Posture: CAUTIOUS (Level 2)"
+            "\nFavor caution. Require strong quantitative support and manageable risk profile."
+        ),
+        4: (
+            "\n\n## Risk Posture: GROWTH-ORIENTED (Level 4)"
+            "\nAccept trades with moderate risk when supported by strong momentum or fundamentals. "
+            "Tolerate higher concentration and near-term volatility."
+        ),
+        5: (
+            "\n\n## Risk Posture: AGGRESSIVE (Level 5)"
+            "\nTolerate higher risk for higher return potential. Accept higher concentration, "
+            "momentum-driven trades, and trades near binary events if the setup is strong. "
+            "Only reject when risk is extreme or the quantitative case is clearly negative."
+        ),
+    }
+    risk_section = risk_instructions.get(risk_level, "")
+
     prompt = JUDGE_PROMPT_TEMPLATE.format(
         proposal_json=input_json,
         strategy_rules=STRATEGY_RULES_SUMMARY,
         historical_section=historical_section,
-    ) + price_section + news_section + trade_history_section + analyst_section + user_notes_section
+    ) + price_section + news_section + trade_history_section + sector_intel_section + earnings_timing_section + risk_section + analyst_section + user_notes_section
 
     # Build message content — multimodal if user uploaded images
     image_blocks = _build_user_notes_image_blocks()
@@ -421,17 +517,22 @@ def evaluate_all_proposals(
     pnl: dict,
     research_map: dict | None = None,
     recent_trades: list[dict] | None = None,
+    sector_intel_map: dict | None = None,
+    risk_level: int = 3,
 ) -> list[tuple[dict, JudgeOutput]]:
     """Evaluate all proposals through the LLM judge.
 
     Args:
         research_map: Optional dict of ticker -> NewsResearch objects.
         recent_trades: Recent executed trades for anti-whipsaw context.
+        sector_intel_map: Optional dict of ticker -> sector intelligence.
+        risk_level: Aggressiveness setting (1=conservative, 5=aggressive).
 
     Returns list of (proposal, judge_output) tuples.
     """
     research_map = research_map or {}
     recent_trades = recent_trades or []
+    sector_intel_map = sector_intel_map or {}
 
     # Build per-ticker trade history summary for judge context
     _trade_history: dict[str, list[str]] = {}
@@ -463,7 +564,8 @@ def evaluate_all_proposals(
     def _judge_one(p: dict) -> tuple[dict, JudgeOutput]:
         _log.info(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
         news = research_map.get(p["ticker"])
-        output = evaluate_proposal(p, portfolio_value, pnl, news=news)
+        intel = sector_intel_map.get(p["ticker"])
+        output = evaluate_proposal(p, portfolio_value, pnl, news=news, sector_intel=intel, risk_level=risk_level)
         _log.info(f"    {p['ticker']}: {output.verdict.value} ({output.confidence:.0%})")
 
         p["judge_verdict"] = output.verdict.value

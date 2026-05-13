@@ -148,17 +148,19 @@ def test_price_increase_does_not_create_buy():
         "revenue_growth_yoy": [0.15],
         "gross_margin_trend": [0.02],
         "relative_valuation": [0.5],
+        "forward_estimate_revision": [0.1],
     })
 
     signals = generate_signals(
         scores=scores,
         current_holdings={},
         prior_deciles={"CHASER": 5},
+        risk_level=1,
     )
 
     buy_signals = [s for s in signals if s["action"] == "BUY"]
     assert len(buy_signals) == 0, (
-        f"Stock with price already up 8% should NOT generate BUY, got: {buy_signals}"
+        f"Stock with price already up 8% should NOT generate BUY at strict chase mode, got: {buy_signals}"
     )
 
 
@@ -184,6 +186,7 @@ def test_price_dip_improves_good_stock_buy():
         "revenue_growth_yoy": [0.15, 0.15],
         "gross_margin_trend": [0.02, 0.02],
         "relative_valuation": [0.5, 0.5],
+        "forward_estimate_revision": [0.1, 0.1],
     })
 
     signals = generate_signals(
@@ -222,6 +225,7 @@ def test_bad_stock_with_dip_not_buy():
         "revenue_growth_yoy": [-0.1],
         "gross_margin_trend": [-0.05],
         "relative_valuation": [-1.0],
+        "forward_estimate_revision": [-0.5],
     })
 
     signals = generate_signals(
@@ -350,6 +354,21 @@ def test_composite_two_stage_scoring():
     )
 
 
+def test_forward_estimate_factor_in_composite():
+    """Forward estimate revision must be a factor in both composite and quality scoring."""
+    from src.features.composite import FACTOR_COLUMNS, QUALITY_FACTOR_COLUMNS
+
+    assert "forward_estimate_revision" in FACTOR_COLUMNS, (
+        "forward_estimate_revision must be in FACTOR_COLUMNS"
+    )
+    assert "forward_estimate_revision" in QUALITY_FACTOR_COLUMNS, (
+        "forward_estimate_revision must be in QUALITY_FACTOR_COLUMNS"
+    )
+    assert len(FACTOR_COLUMNS) == 6, (
+        f"Should have 6 factors, got {len(FACTOR_COLUMNS)}"
+    )
+
+
 def test_price_rise_blocks_add_for_good_stock_holding():
     """A good stock already held should get HOLD (not ADD) if price is already up >5%."""
     from src.signals.decision_rules import generate_signals
@@ -369,17 +388,19 @@ def test_price_rise_blocks_add_for_good_stock_holding():
         "revenue_growth_yoy": [0.15],
         "gross_margin_trend": [0.02],
         "relative_valuation": [0.5],
+        "forward_estimate_revision": [0.1],
     })
 
     signals = generate_signals(
         scores=scores,
         current_holdings={"RUNNER": 0.05},
         prior_deciles={"RUNNER": 5},
+        risk_level=1,
     )
 
     actions = {s["ticker"]: s["action"] for s in signals}
     assert actions.get("RUNNER") == "HOLD", (
-        f"Good stock with price already up 8% should HOLD (avoid chase), got: {actions.get('RUNNER')}"
+        f"Good stock with price already up 8% should HOLD at strict chase mode, got: {actions.get('RUNNER')}"
     )
 
 
@@ -408,6 +429,7 @@ def test_good_stock_low_decile_not_sold():
         "revenue_growth_yoy": [0.15],
         "gross_margin_trend": [0.02],
         "relative_valuation": [0.5],
+        "forward_estimate_revision": [0.1],
     })
 
     signals = generate_signals(
@@ -441,6 +463,7 @@ def test_bad_stock_low_decile_gets_sold():
         "revenue_growth_yoy": [-0.10],
         "gross_margin_trend": [-0.03],
         "relative_valuation": [-0.5],
+        "forward_estimate_revision": [-0.5],
     })
 
     signals = generate_signals(
@@ -474,6 +497,7 @@ def test_rotation_only_targets_bad_stocks():
         "revenue_growth_yoy": [0.08, -0.05, 0.2],
         "gross_margin_trend": [0.01, -0.02, 0.03],
         "relative_valuation": [0.3, -0.5, 0.8],
+        "forward_estimate_revision": [0.1, -0.3, 0.2],
     })
 
     signals = generate_signals(
@@ -485,4 +509,84 @@ def test_rotation_only_targets_bad_stocks():
     actions = {s["ticker"]: s["action"] for s in signals}
     assert actions.get("GOODLOW") == "HOLD", (
         f"Good stock at low decile should NOT be rotated out, got: {actions.get('GOODLOW')}"
+    )
+
+
+# ── 14. Chase gradient reduces position instead of skipping ──────────────
+
+def test_chase_gradient_reduces_position():
+    """At risk_level=3 (gradient mode), a stock above chase threshold should
+    still generate a BUY, but with reduced weight."""
+    from src.signals.decision_rules import generate_signals
+
+    scores = pd.DataFrame({
+        "ticker": ["RUNNER"],
+        "score_decile": [10],
+        "composite_score": [2.5],
+        "is_good_stock": [True],
+        "quality_score": [1.0],
+        "recent_price_change": [0.08],  # 8% rise, above 5% threshold
+        "price_dip_score": [-0.08],
+        "per_ratio": [20.0],
+        "quality_reasons": [["EPS growing"]],
+        "momentum_12m1m": [0.3],
+        "eps_growth_yoy": [0.2],
+        "revenue_growth_yoy": [0.15],
+        "gross_margin_trend": [0.02],
+        "relative_valuation": [0.5],
+        "forward_estimate_revision": [0.1],
+    })
+
+    signals = generate_signals(
+        scores=scores,
+        current_holdings={},
+        prior_deciles={"RUNNER": 5},
+        risk_level=3,
+    )
+
+    buy_signals = [s for s in signals if s["action"] == "BUY"]
+    assert len(buy_signals) == 1, (
+        f"Gradient mode should produce a reduced BUY, got {len(buy_signals)} buys"
+    )
+    assert buy_signals[0]["target_weight"] < 0.06, (
+        f"Chase-reduced weight should be below base 6%, got {buy_signals[0]['target_weight']}"
+    )
+
+
+def test_chase_allow_full_position():
+    """At risk_level=5 (allow mode), a stock with any price rise should get
+    full position size with no chase restriction."""
+    from src.signals.decision_rules import generate_signals
+
+    scores = pd.DataFrame({
+        "ticker": ["ROCKET"],
+        "score_decile": [10],
+        "composite_score": [2.5],
+        "is_good_stock": [True],
+        "quality_score": [1.0],
+        "recent_price_change": [0.15],  # 15% rise — would be blocked at lower levels
+        "price_dip_score": [-0.15],
+        "per_ratio": [20.0],
+        "quality_reasons": [["EPS growing"]],
+        "momentum_12m1m": [0.3],
+        "eps_growth_yoy": [0.2],
+        "revenue_growth_yoy": [0.15],
+        "gross_margin_trend": [0.02],
+        "relative_valuation": [0.5],
+        "forward_estimate_revision": [0.1],
+    })
+
+    signals = generate_signals(
+        scores=scores,
+        current_holdings={},
+        prior_deciles={"ROCKET": 5},
+        risk_level=5,
+    )
+
+    buy_signals = [s for s in signals if s["action"] == "BUY"]
+    assert len(buy_signals) == 1, (
+        f"Allow mode should produce a BUY even at 15% rise, got {len(buy_signals)} buys"
+    )
+    assert buy_signals[0]["target_weight"] > 0.06, (
+        f"Aggressive mode (1.4x scalar) should produce weight above base 6%, got {buy_signals[0]['target_weight']}"
     )

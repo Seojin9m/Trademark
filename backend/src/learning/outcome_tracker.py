@@ -33,6 +33,7 @@ FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
+    "forward_estimate_revision",
 ]
 
 

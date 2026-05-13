@@ -13,9 +13,10 @@ import {
   Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight,
   Trash2, RotateCcw, StickyNote, X, Save, ImagePlus,
   Hand, Eye, ChevronDown, ChevronUp, Database, ExternalLink,
+  Search, Zap, Target, TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { api, type SectorInfo, type TickerAnalysis, type PipelineRunParams } from "@/lib/api"
 
 const stepOrder = ["ingestion", "fundamentals", "scoring", "adaptive", "signals", "proposals", "research", "judge", "execution", "pnl", "learning", "complete"]
 
@@ -569,6 +570,267 @@ function StartOverButton() {
   )
 }
 
+const RISK_LABELS = ["", "Conservative", "Cautious", "Balanced", "Growth", "Aggressive"]
+const RISK_COLORS = ["", "text-blue-400", "text-sky-400", "text-emerald-400", "text-amber-400", "text-red-400"]
+
+function PipelineSettings({
+  mode,
+  setMode,
+  riskLevel,
+  setRiskLevel,
+  selectedSector,
+  setSelectedSector,
+  tickerInput,
+  setTickerInput,
+  onAnalyzeTicker,
+  analyzing,
+}: {
+  mode: "full" | "sector" | "ticker"
+  setMode: (m: "full" | "sector" | "ticker") => void
+  riskLevel: number
+  setRiskLevel: (n: number) => void
+  selectedSector: string
+  setSelectedSector: (s: string) => void
+  tickerInput: string
+  setTickerInput: (s: string) => void
+  onAnalyzeTicker: () => void
+  analyzing: boolean
+}) {
+  const { data: sectors } = useQuery({
+    queryKey: ["sectors"],
+    queryFn: api.getSectors,
+    staleTime: 60_000,
+  })
+
+  return (
+    <div className="rounded-xl border-2 border-border/60 bg-card p-4 space-y-4">
+      <div className="flex items-center gap-2 mb-1">
+        <Target className="h-4 w-4 text-primary" />
+        <p className="text-sm font-semibold">Pipeline Mode</p>
+      </div>
+
+      {/* Mode selector */}
+      <div className="flex gap-2">
+        {(["full", "sector", "ticker"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={cn(
+              "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+              mode === m
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60",
+            )}
+          >
+            {m === "full" && "Full Pipeline"}
+            {m === "sector" && "Sector Filter"}
+            {m === "ticker" && "Single Ticker"}
+          </button>
+        ))}
+      </div>
+
+      {/* Sector dropdown */}
+      {mode === "sector" && (
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Sub-sector</label>
+          <select
+            value={selectedSector}
+            onChange={(e) => setSelectedSector(e.target.value)}
+            className="w-full rounded-lg border border-border/60 bg-[#0a0a0f] px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+          >
+            <option value="">Select a sector...</option>
+            {sectors?.map((s: SectorInfo) => (
+              <option key={s.sub_sector} value={s.sub_sector}>
+                {s.sub_sector} ({s.ticker_count} tickers)
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Ticker input */}
+      {mode === "ticker" && (
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="text-xs text-muted-foreground mb-1 block">Ticker symbol</label>
+            <input
+              type="text"
+              value={tickerInput}
+              onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+              placeholder="e.g. AAPL"
+              className="w-full rounded-lg border border-border/60 bg-[#0a0a0f] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              size="sm"
+              onClick={onAnalyzeTicker}
+              disabled={analyzing || !tickerInput.trim()}
+              className="h-[38px]"
+            >
+              {analyzing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Search className="h-3.5 w-3.5 mr-1.5" />
+                  Analyze
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Risk level */}
+      {mode !== "ticker" && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs text-muted-foreground">Risk Level</label>
+            <span className={cn("text-xs font-medium", RISK_COLORS[riskLevel])}>
+              {RISK_LABELS[riskLevel]} ({riskLevel})
+            </span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            value={riskLevel}
+            onChange={(e) => setRiskLevel(Number(e.target.value))}
+            className="w-full h-2 rounded-full appearance-none bg-muted cursor-pointer accent-primary"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground/60 mt-1">
+            <span>Conservative</span>
+            <span>Aggressive</span>
+          </div>
+        </div>
+      )}
+
+      {/* Risk level for ticker mode too */}
+      {mode === "ticker" && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs text-muted-foreground">Risk Level</label>
+            <span className={cn("text-xs font-medium", RISK_COLORS[riskLevel])}>
+              {RISK_LABELS[riskLevel]} ({riskLevel})
+            </span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            value={riskLevel}
+            onChange={(e) => setRiskLevel(Number(e.target.value))}
+            className="w-full h-2 rounded-full appearance-none bg-muted cursor-pointer accent-primary"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground/60 mt-1">
+            <span>Conservative</span>
+            <span>Aggressive</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TickerAnalysisCard({ analysis }: { analysis: TickerAnalysis }) {
+  const recColor = analysis.recommendation === "BUY"
+    ? "text-profit border-profit/40 bg-profit/10"
+    : analysis.recommendation === "SELL"
+      ? "text-loss border-loss/40 bg-loss/10"
+      : "text-amber-400 border-amber-500/40 bg-amber-500/10"
+
+  return (
+    <Card>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={cn("rounded-lg border-2 px-4 py-2 font-bold text-lg", recColor)}>
+              {analysis.recommendation}
+            </div>
+            <div>
+              <p className="text-lg font-bold">{analysis.ticker}</p>
+              <p className="text-xs text-muted-foreground">
+                {analysis.metadata?.name || ""} · {analysis.metadata?.sub_sector || ""}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Confidence</p>
+            <p className="text-2xl font-bold tabular-nums">{((analysis.confidence ?? 0) * 100).toFixed(0)}%</p>
+          </div>
+        </div>
+
+        {analysis.summary && (
+          <div className="rounded-lg bg-muted/30 border border-border/40 p-3">
+            <p className="text-sm">{analysis.summary}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          {analysis.fundamentals && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Fundamentals</p>
+              <p className="text-xs">{analysis.fundamentals}</p>
+            </div>
+          )}
+          {analysis.technicals && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Technicals</p>
+              <p className="text-xs">{analysis.technicals}</p>
+            </div>
+          )}
+          {analysis.competitive_position && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Competitive Position</p>
+              <p className="text-xs">{analysis.competitive_position}</p>
+            </div>
+          )}
+          {analysis.sector_context && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Sector Context</p>
+              <p className="text-xs">{analysis.sector_context}</p>
+            </div>
+          )}
+          {analysis.earnings_insight && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Earnings</p>
+              <p className="text-xs">{analysis.earnings_insight}</p>
+            </div>
+          )}
+          {analysis.risk_level_note && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Risk Note</p>
+              <p className="text-xs">{analysis.risk_level_note}</p>
+            </div>
+          )}
+        </div>
+
+        {analysis.risk_factors && analysis.risk_factors.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-loss mb-1">Risk Factors</p>
+            <ul className="text-xs space-y-0.5">
+              {analysis.risk_factors.map((r, i) => (
+                <li key={i} className="text-muted-foreground">· {r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {analysis.catalysts && analysis.catalysts.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-profit mb-1">Catalysts</p>
+            <ul className="text-xs space-y-0.5">
+              {analysis.catalysts.map((c, i) => (
+                <li key={i} className="text-muted-foreground">· {c}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function PipelineControl() {
   const { running, events, error, activeGate, lastCompletedRunId, startPipeline, respondToGate } = usePipeline()
   const { toast } = useToast()
@@ -576,6 +838,13 @@ export default function PipelineControl() {
   const logRef = useRef<HTMLDivElement>(null)
   const prevEventsLen = useRef(0)
   const eventTimestamps = useRef<Map<number, number>>(new Map())
+
+  const [pipelineMode, setPipelineMode] = useState<"full" | "sector" | "ticker">("full")
+  const [riskLevel, setRiskLevel] = useState(3)
+  const [selectedSector, setSelectedSector] = useState("")
+  const [tickerInput, setTickerInput] = useState("")
+  const [tickerAnalysis, setTickerAnalysis] = useState<TickerAnalysis | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
 
   useEffect(() => {
     if (events.length === 0) {
@@ -630,24 +899,33 @@ export default function PipelineControl() {
             {hasError && <Badge variant="loss">Error</Badge>}
             {error && <Badge variant="loss">{error}</Badge>}
             <StartOverButton />
-            <Button
-              variant="outline"
-              onClick={startPipeline}
-              disabled={running}
-              className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50"
-            >
-              {running ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Running...
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-4 w-4" />
-                  Run Pipeline
-                </>
-              )}
-            </Button>
+            {pipelineMode !== "ticker" && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const params: PipelineRunParams = { risk_level: riskLevel }
+                  if (pipelineMode === "sector" && selectedSector) {
+                    params.mode = "sector"
+                    params.sub_sector = selectedSector
+                  }
+                  startPipeline(params)
+                }}
+                disabled={running || (pipelineMode === "sector" && !selectedSector)}
+                className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50"
+              >
+                {running ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Running...
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    {pipelineMode === "sector" ? "Run Sector Pipeline" : "Run Pipeline"}
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         }
       />
@@ -706,11 +984,43 @@ export default function PipelineControl() {
       )}
 
       <div className="mb-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
+          <PipelineSettings
+            mode={pipelineMode}
+            setMode={setPipelineMode}
+            riskLevel={riskLevel}
+            setRiskLevel={setRiskLevel}
+            selectedSector={selectedSector}
+            setSelectedSector={setSelectedSector}
+            tickerInput={tickerInput}
+            setTickerInput={setTickerInput}
+            onAnalyzeTicker={async () => {
+              if (!tickerInput.trim() || analyzing) return
+              setAnalyzing(true)
+              setTickerAnalysis(null)
+              try {
+                const result = await api.analyzeTicker(tickerInput.trim(), riskLevel)
+                setTickerAnalysis(result)
+                toast("success", "Analysis Complete", `${result.recommendation} recommendation for ${tickerInput}`)
+              } catch (e) {
+                toast("error", "Analysis Failed", String(e))
+              } finally {
+                setAnalyzing(false)
+              }
+            }}
+            analyzing={analyzing}
+          />
           <UserNotesPanel />
           <ReviewModeToggle />
         </div>
       </div>
+
+      {/* Ticker analysis result */}
+      {tickerAnalysis && pipelineMode === "ticker" && (
+        <div className="mb-4">
+          <TickerAnalysisCard analysis={tickerAnalysis} />
+        </div>
+      )}
 
       {/* Active Gate Review Panel */}
       {activeGate && (

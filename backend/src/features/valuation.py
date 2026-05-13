@@ -71,6 +71,8 @@ def compute_relative_valuation(as_of_date: str | None = None) -> pd.DataFrame:
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         con.close()
+        if as_of_date is None:
+            return pd.DataFrame(columns=["ticker", "date", "relative_valuation"])
 
     prices, fundamentals = _get_price_and_fundamentals(str(as_of_date))
 
@@ -118,6 +120,18 @@ def compute_per_filter(as_of_date: str | None = None) -> pd.DataFrame:
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         con.close()
+        if as_of_date is None:
+            return pd.DataFrame(
+                columns=[
+                    "ticker",
+                    "date",
+                    "per_ratio",
+                    "per_vs_peer",
+                    "per_absolute_pass",
+                    "per_relative_pass",
+                    "per_penalty",
+                ]
+            )
 
     prices, fundamentals = _get_price_and_fundamentals(str(as_of_date))
 

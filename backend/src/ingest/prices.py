@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -18,6 +18,19 @@ def load_universe() -> list[str]:
     """Load ticker list from universe CSV."""
     df = pd.read_csv(settings.paths.universe_path)
     return df["ticker"].tolist()
+
+
+def default_polygon_eod_calendar_date() -> str:
+    """Calendar date to use for Polygon EOD when none is passed.
+
+    ``datetime.now() - 1 day`` is often a Saturday or Sunday (e.g. Monday
+    morning runs); Polygon has no daily bars those days, so per-ticker fetches
+    return empty. Walk back through weekends to the latest weekday.
+    """
+    d: date = (datetime.now() - timedelta(days=1)).date()
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d.strftime("%Y-%m-%d")
 
 
 def fetch_yfinance_bulk(
@@ -82,6 +95,28 @@ def fetch_yfinance_bulk(
 
     print(f"Downloaded {len(result)} total price rows for {result['ticker'].nunique()} tickers")
     return result
+
+
+def tickers_having_price_on_date(as_of_date: str, candidates: list[str]) -> set[str]:
+    """Return which tickers already have a row in ``prices`` for ``as_of_date``.
+
+    Used to resume interrupted Polygon per-ticker fetches without redoing API calls.
+    """
+    if not candidates:
+        return set()
+    con = get_connection()
+    df = con.execute(
+        """
+        SELECT ticker FROM prices
+        WHERE date = CAST($1 AS DATE)
+        """,
+        [str(as_of_date)],
+    ).fetchdf()
+    con.close()
+    if df.empty:
+        return set()
+    want = set(candidates)
+    return set(df["ticker"].astype(str).tolist()) & want
 
 
 def check_eod_data_exists(min_tickers: int = 50) -> tuple[bool, int, str | None]:
@@ -156,7 +191,7 @@ def fetch_polygon_eod(tickers: list[str], date: str | None = None) -> pd.DataFra
     ticker_set = set(tickers)
 
     if date is None:
-        date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        date = default_polygon_eod_calendar_date()
 
     print(f"Fetching grouped daily data from Polygon for {date}...")
     records = []
@@ -182,6 +217,8 @@ def fetch_polygon_eod(tickers: list[str], date: str | None = None) -> pd.DataFra
     df = pd.DataFrame(records)
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"]).dt.date
+        # Persist before slow per-ticker fallback so a crash mid-loop does not lose grouped rows.
+        store_prices(df)
 
     missing = ticker_set - set(df["ticker"]) if not df.empty else ticker_set
     if missing:
@@ -195,16 +232,37 @@ def fetch_polygon_eod(tickers: list[str], date: str | None = None) -> pd.DataFra
 
 
 def _fetch_polygon_eod_per_ticker(tickers: list[str], date: str, client) -> pd.DataFrame:
-    """Fallback: fetch one ticker at a time with rate limiting."""
+    """Fallback: fetch one ticker at a time with rate limiting.
+
+    Rows are written to DuckDB in batches so an interrupted pipeline can resume:
+    already-stored tickers for ``date`` are skipped on the next run.
+    """
     import time
 
-    records = []
-    for i, ticker in enumerate(tickers):
+    have = tickers_having_price_on_date(date, tickers)
+    todo = [t for t in tickers if t not in have]
+    if have:
+        print(f"  Resuming per-ticker fetch: skipping {len(have)} already stored for {date}")
+
+    records: list[dict] = []
+    batch_since_flush: list[dict] = []
+    warned_zero_bars = False
+
+    def _flush_batch() -> None:
+        nonlocal batch_since_flush
+        if not batch_since_flush:
+            return
+        flush_df = pd.DataFrame(batch_since_flush)
+        flush_df["date"] = pd.to_datetime(flush_df["date"]).dt.date
+        store_prices(flush_df)
+        batch_since_flush = []
+
+    for i, ticker in enumerate(todo):
         try:
             aggs = client.get_aggs(ticker, 1, "day", date, date)
             if aggs:
                 agg = aggs[0]
-                records.append({
+                row = {
                     "ticker": ticker,
                     "date": date,
                     "open": agg.open,
@@ -213,13 +271,27 @@ def _fetch_polygon_eod_per_ticker(tickers: list[str], date: str, client) -> pd.D
                     "close": agg.close,
                     "volume": int(agg.volume) if agg.volume else 0,
                     "adj_close": agg.close,
-                })
+                }
+                records.append(row)
+                batch_since_flush.append(row)
         except Exception as e:
             print(f"  WARNING: Polygon failed for {ticker}: {e}")
 
-        if (i + 1) % 5 == 0 and i < len(tickers) - 1:
-            print(f"  Fetched {i + 1}/{len(tickers)}, pausing for rate limit...")
+        if (i + 1) % 5 == 0 and i < len(todo) - 1:
+            _flush_batch()
+            print(
+                f"  Polygon per-ticker: {i + 1}/{len(todo)} tickers tried, "
+                f"{len(records)} bars saved — pausing for rate limit..."
+            )
+            if not records and not warned_zero_bars:
+                print(
+                    f"  WARNING: no bars returned for {date} yet (weekend/holiday "
+                    "or bad session date). Check Polygon calendar vs this date."
+                )
+                warned_zero_bars = True
             time.sleep(61)
+
+    _flush_batch()
 
     df = pd.DataFrame(records)
     if not df.empty:

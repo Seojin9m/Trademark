@@ -1,225 +1,225 @@
-ticker,name,sub_sector,market_cap_tier
-AAPL,Apple Inc,hardware,mega
-MSFT,Microsoft Corp,enterprise_software,mega
-NVDA,NVIDIA Corp,semiconductors,mega
-GOOGL,Alphabet Inc Class A,internet_platforms,mega
-META,Meta Platforms Inc,internet_platforms,mega
-AMZN,Amazon.com Inc,internet_platforms,mega
-AVGO,Broadcom Inc,semiconductors,mega
-TSLA,Tesla Inc,hardware,mega
-AMD,Advanced Micro Devices,semiconductors,large
-CRM,Salesforce Inc,cloud_software,large
-ORCL,Oracle Corp,enterprise_software,large
-CSCO,Cisco Systems Inc,hardware,large
-ACN,Accenture PLC,enterprise_software,large
-ADBE,Adobe Inc,enterprise_software,large
-NOW,ServiceNow Inc,cloud_software,large
-IBM,International Business Machines,enterprise_software,large
-TXN,Texas Instruments Inc,semiconductors,large
-QCOM,Qualcomm Inc,semiconductors,large
-INTC,Intel Corp,semiconductors,large
-INTU,Intuit Inc,enterprise_software,large
-AMAT,Applied Materials Inc,semiconductors,large
-PANW,Palo Alto Networks,cybersecurity,large
-MU,Micron Technology Inc,semiconductors,large
-LRCX,Lam Research Corp,semiconductors,large
-ADI,Analog Devices Inc,semiconductors,large
-KLAC,KLA Corp,semiconductors,large
-SNPS,Synopsys Inc,enterprise_software,large
-CDNS,Cadence Design Systems,enterprise_software,large
-CRWD,CrowdStrike Holdings,cybersecurity,large
-MRVL,Marvell Technology Inc,semiconductors,large
-FTNT,Fortinet Inc,cybersecurity,large
-NXPI,NXP Semiconductors,semiconductors,large
-DASH,DoorDash Inc,internet_platforms,large
-TTD,The Trade Desk Inc,internet_platforms,large
-WDAY,Workday Inc,cloud_software,large
-ROP,Roper Technologies Inc,enterprise_software,large
-TEAM,Atlassian Corp,cloud_software,large
-HUBS,HubSpot Inc,cloud_software,large
-DDOG,Datadog Inc,cloud_software,large
-ZS,Zscaler Inc,cybersecurity,large
-NET,Cloudflare Inc,cloud_software,mid
-SNOW,Snowflake Inc,cloud_software,mid
-MDB,MongoDB Inc,cloud_software,mid
-PLTR,Palantir Technologies,ai_infrastructure,large
-UBER,Uber Technologies,internet_platforms,large
-XYZ,Block Inc,fintech,large
-SHOP,Shopify Inc,internet_platforms,large
-COIN,Coinbase Global Inc,fintech,mid
-ARM,Arm Holdings PLC,semiconductors,large
-ON,ON Semiconductor,semiconductors,mid
-SMCI,Super Micro Computer,ai_infrastructure,mid
-MCHP,Microchip Technology,semiconductors,mid
-SWKS,Skyworks Solutions,semiconductors,mid
-MPWR,Monolithic Power Systems,semiconductors,mid
-ABNB,Airbnb Inc,internet_platforms,large
-KEYS,Keysight Technologies,hardware,mid
-ZBRA,Zebra Technologies,hardware,mid
-GEN,Gen Digital Inc,cybersecurity,mid
-OKTA,Okta Inc,cybersecurity,mid
-VEEV,Veeva Systems Inc,cloud_software,mid
-PAYC,Paycom Software Inc,cloud_software,mid
-PCTY,Paylocity Holding Corp,cloud_software,mid
-BILL,BILL Holdings Inc,fintech,mid
-MNDY,monday.com Ltd,cloud_software,mid
-GTLB,GitLab Inc,cloud_software,mid
-S,SentinelOne Inc,cybersecurity,mid
-CFLT,Confluent Inc,cloud_software,mid
-PATH,UiPath Inc,enterprise_software,mid
-IOT,Samsara Inc,ai_infrastructure,mid
-AI,C3.ai Inc,ai_infrastructure,mid
-ESTC,Elastic NV,cloud_software,mid
-DOCN,DigitalOcean Holdings,cloud_software,mid
-APPN,Appian Corp,enterprise_software,mid
-CWAN,Clearwater Analytics,fintech,mid
-VERX,Vertex Inc,enterprise_software,mid
-TSM,Taiwan Semiconductor Manufacturing,semiconductors,mega
-JNJ,Johnson & Johnson,pharma,mega
-LLY,Eli Lilly and Co,pharma,mega
-MRK,Merck & Co,pharma,large
-PFE,Pfizer Inc,pharma,large
-ABBV,AbbVie Inc,pharma,mega
-BMY,Bristol-Myers Squibb,pharma,large
-NVO,Novo Nordisk,pharma,mega
-AZN,AstraZeneca PLC,pharma,large
-VRTX,Vertex Pharmaceuticals,biotech,large
-REGN,Regeneron Pharmaceuticals,biotech,large
-GILD,Gilead Sciences,biotech,large
-AMGN,Amgen Inc,biotech,large
-MRNA,Moderna Inc,biotech,mid
-ABT,Abbott Laboratories,healthcare_equipment,mega
-TMO,Thermo Fisher Scientific,healthcare_equipment,mega
-DHR,Danaher Corp,healthcare_equipment,large
-MDT,Medtronic PLC,healthcare_equipment,large
-SYK,Stryker Corp,healthcare_equipment,large
-BSX,Boston Scientific,healthcare_equipment,large
-ISRG,Intuitive Surgical,healthcare_equipment,large
-EW,Edwards Lifesciences,healthcare_equipment,mid
-ZTS,Zoetis Inc,healthcare_equipment,large
-UNH,UnitedHealth Group,managed_care,mega
-ELV,Elevance Health,managed_care,large
-CI,The Cigna Group,managed_care,large
-HUM,Humana Inc,managed_care,large
-CVS,CVS Health,healthcare_services,large
-HCA,HCA Healthcare,healthcare_services,large
-IDXX,IDEXX Laboratories,healthcare_services,mid
-JPM,JPMorgan Chase,banks,mega
-BAC,Bank of America,banks,mega
-WFC,Wells Fargo,banks,large
-C,Citigroup Inc,banks,large
-USB,U.S. Bancorp,banks,large
-PNC,PNC Financial Services,banks,large
-TFC,Truist Financial,banks,large
-SCHW,Charles Schwab Corp,capital_markets,large
-BLK,BlackRock Inc,capital_markets,large
-GS,Goldman Sachs,capital_markets,large
-MS,Morgan Stanley,capital_markets,large
-BX,Blackstone Inc,capital_markets,large
-KKR,KKR & Co,capital_markets,large
-ICE,Intercontinental Exchange,capital_markets,large
-CME,CME Group,capital_markets,large
-SPGI,S&P Global Inc,capital_markets,large
-PGR,Progressive Corp,insurance,large
-CB,Chubb Ltd,insurance,large
-AIG,American International Group,insurance,large
-MET,MetLife Inc,insurance,large
-ALL,The Allstate Corp,insurance,large
-TRV,Travelers Companies,insurance,large
-V,Visa Inc,payments,mega
-MA,Mastercard Inc,payments,mega
-AXP,American Express,payments,large
-PYPL,PayPal Holdings,payments,large
-FIS,Fidelity National Info Services,payments,large
-DIS,Walt Disney Co,media_entertainment,large
-NFLX,Netflix Inc,media_entertainment,large
-CMCSA,Comcast Corp,media_entertainment,large
-WBD,Warner Bros Discovery,media_entertainment,mid
-SPOT,Spotify Technology,media_entertainment,large
-EA,Electronic Arts,media_entertainment,large
-TTWO,Take-Two Interactive,media_entertainment,mid
-T,AT&T Inc,telecom,large
-VZ,Verizon Communications,telecom,large
-TMUS,T-Mobile US,telecom,large
-HD,The Home Depot,retail,mega
-LOW,Lowe's Companies,retail,large
-COST,Costco Wholesale,retail,mega
-WMT,Walmart Inc,retail,mega
-TGT,Target Corp,retail,large
-NKE,Nike Inc,retail,large
-LULU,Lululemon Athletica,retail,large
-ROST,Ross Stores,retail,large
-TJX,The TJX Companies,retail,large
-BBY,Best Buy Co,retail,mid
-MCD,McDonald's Corp,restaurants,mega
-SBUX,Starbucks Corp,restaurants,large
-CMG,Chipotle Mexican Grill,restaurants,large
-YUM,Yum! Brands,restaurants,large
-QSR,Restaurant Brands International,restaurants,mid
-F,Ford Motor Co,autos,mid
-GM,General Motors,autos,large
-STLA,Stellantis NV,autos,large
-KO,Coca-Cola Co,food_beverage,mega
-PEP,PepsiCo Inc,food_beverage,mega
-PM,Philip Morris International,food_beverage,large
-MDLZ,Mondelez International,food_beverage,large
-MO,Altria Group,food_beverage,large
-KHC,Kraft Heinz,food_beverage,mid
-PG,Procter & Gamble,household_products,mega
-CL,Colgate-Palmolive,household_products,large
-KMB,Kimberly-Clark,household_products,large
-CHD,Church & Dwight,household_products,mid
-EL,Estee Lauder Companies,household_products,mid
-BA,Boeing Co,aerospace_defense,large
-LMT,Lockheed Martin,aerospace_defense,large
-RTX,RTX Corp,aerospace_defense,large
-NOC,Northrop Grumman,aerospace_defense,large
-GD,General Dynamics,aerospace_defense,large
-CAT,Caterpillar Inc,industrial_machinery,large
-DE,Deere & Co,industrial_machinery,large
-ETN,Eaton Corp,industrial_machinery,large
-EMR,Emerson Electric,industrial_machinery,large
-HON,Honeywell International,industrial_machinery,large
-ROK,Rockwell Automation,industrial_machinery,large
-ITW,Illinois Tool Works,industrial_machinery,large
-PH,Parker Hannifin,industrial_machinery,large
-UPS,United Parcel Service,transports,large
-FDX,FedEx Corp,transports,large
-UNP,Union Pacific,transports,large
-CSX,CSX Corp,transports,large
-NSC,Norfolk Southern,transports,large
-DAL,Delta Air Lines,transports,mid
-UAL,United Airlines Holdings,transports,mid
-LUV,Southwest Airlines,transports,mid
-XOM,Exxon Mobil,energy_majors,mega
-CVX,Chevron Corp,energy_majors,mega
-COP,ConocoPhillips,energy_majors,large
-OXY,Occidental Petroleum,energy_majors,large
-EOG,EOG Resources,energy_majors,large
-PSX,Phillips 66,energy_majors,large
-KMI,Kinder Morgan,midstream,large
-EPD,Enterprise Products Partners,midstream,large
-WMB,Williams Companies,midstream,large
-SLB,Schlumberger NV,oil_services,large
-HAL,Halliburton Co,oil_services,mid
-BKR,Baker Hughes,oil_services,mid
-NEE,NextEra Energy,utilities,large
-DUK,Duke Energy,utilities,large
-SO,Southern Co,utilities,large
-AEP,American Electric Power,utilities,large
-EXC,Exelon Corp,utilities,large
-D,Dominion Energy,utilities,large
-PLD,Prologis Inc,reits,large
-AMT,American Tower,reits,large
-EQIX,Equinix Inc,reits,large
-CCI,Crown Castle,reits,large
-SPG,Simon Property Group,reits,large
-O,Realty Income,reits,large
-WELL,Welltower Inc,reits,large
-PSA,Public Storage,reits,large
-LIN,Linde PLC,materials,mega
-APD,Air Products and Chemicals,materials,large
-SHW,Sherwin-Williams,materials,large
-ECL,Ecolab Inc,materials,large
-FCX,Freeport-McMoRan,materials,large
-NUE,Nucor Corp,materials,large
+ticker,name,sub_sector,market_cap_tier,risk_tier
+AAPL,Apple Inc,hardware,mega,standard
+MSFT,Microsoft Corp,enterprise_software,mega,standard
+NVDA,NVIDIA Corp,semiconductors,mega,standard
+GOOGL,Alphabet Inc Class A,internet_platforms,mega,standard
+META,Meta Platforms Inc,internet_platforms,mega,standard
+AMZN,Amazon.com Inc,internet_platforms,mega,standard
+AVGO,Broadcom Inc,semiconductors,mega,standard
+TSLA,Tesla Inc,hardware,mega,standard
+AMD,Advanced Micro Devices,semiconductors,large,standard
+CRM,Salesforce Inc,cloud_software,large,standard
+ORCL,Oracle Corp,enterprise_software,large,standard
+CSCO,Cisco Systems Inc,hardware,large,standard
+ACN,Accenture PLC,enterprise_software,large,standard
+ADBE,Adobe Inc,enterprise_software,large,standard
+NOW,ServiceNow Inc,cloud_software,large,standard
+IBM,International Business Machines,enterprise_software,large,standard
+TXN,Texas Instruments Inc,semiconductors,large,standard
+QCOM,Qualcomm Inc,semiconductors,large,standard
+INTC,Intel Corp,semiconductors,large,standard
+INTU,Intuit Inc,enterprise_software,large,standard
+AMAT,Applied Materials Inc,semiconductors,large,standard
+PANW,Palo Alto Networks,cybersecurity,large,standard
+MU,Micron Technology Inc,semiconductors,large,standard
+LRCX,Lam Research Corp,semiconductors,large,standard
+ADI,Analog Devices Inc,semiconductors,large,standard
+KLAC,KLA Corp,semiconductors,large,standard
+SNPS,Synopsys Inc,enterprise_software,large,standard
+CDNS,Cadence Design Systems,enterprise_software,large,standard
+CRWD,CrowdStrike Holdings,cybersecurity,large,standard
+MRVL,Marvell Technology Inc,semiconductors,large,standard
+FTNT,Fortinet Inc,cybersecurity,large,standard
+NXPI,NXP Semiconductors,semiconductors,large,standard
+DASH,DoorDash Inc,internet_platforms,large,standard
+TTD,The Trade Desk Inc,internet_platforms,large,standard
+WDAY,Workday Inc,cloud_software,large,standard
+ROP,Roper Technologies Inc,enterprise_software,large,standard
+TEAM,Atlassian Corp,cloud_software,large,standard
+HUBS,HubSpot Inc,cloud_software,large,standard
+DDOG,Datadog Inc,cloud_software,large,standard
+ZS,Zscaler Inc,cybersecurity,large,standard
+NET,Cloudflare Inc,cloud_software,mid,standard
+SNOW,Snowflake Inc,cloud_software,mid,standard
+MDB,MongoDB Inc,cloud_software,mid,standard
+PLTR,Palantir Technologies,ai_infrastructure,large,standard
+UBER,Uber Technologies,internet_platforms,large,standard
+XYZ,Block Inc,fintech,large,standard
+SHOP,Shopify Inc,internet_platforms,large,standard
+COIN,Coinbase Global Inc,fintech,mid,standard
+ARM,Arm Holdings PLC,semiconductors,large,standard
+ON,ON Semiconductor,semiconductors,mid,standard
+SMCI,Super Micro Computer,ai_infrastructure,mid,standard
+MCHP,Microchip Technology,semiconductors,mid,standard
+SWKS,Skyworks Solutions,semiconductors,mid,standard
+MPWR,Monolithic Power Systems,semiconductors,mid,standard
+ABNB,Airbnb Inc,internet_platforms,large,standard
+KEYS,Keysight Technologies,hardware,mid,standard
+ZBRA,Zebra Technologies,hardware,mid,standard
+GEN,Gen Digital Inc,cybersecurity,mid,standard
+OKTA,Okta Inc,cybersecurity,mid,standard
+VEEV,Veeva Systems Inc,cloud_software,mid,standard
+PAYC,Paycom Software Inc,cloud_software,mid,standard
+PCTY,Paylocity Holding Corp,cloud_software,mid,standard
+BILL,BILL Holdings Inc,fintech,mid,standard
+MNDY,monday.com Ltd,cloud_software,mid,standard
+GTLB,GitLab Inc,cloud_software,mid,standard
+S,SentinelOne Inc,cybersecurity,mid,standard
+CFLT,Confluent Inc,cloud_software,mid,standard
+PATH,UiPath Inc,enterprise_software,mid,standard
+IOT,Samsara Inc,ai_infrastructure,mid,standard
+AI,C3.ai Inc,ai_infrastructure,mid,standard
+ESTC,Elastic NV,cloud_software,mid,standard
+DOCN,DigitalOcean Holdings,cloud_software,mid,standard
+APPN,Appian Corp,enterprise_software,mid,standard
+CWAN,Clearwater Analytics,fintech,mid,standard
+VERX,Vertex Inc,enterprise_software,mid,standard
+TSM,Taiwan Semiconductor Manufacturing,semiconductors,mega,standard
+JNJ,Johnson & Johnson,pharma,mega,standard
+LLY,Eli Lilly and Co,pharma,mega,standard
+MRK,Merck & Co,pharma,large,standard
+PFE,Pfizer Inc,pharma,large,standard
+ABBV,AbbVie Inc,pharma,mega,standard
+BMY,Bristol-Myers Squibb,pharma,large,standard
+NVO,Novo Nordisk,pharma,mega,standard
+AZN,AstraZeneca PLC,pharma,large,standard
+VRTX,Vertex Pharmaceuticals,biotech,large,standard
+REGN,Regeneron Pharmaceuticals,biotech,large,standard
+GILD,Gilead Sciences,biotech,large,standard
+AMGN,Amgen Inc,biotech,large,standard
+MRNA,Moderna Inc,biotech,mid,standard
+ABT,Abbott Laboratories,healthcare_equipment,mega,standard
+TMO,Thermo Fisher Scientific,healthcare_equipment,mega,standard
+DHR,Danaher Corp,healthcare_equipment,large,standard
+MDT,Medtronic PLC,healthcare_equipment,large,standard
+SYK,Stryker Corp,healthcare_equipment,large,standard
+BSX,Boston Scientific,healthcare_equipment,large,standard
+ISRG,Intuitive Surgical,healthcare_equipment,large,standard
+EW,Edwards Lifesciences,healthcare_equipment,mid,standard
+ZTS,Zoetis Inc,healthcare_equipment,large,standard
+UNH,UnitedHealth Group,managed_care,mega,standard
+ELV,Elevance Health,managed_care,large,standard
+CI,The Cigna Group,managed_care,large,standard
+HUM,Humana Inc,managed_care,large,standard
+CVS,CVS Health,healthcare_services,large,standard
+HCA,HCA Healthcare,healthcare_services,large,standard
+IDXX,IDEXX Laboratories,healthcare_services,mid,standard
+JPM,JPMorgan Chase,banks,mega,standard
+BAC,Bank of America,banks,mega,standard
+WFC,Wells Fargo,banks,large,standard
+C,Citigroup Inc,banks,large,standard
+USB,U.S. Bancorp,banks,large,standard
+PNC,PNC Financial Services,banks,large,standard
+TFC,Truist Financial,banks,large,standard
+SCHW,Charles Schwab Corp,capital_markets,large,standard
+BLK,BlackRock Inc,capital_markets,large,standard
+GS,Goldman Sachs,capital_markets,large,standard
+MS,Morgan Stanley,capital_markets,large,standard
+BX,Blackstone Inc,capital_markets,large,standard
+KKR,KKR & Co,capital_markets,large,standard
+ICE,Intercontinental Exchange,capital_markets,large,standard
+CME,CME Group,capital_markets,large,standard
+SPGI,S&P Global Inc,capital_markets,large,standard
+PGR,Progressive Corp,insurance,large,standard
+CB,Chubb Ltd,insurance,large,standard
+AIG,American International Group,insurance,large,standard
+MET,MetLife Inc,insurance,large,standard
+ALL,The Allstate Corp,insurance,large,standard
+TRV,Travelers Companies,insurance,large,standard
+V,Visa Inc,payments,mega,standard
+MA,Mastercard Inc,payments,mega,standard
+AXP,American Express,payments,large,standard
+PYPL,PayPal Holdings,payments,large,standard
+FIS,Fidelity National Info Services,payments,large,standard
+DIS,Walt Disney Co,media_entertainment,large,standard
+NFLX,Netflix Inc,media_entertainment,large,standard
+CMCSA,Comcast Corp,media_entertainment,large,standard
+WBD,Warner Bros Discovery,media_entertainment,mid,standard
+SPOT,Spotify Technology,media_entertainment,large,standard
+EA,Electronic Arts,media_entertainment,large,standard
+TTWO,Take-Two Interactive,media_entertainment,mid,standard
+T,AT&T Inc,telecom,large,standard
+VZ,Verizon Communications,telecom,large,standard
+TMUS,T-Mobile US,telecom,large,standard
+HD,The Home Depot,retail,mega,standard
+LOW,Lowe's Companies,retail,large,standard
+COST,Costco Wholesale,retail,mega,standard
+WMT,Walmart Inc,retail,mega,standard
+TGT,Target Corp,retail,large,standard
+NKE,Nike Inc,retail,large,standard
+LULU,Lululemon Athletica,retail,large,standard
+ROST,Ross Stores,retail,large,standard
+TJX,The TJX Companies,retail,large,standard
+BBY,Best Buy Co,retail,mid,standard
+MCD,McDonald's Corp,restaurants,mega,standard
+SBUX,Starbucks Corp,restaurants,large,standard
+CMG,Chipotle Mexican Grill,restaurants,large,standard
+YUM,Yum! Brands,restaurants,large,standard
+QSR,Restaurant Brands International,restaurants,mid,standard
+F,Ford Motor Co,autos,mid,standard
+GM,General Motors,autos,large,standard
+STLA,Stellantis NV,autos,large,standard
+KO,Coca-Cola Co,food_beverage,mega,standard
+PEP,PepsiCo Inc,food_beverage,mega,standard
+PM,Philip Morris International,food_beverage,large,standard
+MDLZ,Mondelez International,food_beverage,large,standard
+MO,Altria Group,food_beverage,large,standard
+KHC,Kraft Heinz,food_beverage,mid,standard
+PG,Procter & Gamble,household_products,mega,standard
+CL,Colgate-Palmolive,household_products,large,standard
+KMB,Kimberly-Clark,household_products,large,standard
+CHD,Church & Dwight,household_products,mid,standard
+EL,Estee Lauder Companies,household_products,mid,standard
+BA,Boeing Co,aerospace_defense,large,standard
+LMT,Lockheed Martin,aerospace_defense,large,standard
+RTX,RTX Corp,aerospace_defense,large,standard
+NOC,Northrop Grumman,aerospace_defense,large,standard
+GD,General Dynamics,aerospace_defense,large,standard
+CAT,Caterpillar Inc,industrial_machinery,large,standard
+DE,Deere & Co,industrial_machinery,large,standard
+ETN,Eaton Corp,industrial_machinery,large,standard
+EMR,Emerson Electric,industrial_machinery,large,standard
+HON,Honeywell International,industrial_machinery,large,standard
+ROK,Rockwell Automation,industrial_machinery,large,standard
+ITW,Illinois Tool Works,industrial_machinery,large,standard
+PH,Parker Hannifin,industrial_machinery,large,standard
+UPS,United Parcel Service,transports,large,standard
+FDX,FedEx Corp,transports,large,standard
+UNP,Union Pacific,transports,large,standard
+CSX,CSX Corp,transports,large,standard
+NSC,Norfolk Southern,transports,large,standard
+DAL,Delta Air Lines,transports,mid,standard
+UAL,United Airlines Holdings,transports,mid,standard
+LUV,Southwest Airlines,transports,mid,standard
+XOM,Exxon Mobil,energy_majors,mega,standard
+CVX,Chevron Corp,energy_majors,mega,standard
+COP,ConocoPhillips,energy_majors,large,standard
+OXY,Occidental Petroleum,energy_majors,large,standard
+EOG,EOG Resources,energy_majors,large,standard
+PSX,Phillips 66,energy_majors,large,standard
+KMI,Kinder Morgan,midstream,large,standard
+EPD,Enterprise Products Partners,midstream,large,standard
+WMB,Williams Companies,midstream,large,standard
+SLB,Schlumberger NV,oil_services,large,standard
+HAL,Halliburton Co,oil_services,mid,standard
+BKR,Baker Hughes,oil_services,mid,standard
+NEE,NextEra Energy,utilities,large,standard
+DUK,Duke Energy,utilities,large,standard
+SO,Southern Co,utilities,large,standard
+AEP,American Electric Power,utilities,large,standard
+EXC,Exelon Corp,utilities,large,standard
+D,Dominion Energy,utilities,large,standard
+PLD,Prologis Inc,reits,large,standard
+AMT,American Tower,reits,large,standard
+EQIX,Equinix Inc,reits,large,standard
+CCI,Crown Castle,reits,large,standard
+SPG,Simon Property Group,reits,large,standard
+O,Realty Income,reits,large,standard
+WELL,Welltower Inc,reits,large,standard
+PSA,Public Storage,reits,large,standard
+LIN,Linde PLC,materials,mega,standard
+APD,Air Products and Chemicals,materials,large,standard
+SHW,Sherwin-Williams,materials,large,standard
+ECL,Ecolab Inc,materials,large,standard
+FCX,Freeport-McMoRan,materials,large,standard
+NUE,Nucor Corp,materials,large,standard

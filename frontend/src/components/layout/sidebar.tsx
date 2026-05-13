@@ -18,6 +18,7 @@ import {
   Wallet,
   BrainCircuit,
   Database,
+  Star,
 } from "lucide-react"
 
 const navItems = [
@@ -29,6 +30,7 @@ const navItems = [
   { to: "/risk", icon: ShieldAlert, label: "Risk" },
   { to: "/data", icon: Database, label: "Data Grid" },
   { to: "/research", icon: Newspaper, label: "Research" },
+  { to: "/watchlist", icon: Star, label: "Watchlist" },
   { to: "/learning", icon: Brain, label: "Learning" },
   { to: "/backtest", icon: FlaskConical, label: "Backtest" },
   { to: "/brokerage", icon: Wallet, label: "Brokerage" },

@@ -34,9 +34,24 @@ def _extract_ticker(ticker_val) -> str:
 
 
 def load_portfolio_state() -> dict:
-    """Load the current portfolio state from JSON, normalizing ticker values."""
-    with open(settings.paths.portfolio_state_path) as f:
-        portfolio = json.load(f)
+    """Load the current portfolio state from JSON, normalizing ticker values.
+
+    If the file is missing (fresh clone), creates the same default as /api/reset:
+    $100k USD cash, no positions.
+    """
+    path = settings.paths.portfolio_state_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        portfolio = {
+            "as_of_date": datetime.now().strftime("%Y-%m-%d"),
+            "cash": 100_000.0,
+            "positions": [],
+        }
+        with open(path, "w") as f:
+            json.dump(portfolio, f, indent=2)
+    else:
+        with open(path) as f:
+            portfolio = json.load(f)
     for pos in portfolio.get("positions", []):
         pos["ticker"] = _extract_ticker(pos.get("ticker", ""))
     return portfolio
@@ -119,7 +134,7 @@ def check_constraints(
         # Add the proposed change
         old_weight = current_weights.get(ticker, 0)
         new_sector_weight = sector_weight - old_weight + target_weight
-        max_sector = settings.strategy.max_subsector_weight.get(sector, 0.35)
+        max_sector = settings.strategy.max_subsector_weight.get(sector, 0.50)
 
         sector_cap_adj = (adaptive_params or {}).get("sector_cap_adjustments", {})
         if sector in sector_cap_adj:

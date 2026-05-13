@@ -13,6 +13,7 @@ import LearningDashboard from "@/pages/LearningDashboard"
 import Brokerage from "@/pages/Brokerage"
 import AnalystReview from "@/pages/AnalystReview"
 import StockDataGrid from "@/pages/StockDataGrid"
+import Watchlist from "@/pages/Watchlist"
 
 function Layout() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="brokerage" element={<Brokerage />} />
         <Route path="analyst" element={<AnalystReview />} />
         <Route path="data" element={<StockDataGrid />} />
+        <Route path="watchlist" element={<Watchlist />} />
       </Route>
     </Routes>
   )

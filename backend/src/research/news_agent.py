@@ -1,17 +1,20 @@
 """News collection agent: gathers financial news for tickers via web search.
 
 Only articles from trusted financial sources are kept — see TRUSTED_SOURCES.
+Raw articles are cached to DuckDB (news_articles table) so historical context
+is never lost — DuckDuckGo only returns articles from the last ~1-2 weeks.
 """
 
-import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from ddgs import DDGS
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from src.db.schema import get_connection
 
 logger = logging.getLogger("trademark.research")
 
@@ -62,6 +65,58 @@ def _is_trusted_source(source: str) -> bool:
     return False
 
 
+def _cache_articles(ticker: str, articles: list[dict]) -> None:
+    """Store raw articles to news_articles table for permanent archival."""
+    if not articles:
+        return
+    try:
+        con = get_connection()
+        for a in articles:
+            pub_date = a.get("date", "")
+            try:
+                if pub_date and isinstance(pub_date, str):
+                    pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                elif not pub_date:
+                    pub_date = datetime.now()
+            except (ValueError, TypeError):
+                pub_date = datetime.now()
+
+            con.execute("""
+                INSERT OR IGNORE INTO news_articles (ticker, title, body, url, source, published_date)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            """, [ticker, a.get("title", ""), a.get("body", ""), a.get("url", ""),
+                  a.get("source", ""), pub_date])
+        con.close()
+    except Exception as e:
+        logger.debug(f"  {ticker}: article caching failed (non-critical): {e}")
+
+
+def get_cached_news(ticker: str, days: int = 90) -> list[dict]:
+    """Retrieve cached historical articles from the news_articles table.
+
+    Supplements live DuckDuckGo results with older articles that are no longer
+    available via search. Returns newest first.
+    """
+    try:
+        con = get_connection()
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = con.execute("""
+            SELECT title, body, url, source, published_date
+            FROM news_articles
+            WHERE ticker = $1 AND published_date >= CAST($2 AS TIMESTAMP)
+            ORDER BY published_date DESC
+        """, [ticker, cutoff]).fetchall()
+        con.close()
+        return [
+            {"title": r[0], "body": r[1], "url": r[2], "source": r[3],
+             "date": str(r[4]) if r[4] else ""}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.debug(f"  {ticker}: cached news retrieval failed: {e}")
+        return []
+
+
 def search_ticker_news(ticker: str, company_name: str | None = None, max_results: int = 8) -> list[dict]:
     """Search DuckDuckGo News for recent articles about a ticker.
 
@@ -94,6 +149,8 @@ def search_ticker_news(ticker: str, company_name: str | None = None, max_results
                 skipped.append(source)
 
         articles = articles[:max_results]
+
+        _cache_articles(ticker, articles)
 
         if skipped:
             unique_skipped = sorted(set(skipped))
