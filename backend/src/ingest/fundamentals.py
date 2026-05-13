@@ -48,6 +48,7 @@ _YF_PIT_LAG_DAYS = 50
 # time — an absolute "newest < today - 180d" check would flag every ticker.
 _MIN_SIMFIN_QUARTERS = 5
 _MAX_STALENESS_BEHIND_DATASET_DAYS = 270
+_MAX_ABSOLUTE_STALENESS_DAYS = 150
 
 
 def fetch_simfin_income() -> pd.DataFrame:
@@ -431,10 +432,13 @@ def identify_thin_simfin_tickers(simfin_pit: pd.DataFrame) -> set[str]:
     stats["newest"] = pd.to_datetime(stats["newest"])
 
     dataset_newest = stats["newest"].max()
-    stale_cutoff = dataset_newest - pd.Timedelta(days=_MAX_STALENESS_BEHIND_DATASET_DAYS)
+    relative_cutoff = dataset_newest - pd.Timedelta(days=_MAX_STALENESS_BEHIND_DATASET_DAYS)
+    absolute_cutoff = pd.Timestamp.now() - pd.Timedelta(days=_MAX_ABSOLUTE_STALENESS_DAYS)
 
     thin = stats[
-        (stats["n"] < _MIN_SIMFIN_QUARTERS) | (stats["newest"] < stale_cutoff)
+        (stats["n"] < _MIN_SIMFIN_QUARTERS)
+        | (stats["newest"] < relative_cutoff)
+        | (stats["newest"] < absolute_cutoff)
     ]
     return set(thin["ticker"])
 

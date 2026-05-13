@@ -7,6 +7,7 @@ rather than a negative signal. This avoids pure price-chasing.
 """
 
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -17,8 +18,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from src.db.schema import get_connection
 
 
-def compute_momentum(as_of_date: str | None = None) -> pd.DataFrame:
-    """Compute 12M-1M momentum and recent price change for all tickers.
+def coerce_scoring_date(val) -> date | None:
+    """Normalize any DuckDB/pandas date value to a calendar ``date`` (or None if invalid)."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    ts = pd.Timestamp(val)
+    if pd.isna(ts):
+        return None
+    return ts.date()
+
+
+def compute_momentum(as_of_date: str | None = None, long_anchor: int = 252) -> pd.DataFrame:
+    """Compute momentum and recent price change for all tickers.
 
     Returns DataFrame with columns:
         ticker, date, momentum_12m1m, recent_price_change, price_dip_score
@@ -26,38 +41,85 @@ def compute_momentum(as_of_date: str | None = None) -> pd.DataFrame:
     con = get_connection()
 
     if as_of_date is None:
-        as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+        raw_max = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+        as_of_date = coerce_scoring_date(raw_max)
+        if as_of_date is None:
+            con.close()
+            return pd.DataFrame(
+                columns=[
+                    "ticker",
+                    "date",
+                    "momentum_12m1m",
+                    "recent_price_change",
+                    "price_dip_score",
+                ]
+            )
+    else:
+        as_of_date = coerce_scoring_date(as_of_date)
+        if as_of_date is None:
+            con.close()
+            return pd.DataFrame(
+                columns=[
+                    "ticker",
+                    "date",
+                    "momentum_12m1m",
+                    "recent_price_change",
+                    "price_dip_score",
+                ]
+            )
 
+    # 12M-1M uses price ~21 sessions ago vs ~252 sessions ago when history allows.
+    # When a ticker has fewer than 252 trading days, use the oldest available bar
+    # as the long anchor (still excluding the most recent month via price_1m) so
+    # partial backfills and new listings can still be scored.
     prices = con.execute("""
         WITH ranked AS (
             SELECT
                 ticker,
                 date,
                 adj_close,
-                ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn
             FROM prices
             WHERE date <= CAST($1 AS DATE)
               AND adj_close IS NOT NULL
               AND adj_close > 0
+        ),
+        by_ticker AS (
+            SELECT
+                ticker,
+                MAX(CASE WHEN rn = 1 THEN adj_close END) AS price_now,
+                MAX(CASE WHEN rn = 21 THEN adj_close END) AS price_1m,
+                MAX(rn) AS max_rn
+            FROM ranked
+            GROUP BY ticker
+        ),
+        long_anchor AS (
+            SELECT
+                r.ticker,
+                r.adj_close AS price_long
+            FROM ranked r
+            INNER JOIN by_ticker bt
+                ON bt.ticker = r.ticker
+               AND r.rn = LEAST($2, bt.max_rn)
         )
         SELECT
-            ticker,
-            MAX(CASE WHEN rn = 1 THEN adj_close END) as price_now,
-            MAX(CASE WHEN rn = 5 THEN adj_close END) as price_1w,
-            MAX(CASE WHEN rn = 21 THEN adj_close END) as price_1m,
-            MAX(CASE WHEN rn = 63 THEN adj_close END) as price_3m,
-            MAX(CASE WHEN rn = 252 THEN adj_close END) as price_12m
-        FROM ranked
-        WHERE rn IN (1, 5, 21, 63, 252)
-        GROUP BY ticker
-    """, [str(as_of_date)]).fetchdf()
+            bt.ticker,
+            bt.price_now,
+            bt.price_1m,
+            la.price_long
+        FROM by_ticker bt
+        INNER JOIN long_anchor la ON bt.ticker = la.ticker
+        WHERE bt.max_rn >= 22
+          AND bt.price_1m IS NOT NULL
+          AND la.price_long IS NOT NULL
+    """, [as_of_date.isoformat(), long_anchor]).fetchdf()
     con.close()
 
     if prices.empty:
         return pd.DataFrame(columns=["ticker", "date", "momentum_12m1m", "recent_price_change", "price_dip_score"])
 
-    # 12M-1M momentum (medium-term trend, excludes recent month)
-    prices["momentum_12m1m"] = (prices["price_1m"] / prices["price_12m"]) - 1.0
+    # Medium-term trend: return from long anchor to 1 month ago (12m-1m when long=252d).
+    prices["momentum_12m1m"] = (prices["price_1m"] / prices["price_long"]) - 1.0
 
     # Recent price change: how much has the price moved in the last month
     prices["recent_price_change"] = (prices["price_now"] / prices["price_1m"]) - 1.0

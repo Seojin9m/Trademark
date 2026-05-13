@@ -47,16 +47,22 @@ def store_scores(scores: pd.DataFrame) -> None:
     con.execute("DELETE FROM factor_scores WHERE date = $1", [str(date_val)])
 
     # Only insert the columns that factor_scores table expects
-    score_cols = scores[["ticker", "date", "momentum_12m1m", "eps_growth_yoy",
-                         "revenue_growth_yoy", "gross_margin_trend", "relative_valuation",
-                         "composite_score", "score_decile"]].copy()
+    factor_cols = ["ticker", "date", "momentum_12m1m", "eps_growth_yoy",
+                   "revenue_growth_yoy", "gross_margin_trend", "relative_valuation",
+                   "composite_score", "score_decile"]
+    if "forward_estimate_revision" in scores.columns:
+        factor_cols.insert(-2, "forward_estimate_revision")
+    score_cols = scores[factor_cols].copy()
+    _d = pd.to_datetime(score_cols["date"], errors="coerce")
+    if _d.isna().any():
+        raise ValueError("factor_scores insert: null or invalid date in scores dataframe")
+    score_cols["date"] = _d.dt.date
 
+    col_list = ", ".join(factor_cols)
     con.register("scores_df", score_cols)
-    con.execute("""
-        INSERT INTO factor_scores
-        SELECT ticker, date, momentum_12m1m, eps_growth_yoy,
-               revenue_growth_yoy, gross_margin_trend, relative_valuation,
-               composite_score, score_decile
+    con.execute(f"""
+        INSERT INTO factor_scores ({col_list})
+        SELECT {col_list}
         FROM scores_df
     """)
     con.close()

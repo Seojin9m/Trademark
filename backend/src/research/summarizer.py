@@ -49,14 +49,33 @@ Return ONLY valid JSON (no markdown fences) matching this schema:
 If no meaningful news is found, return neutral sentiment with confidence 0.1 and empty lists."""
 
 
-def summarize_ticker_news(ticker: str, articles: list[dict]) -> NewsResearch:
+def summarize_ticker_news(
+    ticker: str,
+    articles: list[dict],
+    sector_intel: dict | None = None,
+    cached_articles: list[dict] | None = None,
+) -> NewsResearch:
     """Send articles to Claude for structured summarization.
+
+    Args:
+        ticker: Stock ticker symbol.
+        articles: Live articles from DuckDuckGo.
+        sector_intel: Optional competitive intelligence from competitive_intel.py.
+        cached_articles: Optional historical articles from news_articles table.
 
     Returns a NewsResearch object.
     """
     today = datetime.now().strftime("%Y-%m-%d")
 
-    if not articles:
+    # Blend live articles with cached historical context
+    all_articles = list(articles or [])
+    if cached_articles:
+        existing_urls = {a.get("url") for a in all_articles}
+        for ca in cached_articles:
+            if ca.get("url") not in existing_urls:
+                all_articles.append(ca)
+
+    if not all_articles:
         return NewsResearch(
             ticker=ticker,
             research_date=today,
@@ -67,22 +86,51 @@ def summarize_ticker_news(ticker: str, articles: list[dict]) -> NewsResearch:
         )
 
     # Build context from articles
-    headlines = [a["title"] for a in articles if a.get("title")]
+    headlines = [a["title"] for a in all_articles if a.get("title")]
     snippets = []
-    for a in articles:
+    for a in all_articles[:15]:
         snippet = f"[{a.get('source', 'Unknown')}] {a.get('title', '')}"
         if a.get("body"):
             snippet += f"\n  {a['body'][:300]}"
         snippets.append(snippet)
 
-    sources = list(set(a.get("source", "Unknown") for a in articles))
+    sources = list(set(a.get("source", "Unknown") for a in all_articles))
 
     user_prompt = f"""Ticker: {ticker}
 Date: {today}
-Number of articles: {len(articles)}
+Number of articles: {len(all_articles)}
 
 Recent news:
 {chr(10).join(snippets)}"""
+
+    # Add competitive context if available
+    if sector_intel and sector_intel.get("competitive_dynamics"):
+        sector_section = f"""
+
+## Competitor/Sector Context ({sector_intel.get('sub_sector', 'unknown')})
+Peers analyzed: {', '.join(sector_intel.get('peers_analyzed', []))}
+Sector sentiment: {sector_intel.get('sector_sentiment', 'unknown')}
+
+Competitive dynamics: {sector_intel['competitive_dynamics']}
+
+Key themes: {', '.join(sector_intel.get('key_themes', []))}"""
+
+        spillover = sector_intel.get("earnings_spillover", [])
+        if spillover:
+            sector_section += "\n\nRecent peer earnings:"
+            for s in spillover[:5]:
+                sector_section += f"\n  {s['peer_ticker']}: {s['summary']}"
+
+        fundamentals = sector_intel.get("fundamental_comparison", {})
+        if fundamentals:
+            sector_section += f"""
+
+Fundamental positioning:
+  Margins vs peers: {fundamentals.get('margin_vs_peers', 'unknown')}
+  Growth vs peers: {fundamentals.get('growth_vs_peers', 'unknown')}
+  Valuation vs peers: {fundamentals.get('valuation_vs_peers', 'unknown')}"""
+
+        user_prompt += f"\n{sector_section}\n\nConsider how competitor news and sector trends may impact {ticker}."
 
     try:
         client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
@@ -133,8 +181,16 @@ Recent news:
 def research_tickers(
     tickers: list[str],
     news_by_ticker: dict[str, list[dict]],
+    sector_intel_map: dict[str, dict] | None = None,
+    cached_news_map: dict[str, list[dict]] | None = None,
 ) -> list[NewsResearch]:
     """Run AI summarization for a batch of tickers in parallel.
+
+    Args:
+        tickers: List of ticker symbols to summarize.
+        news_by_ticker: Live news articles keyed by ticker.
+        sector_intel_map: Optional sector intelligence keyed by ticker.
+        cached_news_map: Optional cached historical articles keyed by ticker.
 
     Returns list of NewsResearch objects.
     """
@@ -142,8 +198,10 @@ def research_tickers(
 
     def _summarize(ticker: str) -> NewsResearch:
         articles = news_by_ticker.get(ticker, [])
-        logger.info(f"  Summarizing {ticker} ({len(articles)} articles)...")
-        research = summarize_ticker_news(ticker, articles)
+        intel = (sector_intel_map or {}).get(ticker)
+        cached = (cached_news_map or {}).get(ticker)
+        logger.info(f"  Summarizing {ticker} ({len(articles)} articles, intel={'yes' if intel else 'no'})...")
+        research = summarize_ticker_news(ticker, articles, sector_intel=intel, cached_articles=cached)
         logger.info(f"    {ticker}: sentiment={research.sentiment}, confidence={research.confidence:.0%}")
         return research
 

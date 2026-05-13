@@ -220,11 +220,96 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
     notes TEXT
 );
 
+-- Raw news article storage (permanent archive for historical context)
+CREATE TABLE IF NOT EXISTS news_articles (
+    ticker VARCHAR,
+    title TEXT,
+    body TEXT,
+    url TEXT,
+    source VARCHAR,
+    published_date TIMESTAMP,
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ticker, url)
+);
+
+-- Earnings calendar and key corporate events
+CREATE TABLE IF NOT EXISTS earnings_calendar (
+    ticker VARCHAR,
+    event_type VARCHAR,
+    event_date DATE,
+    eps_estimate DOUBLE,
+    eps_actual DOUBLE,
+    surprise_pct DOUBLE,
+    revenue_estimate DOUBLE,
+    revenue_actual DOUBLE,
+    source VARCHAR,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ticker, event_type, event_date)
+);
+
+-- User watchlist (tickers to track closely)
+CREATE TABLE IF NOT EXISTS watchlist (
+    ticker VARCHAR PRIMARY KEY,
+    company_name VARCHAR,
+    sub_sector VARCHAR,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    priority INTEGER DEFAULT 1
+);
+
+-- Discovery candidates (auto-screener results)
+CREATE TABLE IF NOT EXISTS discovery_candidates (
+    ticker VARCHAR,
+    company_name VARCHAR,
+    sector VARCHAR,
+    industry VARCHAR,
+    market_cap VARCHAR,
+    discovery_source VARCHAR,
+    discovery_date DATE,
+    discovery_reason TEXT,
+    metrics JSON,
+    status VARCHAR DEFAULT 'new',
+    PRIMARY KEY (ticker, discovery_source, discovery_date)
+);
+
+-- Forward analyst estimates (weekly snapshots for revision tracking)
+CREATE TABLE IF NOT EXISTS forward_estimates (
+    ticker VARCHAR,
+    fetch_date DATE,
+    eps_est_current_q DOUBLE,
+    eps_est_next_q DOUBLE,
+    eps_est_current_y DOUBLE,
+    eps_est_next_y DOUBLE,
+    num_analysts INTEGER,
+    price_target_mean DOUBLE,
+    price_target_high DOUBLE,
+    price_target_low DOUBLE,
+    price_target_current DOUBLE,
+    growth_est_next_y DOUBLE,
+    recommendation_mean DOUBLE,
+    source VARCHAR DEFAULT 'yahoo',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ticker, fetch_date)
+);
+
+-- Signal quality log (per-factor IC and hit rates over time)
+CREATE TABLE IF NOT EXISTS signal_quality_log (
+    run_date DATE,
+    factor_name VARCHAR,
+    ic_value DOUBLE,
+    hit_rate DOUBLE,
+    avg_excess_return DOUBLE,
+    n_signals INTEGER,
+    computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (run_date, factor_name)
+);
+
 """
 
 
 def get_connection(max_retries: int = 8, retry_delay: float = 0.3) -> duckdb.DuckDBPyConnection:
     """Get a DuckDB connection, retrying on transient lock contention."""
+    settings.paths.data_dir.mkdir(parents=True, exist_ok=True)
     db_path = str(settings.paths.duckdb_path)
     last_exc: Exception | None = None
     for attempt in range(max_retries):
@@ -256,6 +341,10 @@ def init_db() -> None:
         ("fundamentals_pit", "created_at", "TIMESTAMP"),
         ("fundamentals_pit", "updated_at", "TIMESTAMP"),
         ("trade_proposals", "reason", "TEXT"),
+        ("factor_scores", "forward_estimate_revision", "DOUBLE"),
+        ("discovery_candidates", "risk_tier", "VARCHAR"),
+        ("discovery_candidates", "is_profitable", "BOOLEAN"),
+        ("discovery_candidates", "consecutive_top30_runs", "INTEGER"),
     ]
     for table, col, col_type in migrations:
         try:

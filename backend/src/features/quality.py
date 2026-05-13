@@ -29,6 +29,10 @@ def _get_pit_fundamentals(as_of_date: str, max_quarters: int | None = None) -> p
         max_quarters = settings.strategy.quality_recent_quarters
     fetch_quarters = max_quarters + 4
 
+    # Guard against callers passing SQL NULL converted to Python None → "None"
+    if as_of_date is None or str(as_of_date).strip().lower() == "none" or str(as_of_date).strip() == "":
+        return pd.DataFrame()
+
     cache_key = f"{as_of_date}:{fetch_quarters}"
     if cache_key in _pit_cache:
         return _pit_cache[cache_key].copy()
@@ -107,6 +111,8 @@ def compute_eps_growth(as_of_date: str | None = None) -> pd.DataFrame:
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         con.close()
+        if as_of_date is None:
+            return pd.DataFrame(columns=["ticker", "date", "eps_growth_yoy"])
 
     fund = _get_pit_fundamentals(str(as_of_date))
     if fund.empty:
@@ -149,6 +155,8 @@ def compute_revenue_growth(as_of_date: str | None = None) -> pd.DataFrame:
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         con.close()
+        if as_of_date is None:
+            return pd.DataFrame(columns=["ticker", "date", "revenue_growth_yoy"])
 
     fund = _get_pit_fundamentals(str(as_of_date))
     if fund.empty:
@@ -191,6 +199,8 @@ def compute_gross_margin_trend(as_of_date: str | None = None) -> pd.DataFrame:
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         con.close()
+        if as_of_date is None:
+            return pd.DataFrame(columns=["ticker", "date", "gross_margin_trend"])
 
     fund = _get_pit_fundamentals(str(as_of_date))
     if fund.empty:
@@ -242,6 +252,8 @@ def compute_net_income_growth(as_of_date: str | None = None) -> pd.DataFrame:
     if as_of_date is None:
         as_of_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         con.close()
+        if as_of_date is None:
+            return pd.DataFrame(columns=["ticker", "date", "net_income_growth"])
 
     fund = _get_pit_fundamentals(str(as_of_date))
     if fund.empty:

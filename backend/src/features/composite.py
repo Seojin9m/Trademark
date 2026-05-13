@@ -17,13 +17,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
-from src.features.momentum import compute_momentum
+from src.features.momentum import compute_momentum, coerce_scoring_date
 from src.features.quality import (
     compute_eps_growth,
     compute_revenue_growth,
     compute_gross_margin_trend,
 )
 from src.features.valuation import compute_relative_valuation, compute_per_filter
+from src.features.forward_estimates import compute_forward_estimate_factor
 
 
 FACTOR_COLUMNS = [
@@ -32,6 +33,7 @@ FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
+    "forward_estimate_revision",
 ]
 
 QUALITY_FACTOR_COLUMNS = [
@@ -39,6 +41,7 @@ QUALITY_FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
+    "forward_estimate_revision",
 ]
 
 
@@ -151,16 +154,37 @@ def compute_composite_scores(
         factor_weights: IC-optimized weights from adaptive analysis.
                         Falls back to settings.strategy.factor_weights if None.
     """
+    # Regime-adaptive momentum: shorter lookback in high-vol markets
+    long_anchor = 252
+    try:
+        from src.learning.adaptive import detect_regime
+        regime = detect_regime()
+        if regime["vol_regime"] == "HIGH_VOL":
+            long_anchor = 126
+    except Exception:
+        pass
+
     # Step 1: Compute each factor
-    mom = compute_momentum(as_of_date)
+    mom = compute_momentum(as_of_date, long_anchor=long_anchor)
     eps = compute_eps_growth(as_of_date)
     rev = compute_revenue_growth(as_of_date)
     gm = compute_gross_margin_trend(as_of_date)
     val = compute_relative_valuation(as_of_date)
     per = compute_per_filter(as_of_date)
+    fwd = compute_forward_estimate_factor(as_of_date)
 
     if not mom.empty:
         as_of_date = mom["date"].iloc[0]
+
+    as_of_date = coerce_scoring_date(as_of_date)
+    if as_of_date is None:
+        from src.db.schema import get_connection
+        _con = get_connection()
+        _mx = _con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+        _con.close()
+        as_of_date = coerce_scoring_date(_mx)
+    if as_of_date is None:
+        return pd.DataFrame()
 
     # Step 2: Merge all factors
     factors = mom[["ticker", "momentum_12m1m", "recent_price_change", "price_dip_score"]].copy()
@@ -170,6 +194,7 @@ def compute_composite_scores(
         (rev, "revenue_growth_yoy"),
         (gm, "gross_margin_trend"),
         (val, "relative_valuation"),
+        (fwd, "forward_estimate_revision"),
     ]:
         if not df.empty:
             factors = factors.merge(df[["ticker", col]], on="ticker", how="outer")
@@ -299,7 +324,7 @@ def compute_composite_scores(
     # Good stocks with price dip → bonus (better buy opportunity)
     # Good stocks with price rise → penalty (avoid chasing)
     # Bad stocks → no price-based bonus regardless of direction
-    price_dip = factors["price_dip_score"].fillna(0.0)
+    price_dip = pd.to_numeric(factors["price_dip_score"], errors="coerce").fillna(0.0)
     price_adj = pd.Series(0.0, index=factors.index)
 
     good_mask = factors["is_good_stock"]
@@ -414,7 +439,11 @@ def compute_composite_historical(
 
     con = get_connection()
     if end_date is None:
-        end_date = str(con.execute("SELECT MAX(date) FROM prices").fetchone()[0])
+        end_date_val = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+        if end_date_val is None:
+            con.close()
+            return pd.DataFrame()
+        end_date = str(end_date_val)
 
     trading_dates = con.execute("""
         SELECT DISTINCT date FROM prices

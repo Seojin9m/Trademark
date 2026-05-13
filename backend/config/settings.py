@@ -40,11 +40,12 @@ class PathSettings(BaseSettings):
 class StrategySettings(BaseSettings):
     # Factor weights (equal weight default)
     factor_weights: dict[str, float] = {
-        "momentum_12m1m": 0.20,
-        "eps_growth_yoy": 0.20,
-        "revenue_growth_yoy": 0.20,
-        "gross_margin_trend": 0.20,
+        "momentum_12m1m": 0.15,
+        "eps_growth_yoy": 0.15,
+        "revenue_growth_yoy": 0.15,
+        "gross_margin_trend": 0.10,
         "relative_valuation": 0.20,
+        "forward_estimate_revision": 0.25,
     }
 
     # Position sizing
@@ -59,46 +60,46 @@ class StrategySettings(BaseSettings):
     # leaning 35% into semis or cloud would defeat the diversification.
     max_subsector_weight: dict[str, float] = {
         # Tech
-        "semiconductors": 0.30,
-        "cloud_software": 0.25,
-        "internet_platforms": 0.25,
-        "hardware": 0.20,
-        "enterprise_software": 0.25,
-        "cybersecurity": 0.15,
-        "fintech": 0.15,
-        "ai_infrastructure": 0.20,
+        "semiconductors": 0.50,
+        "cloud_software": 0.50,
+        "internet_platforms": 0.50,
+        "hardware": 0.50,
+        "enterprise_software": 0.50,
+        "cybersecurity": 0.50,
+        "fintech": 0.50,
+        "ai_infrastructure": 0.50,
         # Healthcare
-        "pharma": 0.20,
-        "biotech": 0.15,
-        "healthcare_equipment": 0.20,
-        "managed_care": 0.15,
-        "healthcare_services": 0.10,
+        "pharma": 0.50,
+        "biotech": 0.50,
+        "healthcare_equipment": 0.50,
+        "managed_care": 0.50,
+        "healthcare_services": 0.50,
         # Financials
-        "banks": 0.20,
-        "capital_markets": 0.20,
-        "insurance": 0.15,
-        "payments": 0.15,
+        "banks": 0.50,
+        "capital_markets": 0.50,
+        "insurance": 0.50,
+        "payments": 0.50,
         # Communication services
-        "media_entertainment": 0.15,
-        "telecom": 0.15,
+        "media_entertainment": 0.50,
+        "telecom": 0.50,
         # Consumer
-        "retail": 0.20,
-        "restaurants": 0.10,
-        "autos": 0.10,
-        "food_beverage": 0.20,
-        "household_products": 0.15,
+        "retail": 0.50,
+        "restaurants": 0.50,
+        "autos": 0.50,
+        "food_beverage": 0.50,
+        "household_products": 0.50,
         # Industrials
-        "aerospace_defense": 0.15,
-        "industrial_machinery": 0.20,
-        "transports": 0.15,
+        "aerospace_defense": 0.50,
+        "industrial_machinery": 0.50,
+        "transports": 0.50,
         # Energy
-        "energy_majors": 0.20,
-        "midstream": 0.10,
-        "oil_services": 0.10,
+        "energy_majors": 0.50,
+        "midstream": 0.50,
+        "oil_services": 0.50,
         # Utilities / REITs / Materials
-        "utilities": 0.15,
-        "reits": 0.15,
-        "materials": 0.15,
+        "utilities": 0.50,
+        "reits": 0.50,
+        "materials": 0.50,
     }
 
     # Drawdown controls
@@ -135,7 +136,7 @@ class StrategySettings(BaseSettings):
     quality_recent_quarters: int = 4
 
     # Fundamentals ingestion cooldown (days) — skip re-ingestion if recent
-    fundamentals_cooldown_days: int = 80
+    fundamentals_cooldown_days: int = 14
 
     # Transaction cost assumptions (bps)
     round_trip_cost_bps_large: int = 10  # >$5B market cap

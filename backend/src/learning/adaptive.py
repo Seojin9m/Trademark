@@ -29,6 +29,7 @@ FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
+    "forward_estimate_revision",
 ]
 
 # Bayesian shrinkage: blend IC-optimal weights with equal weight prior
@@ -514,7 +515,87 @@ def compute_vol_adjusted_weights(
 
 
 # ============================================================
-# 5. Drawdown Position Scaling
+# 5. Correlation-Aware Position Penalties
+# ============================================================
+
+def compute_correlation_penalties(
+    candidate_tickers: list[str],
+    holding_tickers: list[str],
+    lookback_days: int = 63,
+) -> tuple[dict[str, float], list[tuple[str, str, float]]]:
+    """Compute position sizing penalties based on correlation with existing holdings.
+
+    For each candidate, finds its maximum correlation with any existing holding.
+    High correlation means the candidate adds less diversification value.
+
+    Returns:
+        (penalties, correlated_pairs) where penalties maps ticker -> multiplier
+        (0.5 to 1.0) and correlated_pairs lists (t1, t2, corr) among candidates.
+    """
+    if not candidate_tickers:
+        return {}, []
+
+    all_tickers = list(set(candidate_tickers + holding_tickers))
+    if len(all_tickers) < 2:
+        return {t: 1.0 for t in candidate_tickers}, []
+
+    try:
+        con = get_connection()
+        prices_df = con.execute("""
+            SELECT ticker, date, adj_close
+            FROM prices
+            WHERE ticker = ANY($1)
+              AND date >= (SELECT MAX(date) FROM prices) - INTERVAL $2 DAY
+              AND adj_close > 0
+            ORDER BY ticker, date
+        """, [all_tickers, lookback_days]).fetchdf()
+        con.close()
+    except Exception:
+        return {t: 1.0 for t in candidate_tickers}, []
+
+    if prices_df.empty or len(prices_df["ticker"].unique()) < 2:
+        return {t: 1.0 for t in candidate_tickers}, []
+
+    pivot = prices_df.pivot(index="date", columns="ticker", values="adj_close")
+    log_returns = np.log(pivot / pivot.shift(1)).dropna()
+
+    if len(log_returns) < 20:
+        return {t: 1.0 for t in candidate_tickers}, []
+
+    corr_matrix = log_returns.corr()
+
+    penalties: dict[str, float] = {}
+    for ticker in candidate_tickers:
+        if ticker not in corr_matrix.columns:
+            penalties[ticker] = 1.0
+            continue
+
+        max_corr = 0.0
+        for ht in holding_tickers:
+            if ht in corr_matrix.columns and ht != ticker:
+                c = abs(corr_matrix.loc[ticker, ht])
+                max_corr = max(max_corr, c)
+
+        if max_corr > 0.85:
+            penalties[ticker] = 0.5
+        elif max_corr > 0.70:
+            penalties[ticker] = 0.75
+        else:
+            penalties[ticker] = 1.0
+
+    correlated_pairs: list[tuple[str, str, float]] = []
+    for i, t1 in enumerate(candidate_tickers):
+        for t2 in candidate_tickers[i + 1:]:
+            if t1 in corr_matrix.columns and t2 in corr_matrix.columns:
+                c = abs(corr_matrix.loc[t1, t2])
+                if c > 0.85:
+                    correlated_pairs.append((t1, t2, round(c, 3)))
+
+    return penalties, correlated_pairs
+
+
+# ============================================================
+# 6. Drawdown Position Scaling
 # ============================================================
 
 def drawdown_size_scalar(
@@ -587,6 +668,24 @@ def run_adaptive_analysis() -> dict:
     sig_factors = [f for f, d in ic_result["factors"].items() if d.get("significant")]
     print(f"  Significant factors: {', '.join(sig_factors) if sig_factors else 'none (insufficient data)'}")
     print(f"  Recommended weights: {ic_result['shrunk_weights']}")
+
+    # Step 2b: Signal quality feedback (overrides IC weights when outcome data available)
+    try:
+        from src.learning.signal_quality import compute_feedback_weights, detect_factor_decay
+        feedback_weights = compute_feedback_weights()
+        decaying_factors = detect_factor_decay()
+
+        if feedback_weights:
+            ic_result["feedback_weights"] = feedback_weights
+            ic_result["shrunk_weights"] = feedback_weights
+            print(f"  Feedback-adjusted weights: {feedback_weights}")
+
+        if decaying_factors:
+            names = [d["factor"] for d in decaying_factors]
+            print(f"  ALERT: Decaying factors: {', '.join(names)}")
+            ic_result["decaying_factors"] = decaying_factors
+    except Exception as e:
+        print(f"  Signal quality feedback skipped: {e}")
 
     # Step 3: Adaptive constraints
     constraints = compute_adaptive_constraints(regime, ic_result)

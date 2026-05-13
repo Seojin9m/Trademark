@@ -176,6 +176,9 @@ def brokerage_connect(broker: str = "WEALTHSIMPLETRADE"):
     try:
         from src.ingest.brokerage import get_connect_url
         return get_connect_url(broker)
+    except ValueError as e:
+        logger.warning(f"Brokerage connect rejected: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Brokerage connect failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1023,6 +1026,39 @@ def get_adaptive_state_endpoint():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/learning/signal-quality")
+def get_signal_quality_dashboard():
+    """Full signal quality dashboard: rolling IC, hit rates, decay alerts."""
+    try:
+        from src.learning.signal_quality import compute_quality_dashboard
+        return compute_quality_dashboard()
+    except Exception as e:
+        logger.error(f"Signal quality dashboard failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learning/factor-ic-history")
+def get_factor_ic_history(lookback_days: int = 180):
+    """Rolling IC time series for each factor."""
+    try:
+        from src.learning.signal_quality import compute_rolling_factor_ic
+        return compute_rolling_factor_ic(lookback_days=lookback_days)
+    except Exception as e:
+        logger.error(f"Factor IC history failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learning/factor-decay")
+def get_factor_decay_alerts():
+    """Factors losing predictive power."""
+    try:
+        from src.learning.signal_quality import detect_factor_decay
+        return detect_factor_decay()
+    except Exception as e:
+        logger.error(f"Factor decay detection failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================
 # Stock metrics & fundamentals endpoints
 # ============================================================
@@ -1357,7 +1393,7 @@ def _wait_for_gate(run_id: str, gate_name: str, step: str, message: str, data: d
     return response or {}
 
 
-def _run_pipeline_thread(run_id: str) -> None:
+def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk_level: int = 3) -> None:
     """Execute the full pipeline in a background thread, emitting SSE events."""
     from datetime import datetime
     import pytz
@@ -1400,6 +1436,19 @@ def _run_pipeline_thread(run_id: str) -> None:
             _emit(run_id, "fundamentals", "skipped", f"Fundamentals up-to-date: {reason}")
     except Exception as e:
         _emit(run_id, "fundamentals", "done", f"Fundamentals ingestion skipped: {e}")
+
+    # Step 1c: Forward analyst estimates ingestion (weekly cooldown)
+    try:
+        from src.ingest.forward_estimates import should_refresh_estimates, ingest_forward_estimates
+        should_fwd, fwd_reason = should_refresh_estimates()
+        if should_fwd:
+            _emit(run_id, "forward_estimates", "running", f"Refreshing analyst estimates: {fwd_reason}")
+            ingest_forward_estimates()
+            _emit(run_id, "forward_estimates", "done", "Analyst estimates refreshed")
+        else:
+            _emit(run_id, "forward_estimates", "skipped", f"Estimates up-to-date: {fwd_reason}")
+    except Exception as e:
+        _emit(run_id, "forward_estimates", "done", f"Forward estimates ingestion skipped: {e}")
 
     # Step 2: Scoring (uses prior run's learned factor weights if available)
     _emit(run_id, "scoring", "running", "Computing factor scores...")
@@ -1447,6 +1496,13 @@ def _run_pipeline_thread(run_id: str) -> None:
                 if mask.any():
                     scores.loc[mask, "score_decile"] = ov["new_decile"]
 
+        # Apply sub_sector filter if running in sector mode
+        if sub_sector_filter:
+            universe_df = pd.read_csv(settings.paths.universe_path)
+            sector_tickers = set(universe_df[universe_df["sub_sector"] == sub_sector_filter]["ticker"].tolist())
+            scores = scores[scores["ticker"].isin(sector_tickers)]
+            _emit(run_id, "scoring", "running", f"Sector filter: {sub_sector_filter} → {len(scores)} tickers")
+
         _emit(run_id, "scoring", "done", f"Scored {len(scores)} tickers as of {as_of_date}. Top 5: {', '.join(top5)}")
     except Exception as e:
         _emit(run_id, "scoring", "error", f"Scoring failed: {e}")
@@ -1479,6 +1535,23 @@ def _run_pipeline_thread(run_id: str) -> None:
     except Exception as e:
         _emit(run_id, "adaptive", "done", f"Adaptive analysis skipped: {e}")
 
+    # Step 3b: Universe auto-refresh (promote high-scoring discoveries, flag weak tickers)
+    try:
+        from src.discovery.screener import auto_promote_candidates, flag_weak_universe_tickers
+        promoted = auto_promote_candidates()
+        flagged = flag_weak_universe_tickers()
+        parts = []
+        if promoted:
+            parts.append(f"promoted {len(promoted)}: {', '.join(promoted)}")
+        if flagged:
+            parts.append(f"flagged {len(flagged)} weak")
+        if parts:
+            _emit(run_id, "universe_refresh", "done", "Universe refresh: " + " | ".join(parts))
+        else:
+            _emit(run_id, "universe_refresh", "done", "Universe stable — no promotions or flags")
+    except Exception as e:
+        _emit(run_id, "universe_refresh", "done", f"Universe refresh skipped: {e}")
+
     # Step 4: Signal generation
     _emit(run_id, "signals", "running", "Generating signals...")
     try:
@@ -1496,7 +1569,7 @@ def _run_pipeline_thread(run_id: str) -> None:
         drawdown = pnl["total_return_pct"] if pnl["total_return_pct"] < 0 else 0.0
 
         recent_trades = get_recent_trades()
-        signals = generate_signals(scores, current_weights, prior_deciles, drawdown, adaptive_params=adaptive_params, recent_trades=recent_trades)
+        signals = generate_signals(scores, current_weights, prior_deciles, drawdown, adaptive_params=adaptive_params, recent_trades=recent_trades, risk_level=risk_level)
         actionable = filter_actionable_signals(signals)
 
         # Gate: Signal Review
@@ -1631,22 +1704,81 @@ def _run_pipeline_thread(run_id: str) -> None:
         proposals = []
         passed = []
 
-    # Step 5: News research
+    # Step 5: News research + competitive intelligence
     passed_proposals = passed if 'passed' in dir() else []
     research_map: dict = {}  # ticker -> NewsResearch
+    sector_intel_map: dict = {}  # ticker -> sector intelligence
+
+    # Include watchlist tickers in research
+    watchlist_tickers = []
+    try:
+        con = get_connection()
+        rows = con.execute("SELECT ticker FROM watchlist").fetchall()
+        con.close()
+        watchlist_tickers = [r[0] for r in rows]
+    except Exception:
+        pass
+
     research_tickers_list = list(set(
         [p["ticker"] for p in passed_proposals]
         + [pos["ticker"] for pos in portfolio["positions"]]
-    ))[:20]  # Limit to top 20
+        + watchlist_tickers
+    ))[:30]
 
     if research_tickers_list:
         _emit(run_id, "research", "running", f"Researching news for {len(research_tickers_list)} tickers...")
         try:
-            from src.research.news_agent import collect_news_batch
+            from src.research.news_agent import collect_news_batch, get_cached_news
             from src.research.summarizer import research_tickers as summarize_batch, store_research
 
             news_data = collect_news_batch(research_tickers_list, max_per_ticker=6)
-            research_results = summarize_batch(research_tickers_list, news_data)
+
+            # Blend with cached historical articles
+            cached_news_map = {}
+            for t in research_tickers_list:
+                try:
+                    cached = get_cached_news(t, days=30)
+                    if cached:
+                        cached_news_map[t] = cached
+                except Exception:
+                    pass
+
+            # Build competitive intelligence per sub_sector
+            try:
+                _emit(run_id, "research", "running", "Building competitive intelligence...")
+                from src.research.competitive_intel import get_sector_peers, collect_competitor_news, detect_earnings_spillover, compare_peer_fundamentals, build_sector_intelligence
+                universe_df = pd.read_csv(settings.paths.universe_path)
+                sector_cache: dict[str, dict] = {}  # sub_sector -> intel (avoid duplicate Claude calls)
+
+                for t in research_tickers_list:
+                    match = universe_df[universe_df["ticker"] == t]
+                    sub_sector = match.iloc[0]["sub_sector"] if not match.empty else None
+                    if not sub_sector:
+                        continue
+                    if sub_sector in sector_cache:
+                        sector_intel_map[t] = sector_cache[sub_sector]
+                        continue
+                    peers = get_sector_peers(t, sub_sector, limit=4)
+                    if not peers:
+                        continue
+                    peer_tickers = [p["ticker"] for p in peers]
+                    peer_news = collect_competitor_news(t, peer_tickers, max_per_peer=2)
+                    spillover = detect_earnings_spillover(peer_tickers, days=14)
+                    fundamentals = compare_peer_fundamentals(t, peer_tickers)
+                    intel = build_sector_intelligence(t, sub_sector, peer_news, spillover, fundamentals)
+                    sector_cache[sub_sector] = intel
+                    sector_intel_map[t] = intel
+
+                if sector_intel_map:
+                    _emit(run_id, "research", "running", f"Competitive intel built for {len(sector_intel_map)} tickers ({len(sector_cache)} sectors)")
+            except Exception as e:
+                _emit(run_id, "research", "running", f"Competitive intel skipped: {e}")
+
+            research_results = summarize_batch(
+                research_tickers_list, news_data,
+                sector_intel_map=sector_intel_map,
+                cached_news_map=cached_news_map,
+            )
             store_research(research_results)
 
             research_map = {r.ticker: r for r in research_results}
@@ -1716,7 +1848,12 @@ def _run_pipeline_thread(run_id: str) -> None:
         _emit(run_id, "judge", "running", f"Evaluating {len(passed_proposals)} proposals with LLM judge...")
         try:
             from src.judge.client import evaluate_all_proposals
-            judge_results = evaluate_all_proposals(passed_proposals, portfolio_value, pnl, research_map, recent_trades=recent_trades)
+            judge_results = evaluate_all_proposals(
+                passed_proposals, portfolio_value, pnl, research_map,
+                recent_trades=recent_trades,
+                sector_intel_map=sector_intel_map,
+                risk_level=risk_level,
+            )
 
             # Persist judge verdicts to DB
             try:
@@ -2061,7 +2198,7 @@ def _run_pipeline_thread(run_id: str) -> None:
         _emit(run_id, "pnl", "done", f"P&L report skipped: {e}")
         logger.warning(f"P&L / snapshot failed: {e}")
 
-    # Step 8: Self-Learning — outcome tracking + pattern detection
+    # Step 8: Self-Learning — outcome tracking + pattern detection + signal quality
     _emit(run_id, "learning", "running", "Running self-learning analysis...")
     try:
         from src.learning.outcome_tracker import run_outcome_tracking
@@ -2080,6 +2217,22 @@ def _run_pipeline_thread(run_id: str) -> None:
         msg_parts.append(f"{len(patterns)} patterns detected")
         if alerts:
             msg_parts.append(f"{len(alerts)} alerts")
+
+        # Signal quality analysis
+        try:
+            from src.learning.signal_quality import compute_quality_dashboard, detect_factor_decay, log_signal_quality
+            quality = compute_quality_dashboard()
+            decaying = detect_factor_decay()
+
+            if quality.get("overall_hit_rate"):
+                msg_parts.append(f"hit rate: {quality['overall_hit_rate']:.0%}")
+            if decaying:
+                msg_parts.append(f"ALERT: {len(decaying)} factors decaying")
+
+            if 'as_of_date' in dir():
+                log_signal_quality(as_of_date)
+        except Exception as sq_e:
+            logger.warning(f"Signal quality analysis skipped: {sq_e}")
 
         _emit(run_id, "learning", "done", " | ".join(msg_parts),
               gate_data={
@@ -2104,14 +2257,35 @@ def _run_pipeline_thread(run_id: str) -> None:
 
 
 @app.post("/api/pipeline/run")
-def trigger_pipeline():
-    """Start a pipeline run in a background thread. Returns a run_id for SSE streaming."""
+async def trigger_pipeline(request: Request):
+    """Start a pipeline run in a background thread. Returns a run_id for SSE streaming.
+
+    Body (all optional):
+        mode: "full" | "sector" | default "full"
+        sub_sector: required when mode="sector"
+        risk_level: 1-5, default 3
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    mode = body.get("mode", "full")
+    sub_sector = body.get("sub_sector")
+    risk_level = max(1, min(5, int(body.get("risk_level", 3))))
+
     run_id = str(uuid.uuid4())[:8]
     _pipeline_runs[run_id] = []
     _pipeline_locks[run_id] = threading.Event()
-    thread = threading.Thread(target=_run_pipeline_thread, args=(run_id,), daemon=True)
+    thread = threading.Thread(
+        target=_run_pipeline_thread,
+        args=(run_id,),
+        kwargs={"sub_sector_filter": sub_sector if mode == "sector" else None, "risk_level": risk_level},
+        daemon=True,
+    )
     thread.start()
-    return {"run_id": run_id}
+    return {"run_id": run_id, "mode": mode, "risk_level": risk_level}
 
 
 @app.get("/api/pipeline/status")
@@ -2135,6 +2309,266 @@ async def pipeline_status(run_id: str):
             await asyncio.sleep(0.3)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ============================================================
+# Discovery endpoints
+# ============================================================
+
+@app.post("/api/discovery/scan")
+def trigger_discovery_scan():
+    """Trigger a discovery scan for new stock candidates."""
+    from src.discovery.screener import should_run_discovery, run_discovery_scan
+
+    should_run, reason = should_run_discovery()
+    if not should_run:
+        return {"status": "skipped", "reason": reason}
+
+    def _scan():
+        try:
+            run_discovery_scan()
+        except Exception as e:
+            logger.error(f"Discovery scan failed: {e}")
+
+    thread = threading.Thread(target=_scan, daemon=True)
+    thread.start()
+    return {"status": "started", "reason": reason}
+
+
+@app.get("/api/discovery/candidates")
+def get_discovery_candidates(status: str | None = None, limit: int = 50):
+    """List discovery candidates, optionally filtered by status."""
+    from src.discovery.screener import get_candidates
+    return get_candidates(status=status, limit=limit)
+
+
+@app.put("/api/discovery/candidates/{ticker}/status")
+async def update_discovery_status(ticker: str, request: Request):
+    """Update a candidate's status (new → analyzed | promoted | dismissed)."""
+    body = await request.json()
+    new_status = body.get("status", "dismissed")
+    from src.discovery.screener import update_candidate_status
+    update_candidate_status(ticker, new_status)
+    return {"ticker": ticker, "status": new_status}
+
+
+@app.post("/api/discovery/candidates/{ticker}/promote")
+async def promote_discovery_candidate(ticker: str, request: Request):
+    """Promote a discovered ticker to the main universe."""
+    body = await request.json()
+    sub_sector = body.get("sub_sector", "")
+    company_name = body.get("company_name", "")
+    if not sub_sector:
+        raise HTTPException(status_code=400, detail="sub_sector is required")
+
+    from src.discovery.screener import promote_to_universe
+    promote_to_universe(ticker, sub_sector, company_name)
+    return {"ticker": ticker, "status": "promoted", "sub_sector": sub_sector}
+
+
+@app.get("/api/universe/health")
+def get_universe_health():
+    """Universe health: risk tier distribution, weak tickers, promotion candidates."""
+    import pandas as _pd
+    universe = _pd.read_csv(settings.paths.universe_path)
+    tier_col = universe.get("risk_tier", _pd.Series(["standard"] * len(universe)))
+    tier_counts = tier_col.value_counts().to_dict()
+
+    from src.discovery.screener import get_candidates
+    weak = get_candidates(status="flagged_weak", limit=20)
+    pending = get_candidates(status="new", limit=20)
+
+    return {
+        "total_tickers": len(universe),
+        "risk_tier_distribution": tier_counts,
+        "flagged_weak": weak,
+        "pending_candidates": pending,
+    }
+
+
+@app.post("/api/universe/auto-refresh")
+def trigger_universe_refresh():
+    """Manually trigger auto-promote and auto-demote cycle."""
+    from src.discovery.screener import auto_promote_candidates, flag_weak_universe_tickers
+    promoted = auto_promote_candidates()
+    flagged = flag_weak_universe_tickers()
+    return {
+        "promoted": promoted,
+        "flagged_weak": [f["ticker"] for f in flagged],
+    }
+
+
+# ============================================================
+# Watchlist endpoints
+# ============================================================
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    """List all watchlist tickers enriched with latest scores, news, and earnings."""
+    try:
+        con = get_connection()
+        rows = con.execute("""
+            SELECT ticker, company_name, sub_sector, added_at, notes, priority
+            FROM watchlist ORDER BY priority DESC, added_at DESC
+        """).fetchall()
+        con.close()
+    except Exception:
+        return []
+
+    items = []
+    for r in rows:
+        item = {
+            "ticker": r[0],
+            "company_name": r[1],
+            "sub_sector": r[2],
+            "added_at": str(r[3]) if r[3] else None,
+            "notes": r[4],
+            "priority": r[5],
+        }
+
+        # Enrich with latest score
+        try:
+            con = get_connection()
+            score = con.execute("""
+                SELECT composite_score, score_decile, quality_score
+                FROM factor_scores WHERE ticker = $1
+                ORDER BY date DESC LIMIT 1
+            """, [r[0]]).fetchone()
+            con.close()
+            if score:
+                item["composite_score"] = round(float(score[0]), 3) if score[0] is not None else None
+                item["score_decile"] = int(score[1]) if score[1] is not None else None
+                item["quality_score"] = round(float(score[2]), 3) if score[2] is not None else None
+        except Exception:
+            pass
+
+        # Enrich with latest news sentiment
+        try:
+            con = get_connection()
+            news = con.execute("""
+                SELECT sentiment, confidence FROM news_research
+                WHERE ticker = $1 ORDER BY research_date DESC LIMIT 1
+            """, [r[0]]).fetchone()
+            con.close()
+            if news:
+                item["sentiment"] = news[0]
+                item["news_confidence"] = float(news[1]) if news[1] is not None else 0
+        except Exception:
+            pass
+
+        # Enrich with upcoming earnings
+        try:
+            from src.ingest.earnings_calendar import get_upcoming_earnings
+            upcoming = get_upcoming_earnings([r[0]], days_ahead=30)
+            if r[0] in upcoming:
+                item["upcoming_earnings"] = upcoming[r[0]]
+        except Exception:
+            pass
+
+        items.append(item)
+
+    return items
+
+
+@app.post("/api/watchlist")
+async def add_to_watchlist(request: Request):
+    """Add a ticker to the watchlist."""
+    body = await request.json()
+    ticker = body.get("ticker", "").upper().strip()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker is required")
+
+    notes = body.get("notes", "")
+    priority = int(body.get("priority", 1))
+    company_name = body.get("company_name", "")
+    sub_sector = body.get("sub_sector", "")
+
+    # Auto-resolve metadata if not provided
+    if not company_name:
+        try:
+            universe = pd.read_csv(settings.paths.universe_path)
+            match = universe[universe["ticker"] == ticker]
+            if not match.empty:
+                company_name = match.iloc[0].get("name", "")
+                sub_sector = sub_sector or match.iloc[0].get("sub_sector", "")
+        except Exception:
+            pass
+
+    con = get_connection()
+    con.execute("""
+        INSERT INTO watchlist (ticker, company_name, sub_sector, notes, priority)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (ticker) DO UPDATE SET notes = $4, priority = $5
+    """, [ticker, company_name, sub_sector, notes, priority])
+    con.close()
+
+    return {"ticker": ticker, "status": "added"}
+
+
+@app.delete("/api/watchlist/{ticker}")
+def remove_from_watchlist(ticker: str):
+    """Remove a ticker from the watchlist."""
+    con = get_connection()
+    con.execute("DELETE FROM watchlist WHERE ticker = $1", [ticker.upper()])
+    con.close()
+    return {"ticker": ticker.upper(), "status": "removed"}
+
+
+@app.put("/api/watchlist/{ticker}")
+async def update_watchlist_item(ticker: str, request: Request):
+    """Update notes or priority for a watchlist ticker."""
+    body = await request.json()
+    con = get_connection()
+    if "notes" in body:
+        con.execute("UPDATE watchlist SET notes = $1 WHERE ticker = $2", [body["notes"], ticker.upper()])
+    if "priority" in body:
+        con.execute("UPDATE watchlist SET priority = $1 WHERE ticker = $2", [int(body["priority"]), ticker.upper()])
+    con.close()
+    return {"ticker": ticker.upper(), "status": "updated"}
+
+
+# ============================================================
+# Universe / Sectors endpoints
+# ============================================================
+
+@app.get("/api/universe/sectors")
+def get_universe_sectors():
+    """List all sub_sectors with ticker counts."""
+    try:
+        universe = pd.read_csv(settings.paths.universe_path)
+        sectors = []
+        for sub_sector, group in universe.groupby("sub_sector"):
+            sectors.append({
+                "sub_sector": sub_sector,
+                "ticker_count": len(group),
+                "tickers": group["ticker"].tolist(),
+            })
+        sectors.sort(key=lambda s: s["ticker_count"], reverse=True)
+        return sectors
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Single-Ticker Analysis endpoint
+# ============================================================
+
+@app.post("/api/analyze/ticker")
+async def analyze_ticker(request: Request):
+    """Run AI analysis for a single ticker. Returns structured recommendation."""
+    body = await request.json()
+    ticker = body.get("ticker", "").upper().strip()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker is required")
+
+    risk_level = max(1, min(5, int(body.get("risk_level", 3))))
+
+    from src.analyst.ticker_analysis import analyze_single_ticker
+    try:
+        result = analyze_single_ticker(ticker, risk_level=risk_level)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
 
 # ============================================================

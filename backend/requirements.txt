@@ -9,6 +9,10 @@ polygon-api-client>=1.13.0
 simfin>=0.8.0
 fredapi>=0.5.0
 
+# Stock screening & scraping
+finvizfinance>=0.14
+requests>=2.31.0
+
 # Data storage & processing
 duckdb>=1.0.0
 pandas>=2.1.0

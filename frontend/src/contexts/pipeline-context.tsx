@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from "react"
+import type { PipelineRunParams } from "../lib/api"
 
 export interface PipelineEvent {
   step: string
@@ -17,7 +18,7 @@ interface PipelineState {
   activeGate: PipelineEvent | null
   lastCompletedRunId: string | null
   clearLastCompletedRunId: () => void
-  startPipeline: () => Promise<void>
+  startPipeline: (params?: PipelineRunParams) => Promise<void>
   respondToGate: (action: "continue" | "abort", overrides?: Record<string, unknown>) => Promise<void>
 }
 
@@ -35,7 +36,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
 
   const clearLastCompletedRunId = useCallback(() => setLastCompletedRunId(null), [])
 
-  const startPipeline = useCallback(async () => {
+  const startPipeline = useCallback(async (params?: PipelineRunParams) => {
     if (running) return
 
     setRunning(true)
@@ -44,7 +45,11 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     setActiveGate(null)
 
     try {
-      const res = await fetch("/api/pipeline/run", { method: "POST" })
+      const res = await fetch("/api/pipeline/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params ?? {}),
+      })
       if (!res.ok) throw new Error(`Failed to start pipeline: ${res.status}`)
       const data = await res.json()
       setRunId(data.run_id)

@@ -19,6 +19,14 @@ from config.settings import settings
 _SNAPTRADE_STATE_PATH = settings.paths.data_dir / "snaptrade_state.json"
 
 
+def _snaptrade_error_body(exc: BaseException) -> dict:
+    """Best-effort parse of SnapTrade SDK error payload."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        return body
+    return {}
+
+
 def _get_client():
     """Get a SnapTrade client instance."""
     from snaptrade_client import SnapTrade
@@ -36,11 +44,21 @@ def _get_client():
 
 
 def _load_state() -> dict:
-    """Load persisted SnapTrade user state (userId, userSecret, accounts)."""
-    if _SNAPTRADE_STATE_PATH.exists():
-        with open(_SNAPTRADE_STATE_PATH) as f:
-            return json.load(f)
-    return {}
+    """Load persisted SnapTrade user state (user_id, user_secret, accounts).
+
+    Also accepts camelCase userId / userSecret so a hand-edited JSON matches
+    SnapTrade's API field names without triggering a bogus re-register with the
+    default ``trademark-user`` id.
+    """
+    if not _SNAPTRADE_STATE_PATH.exists():
+        return {}
+    with open(_SNAPTRADE_STATE_PATH) as f:
+        state = json.load(f)
+    if not state.get("user_id") and state.get("userId"):
+        state["user_id"] = state["userId"]
+    if not state.get("user_secret") and state.get("userSecret"):
+        state["user_secret"] = state["userSecret"]
+    return state
 
 
 def _save_state(state: dict) -> None:
@@ -116,9 +134,24 @@ def register_user(user_id: str = "trademark-user") -> dict:
         return {"status": "already_registered", "user_id": state["user_id"]}
 
     client = _get_client()
-    response = client.authentication.register_snap_trade_user(
-        body={"userId": user_id}
-    )
+    try:
+        response = client.authentication.register_snap_trade_user(
+            body={"userId": user_id}
+        )
+    except Exception as exc:
+        err = _snaptrade_error_body(exc)
+        code = str(err.get("code") or "")
+        detail = str(err.get("detail") or "")
+        if code == "1012" or "Personal keys can only register one user" in detail:
+            raise ValueError(
+                "SnapTrade rejected registration: personal/free API keys allow only one registered "
+                "user per Client ID — and that user already exists on SnapTrade. Trademark only skips "
+                "registration if backend/data/snaptrade_state.json contains matching user_id and "
+                "user_secret. Fix: put the correct pair in that file (snake_case keys), restore it from "
+                "a backup, or delete the user in the SnapTrade developer dashboard and connect again "
+                "so a fresh user + secret is issued."
+            ) from exc
+        raise
 
     user_secret = response.body.get("userSecret")
     if not user_secret:

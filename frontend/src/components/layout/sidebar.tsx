@@ -14,11 +14,12 @@ import {
   // ShieldAlert,    // unused: Risk tab hidden
   // FlaskConical,   // unused: Backtest tab hidden
   Workflow,
-  // Newspaper,      // unused: Research tab hidden
+  Newspaper,
   Brain,
   Wallet,
   BrainCircuit,
   Database,
+  Star,
   PanelLeft,
 } from "lucide-react"
 
@@ -30,7 +31,8 @@ const navItems = [
   // { to: "/decisions", icon: ClipboardList, label: "Decisions" },  // hidden
   // { to: "/risk", icon: ShieldAlert, label: "Risk" },              // hidden
   { to: "/data", icon: Database, label: "Data Grid" },
-  // { to: "/research", icon: Newspaper, label: "Research" },        // hidden
+  { to: "/research", icon: Newspaper, label: "Research" },
+  { to: "/watchlist", icon: Star, label: "Watchlist" },
   { to: "/learning", icon: Brain, label: "Learning" },
   // { to: "/backtest", icon: FlaskConical, label: "Backtest" },     // hidden
   { to: "/brokerage", icon: Wallet, label: "Brokerage" },
