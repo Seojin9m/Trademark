@@ -261,16 +261,12 @@ export default function StockDataGrid() {
     },
   })
 
-  const ingestMutation = useMutation({
-    mutationFn: api.triggerFundamentalsIngest,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["fundamentals-status"] })
-      toast("success", "Fundamentals refresh completed")
-    },
-    onError: (err: Error) => {
-      toast("error", "Ingest failed", err.message)
-    },
-  })
+  // NB: the manual "Refresh Fundamentals" button used to live here and call
+  // api.triggerFundamentalsIngest. It was removed once the FastAPI lifespan
+  // started running a weekly APScheduler job (see main.py:_scheduled_fundamentals_check).
+  // The cooldown gate (settings.strategy.fundamentals_cooldown_days) prevents
+  // wasted work, so the cron just heartbeats. If you need a force-refresh,
+  // run `python -m src.ingest.fundamentals` from the backend dir.
 
   const resetAllMutation = useMutation({
     mutationFn: api.clearAllStockMetricOverrides,
@@ -359,15 +355,6 @@ export default function StockDataGrid() {
                 Reset All ({overrideCount})
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => ingestMutation.mutate()}
-              disabled={ingestMutation.isPending}
-            >
-              <RefreshCw className={cn("h-3 w-3", ingestMutation.isPending && "animate-spin")} />
-              Refresh Fundamentals
-            </Button>
           </div>
         }
       />
@@ -387,7 +374,7 @@ export default function StockDataGrid() {
         <MetricCard
           label="Last Fundamentals"
           value={fundStatus?.last_ingested_at?.slice(0, 10) || "Never"}
-          sub={fundStatus?.should_ingest ? "Refresh needed" : "Up to date"}
+          sub={fundStatus?.should_ingest ? "Cron will refresh" : "Up to date"}
         />
         <MetricCard
           label="Active Overrides"

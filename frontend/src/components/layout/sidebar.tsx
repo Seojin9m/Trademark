@@ -31,9 +31,9 @@ const navItems = [
   // { to: "/decisions", icon: ClipboardList, label: "Decisions" },  // hidden
   // { to: "/risk", icon: ShieldAlert, label: "Risk" },              // hidden
   { to: "/data", icon: Database, label: "Data Grid" },
-  { to: "/research", icon: Newspaper, label: "Research" },
+  // { to: "/research", icon: Newspaper, label: "Research" },        // hidden
   { to: "/watchlist", icon: Star, label: "Watchlist" },
-  { to: "/learning", icon: Brain, label: "Learning" },
+  // { to: "/learning", icon: Brain, label: "Learning" },            // hidden
   // { to: "/backtest", icon: FlaskConical, label: "Backtest" },     // hidden
   { to: "/brokerage", icon: Wallet, label: "Brokerage" },
   { to: "/pipeline", icon: Workflow, label: "Pipeline" },

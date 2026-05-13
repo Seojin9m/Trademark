@@ -34,24 +34,15 @@ def _extract_ticker(ticker_val) -> str:
 
 
 def load_portfolio_state() -> dict:
-    """Load the current portfolio state from JSON, normalizing ticker values.
+    """Load the current portfolio state, normalizing ticker values.
 
-    If the file is missing (fresh clone), creates the same default as /api/reset:
-    $100k USD cash, no positions.
+    Routes via src.db.state.load_portfolio_state which knows about
+    DB_BACKEND — Postgres path reads the singleton JSONB row, DuckDB path
+    reads data/portfolio_state.json. The state helper also bootstraps a
+    default $100k portfolio when neither source exists yet.
     """
-    path = settings.paths.portfolio_state_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        portfolio = {
-            "as_of_date": datetime.now().strftime("%Y-%m-%d"),
-            "cash": 100_000.0,
-            "positions": [],
-        }
-        with open(path, "w") as f:
-            json.dump(portfolio, f, indent=2)
-    else:
-        with open(path) as f:
-            portfolio = json.load(f)
+    from src.db.state import load_portfolio_state as _load
+    portfolio = _load()
     for pos in portfolio.get("positions", []):
         pos["ticker"] = _extract_ticker(pos.get("ticker", ""))
     return portfolio
@@ -244,8 +235,33 @@ def build_trade_proposals(
     return non_buys + capped_buys
 
 
+def _sanitize_for_json(obj):
+    """Recursively replace NaN/Inf with None so json.dumps produces valid JSON.
+
+    Python's default json.dumps emits the literal "NaN" for float('nan') —
+    valid Python but not valid JSON. Postgres JSONB columns reject it
+    ("Token 'NaN' is invalid"). Walking the structure once before dumps
+    is the cheapest robust fix.
+    """
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
+def _json_or_passthrough(value):
+    """JSON-encode dicts (with NaN sanitization), leave other types alone."""
+    if isinstance(value, dict):
+        return json.dumps(_sanitize_for_json(value), allow_nan=False)
+    return value
+
+
 def store_proposals(proposals: list[dict]) -> None:
-    """Persist trade proposals to DuckDB."""
+    """Persist trade proposals (DuckDB or Postgres)."""
     if not proposals:
         return
 
@@ -263,8 +279,8 @@ def store_proposals(proposals: list[dict]) -> None:
             p["ticker"],
             p["action"],
             p["shares"],
-            json.dumps(p["signal_data"]) if isinstance(p["signal_data"], dict) else p["signal_data"],
-            json.dumps(p["constraint_check"]) if isinstance(p["constraint_check"], dict) else p["constraint_check"],
+            _json_or_passthrough(p["signal_data"]),
+            _json_or_passthrough(p["constraint_check"]),
             p["status"],
             p.get("human_decision"),
             p.get("human_notes"),

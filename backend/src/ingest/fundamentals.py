@@ -1,8 +1,15 @@
-"""Fundamentals ingestion from Simfin with yfinance fallback and PIT tagging."""
+"""Fundamentals ingestion from Polygon /vX/reference/financials.
 
+Primary source is Polygon Stocks Starter (single API, point-in-time data,
+unlimited calls). The legacy SimFin + yfinance fallback path is preserved
+below for rollback but ingest_fundamentals() now calls the Polygon path.
+"""
+
+import os
 import sys
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +19,7 @@ import yfinance as yf
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.db.schema import get_connection, init_db
+from src.db.state import load_universe_df
 from config.settings import settings
 
 # Yahoo's quarterly_income_stmt labels for each field we need. Try a couple
@@ -119,7 +127,7 @@ def build_pit_fundamentals(income_df: pd.DataFrame) -> pd.DataFrame:
     If Publish Date is missing, fall back to Fiscal Period end + 60 days (conservative).
     """
     # Load universe tickers
-    universe = pd.read_csv(settings.paths.universe_path)["ticker"].tolist()
+    universe = load_universe_df()["ticker"].tolist()
 
     # Filter to universe tickers only
     df = income_df[income_df["Ticker"].isin(universe)].copy()
@@ -320,19 +328,35 @@ def fetch_yfinance_fundamentals(tickers: list[str]) -> pd.DataFrame:
 
 
 def store_fundamentals(df: pd.DataFrame) -> None:
-    """Store PIT fundamentals into DuckDB with source tracking."""
+    """Store PIT fundamentals into the configured backend (DuckDB or Postgres).
+
+    Both backends fully replace the fundamentals_pit table content (DELETE
+    then INSERT) — the existing pipeline assumes a fresh snapshot each run
+    rather than incremental upserts, because thin-coverage tickers can flip
+    between SimFin and the yfinance fallback between runs and we don't want
+    stale rows surviving across that switch.
+    """
+    import os
     if df.empty:
         print("No fundamentals to store.")
         return
 
-    # Ensure source column exists
     if "source" not in df.columns:
         df["source"] = "unknown"
 
+    backend = (os.getenv("DB_BACKEND") or "duckdb").lower()
     con = get_connection()
 
-    # Check if the migration columns exist yet
-    cols = [r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'fundamentals_pit'").fetchall()]
+    if backend == "postgres":
+        _store_fundamentals_postgres(con, df)
+    else:
+        _store_fundamentals_duckdb(con, df)
+
+
+def _store_fundamentals_duckdb(con, df: pd.DataFrame) -> None:
+    cols = [r[0] for r in con.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'fundamentals_pit'"
+    ).fetchall()]
     has_source_col = "source" in cols
 
     con.register("fund_df", df)
@@ -364,7 +388,6 @@ def store_fundamentals(df: pd.DataFrame) -> None:
     row_count = con.execute("SELECT COUNT(*) FROM fundamentals_pit").fetchone()[0]
     ticker_count = con.execute("SELECT COUNT(DISTINCT ticker) FROM fundamentals_pit").fetchone()[0]
 
-    # Log ingestion — use delete+insert instead of ON CONFLICT for DuckDB compat
     from datetime import datetime
     now = datetime.now().isoformat()
     con.execute("DELETE FROM ingestion_log WHERE data_type = 'fundamentals'")
@@ -375,6 +398,76 @@ def store_fundamentals(df: pd.DataFrame) -> None:
     con.close()
 
     print(f"Stored in DuckDB: {row_count} fundamentals rows, {ticker_count} tickers")
+
+
+def _store_fundamentals_postgres(con, df: pd.DataFrame) -> None:
+    """Postgres path — TRUNCATE + COPY in a single atomic transaction.
+
+    Opens a fresh raw psycopg2 connection because `con` is a
+    PgConnectionAdapter with autocommit=True (good for app queries, deadly
+    here — TRUNCATE would commit before COPY runs, and if COPY fails the
+    table is left empty). With autocommit=False, the whole TRUNCATE +
+    COPY + ingestion_log update is one transaction that either fully
+    commits or fully rolls back.
+    """
+    import io
+    from src.db.postgres import get_pg_connection
+
+    cols = [
+        "ticker", "fiscal_period_end", "report_date",
+        "revenue", "gross_profit", "operating_income", "net_income",
+        "eps_diluted", "shares_outstanding", "source",
+    ]
+    payload = df.reindex(columns=cols).copy()
+    # shares_outstanding is BIGINT in Postgres; pandas would serialize float
+    # values like 485000000.0 which Postgres rejects. Cast via Int64 (nullable
+    # int) so NaN -> NULL and integers stay integer. Round() first because
+    # Polygon's diluted_average_shares is a period AVERAGE and can be
+    # fractional (e.g. 14725873500.5) — a strict Int64 cast on that raises
+    # "cannot safely cast non-equivalent float64 to int64".
+    payload["shares_outstanding"] = pd.to_numeric(
+        payload["shares_outstanding"], errors="coerce"
+    ).round().astype("Int64")
+
+    buf = io.StringIO()
+    payload.to_csv(buf, index=False, header=False, na_rep="\\N")
+    buf.seek(0)
+
+    # Bypass the adapter's autocommit by opening a fresh raw connection.
+    raw_conn = get_pg_connection(role="pooled")
+    raw_conn.autocommit = False
+    try:
+        with raw_conn.cursor() as cur:
+            cur.execute("TRUNCATE TABLE fundamentals_pit")
+            cur.copy_expert(
+                "COPY fundamentals_pit (" + ", ".join(cols) + ") "
+                "FROM STDIN WITH (FORMAT CSV, NULL '\\N')",
+                buf,
+            )
+
+            cur.execute("SELECT COUNT(*) FROM fundamentals_pit")
+            row_count = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(DISTINCT ticker) FROM fundamentals_pit")
+            ticker_count = cur.fetchone()[0]
+
+            cur.execute("DELETE FROM ingestion_log WHERE data_type = 'fundamentals'")
+            cur.execute(
+                "INSERT INTO ingestion_log (data_type, last_ingested_at, record_count, notes) "
+                "VALUES ('fundamentals', now(), %s, %s)",
+                (int(row_count), f"{ticker_count} tickers"),
+            )
+
+        raw_conn.commit()
+        print(f"Stored in Postgres: {row_count} fundamentals rows, {ticker_count} tickers")
+    except Exception:
+        raw_conn.rollback()
+        raise
+    finally:
+        raw_conn.close()
+        try:
+            con.close()
+        except Exception:
+            pass
 
 
 def should_ingest_fundamentals() -> tuple[bool, str]:
@@ -394,11 +487,17 @@ def should_ingest_fundamentals() -> tuple[bool, str]:
         if row is None:
             return True, "No prior ingestion found"
 
-        from datetime import datetime
+        from datetime import datetime, timezone
         last = row[0]
         if isinstance(last, str):
             last = datetime.fromisoformat(last)
-        days_ago = (datetime.now() - last).days
+        # Postgres returns TIMESTAMPTZ (tz-aware); DuckDB returns naive
+        # datetime; .isoformat() strings may or may not have a tz. Normalize
+        # to naive UTC before subtracting from datetime.now() (which is also
+        # naive local). The "days_ago" calculation tolerates the small drift.
+        if last.tzinfo is not None:
+            last = last.astimezone(timezone.utc).replace(tzinfo=None)
+        days_ago = (datetime.utcnow() - last).days
 
         if days_ago >= cooldown:
             return True, f"Last ingestion was {days_ago} days ago (cooldown: {cooldown}d)"
@@ -443,57 +542,197 @@ def identify_thin_simfin_tickers(simfin_pit: pd.DataFrame) -> set[str]:
     return set(thin["ticker"])
 
 
+# ============================================================================
+# Polygon Financials (primary source as of the Starter-tier upgrade)
+# ============================================================================
+
+def _polygon_extract_value(node, field):
+    """Safely read .value from a Polygon financials node.
+
+    Polygon nests every numeric field under {value, unit, label, order}.
+    Returns None if the field is absent or malformed.
+    """
+    if not node:
+        return None
+    obj = node.get(field) if isinstance(node, dict) else getattr(node, field, None)
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get("value")
+    return getattr(obj, "value", None)
+
+
+def fetch_polygon_financials_one(ticker: str) -> list[dict]:
+    """Pull all quarterly financial reports for one ticker.
+
+    Returns a list of rows in our fundamentals_pit schema. Skips reports
+    where the income statement is empty or where fiscal_period is annual
+    (we only store quarterly snapshots; annuals would dilute YoY math).
+    """
+    from polygon import RESTClient
+    client = RESTClient(api_key=settings.api_keys.polygon_api_key)
+
+    rows: list[dict] = []
+    try:
+        results = client.vx.list_stock_financials(
+            ticker=ticker, timeframe="quarterly", limit=100, order="desc", sort="period_of_report_date"
+        )
+        for r in results:
+            # Polygon's response model may expose attributes (model) or dicts
+            # depending on client version; getattr() works for both.
+            financials = getattr(r, "financials", None)
+            if financials is None:
+                continue
+            income = (
+                financials.get("income_statement")
+                if isinstance(financials, dict)
+                else getattr(financials, "income_statement", None)
+            )
+
+            revenue = _polygon_extract_value(income, "revenues")
+            net_income = _polygon_extract_value(income, "net_income_loss")
+            if revenue is None and net_income is None:
+                # No usable income data — skip.
+                continue
+
+            fiscal_period_end = getattr(r, "end_date", None)
+            filing_date = getattr(r, "filing_date", None) or fiscal_period_end
+            rows.append({
+                "ticker": ticker,
+                "fiscal_period_end": fiscal_period_end,
+                "report_date": filing_date,
+                "fiscal_year": getattr(r, "fiscal_year", None),
+                "fiscal_quarter": getattr(r, "fiscal_period", None),
+                "revenue": revenue,
+                "gross_profit": _polygon_extract_value(income, "gross_profit"),
+                "operating_income": _polygon_extract_value(income, "operating_income_loss"),
+                "net_income": net_income,
+                "eps_diluted": _polygon_extract_value(income, "diluted_earnings_per_share"),
+                "shares_outstanding": _polygon_extract_value(income, "diluted_average_shares"),
+                "source": "polygon",
+            })
+    except Exception:
+        # Per-ticker failures are silent — log at the batch level.
+        return []
+    return rows
+
+
+def fetch_polygon_financials(tickers: list[str], workers: int | None = None) -> pd.DataFrame:
+    """Fetch quarterly financials for every ticker in parallel.
+
+    Polygon Stocks Starter tolerates moderate concurrency; 8 workers
+    completes ~2,000 tickers in ~3-5 minutes. Each ticker yields up to
+    20 quarterly rows (5 years × 4 quarters).
+    """
+    if workers is None:
+        workers = int(os.getenv("POLYGON_FUND_WORKERS", "8"))
+
+    print(f"Polygon financials: {len(tickers)} tickers, {workers} workers")
+    all_rows: list[dict] = []
+    completed = 0
+    empty = 0
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(fetch_polygon_financials_one, t): t for t in tickers}
+        for fut in as_completed(futures):
+            completed += 1
+            rows = fut.result()
+            if rows:
+                all_rows.extend(rows)
+            else:
+                empty += 1
+            if completed % 200 == 0 or completed == len(tickers):
+                elapsed = time.time() - t0
+                rate = completed / elapsed if elapsed > 0 else 0
+                eta = (len(tickers) - completed) / rate if rate > 0 else 0
+                print(
+                    f"  Polygon financials: {completed}/{len(tickers)} "
+                    f"({rate:.1f}/s, ETA {eta:.0f}s, {empty} empty, {len(all_rows):,} rows)"
+                )
+
+    if not all_rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(all_rows)
+    # Normalize dates: Polygon returns ISO date strings; convert for downstream code.
+    df["fiscal_period_end"] = pd.to_datetime(df["fiscal_period_end"], errors="coerce")
+    df["report_date"] = pd.to_datetime(df["report_date"], errors="coerce")
+    return df
+
+
+# ============================================================================
+# Orchestrator
+# ============================================================================
+
 def ingest_fundamentals() -> None:
-    """Full fundamentals ingestion pipeline.
+    """Full fundamentals ingestion pipeline (Polygon /vX/reference/financials).
 
-    Simfin is the primary source (~175 tickers, includes banks/insurance).
-    yfinance fills the gap for:
-      (a) tickers Simfin doesn't carry at all (foreign ADRs, spinoffs, mega-caps)
-      (b) tickers where Simfin's coverage is too thin or too stale for YoY
-          growth factors to compute (see identify_thin_simfin_tickers)
-
-    For thin Simfin tickers we fully replace the Simfin rows with yfinance
-    rather than merging — mixing 1 old Simfin quarter with 5 fresh yfinance
-    quarters would just create a stale-vs-fresh dedup hazard for no gain.
+    The legacy SimFin + yfinance flow is preserved below (fetch_simfin_*,
+    fetch_yfinance_fundamentals, build_pit_fundamentals) for rollback if
+    Polygon coverage proves insufficient — set
+    FUNDAMENTALS_SOURCE=legacy to use it.
     """
     init_db()
+    source = (os.getenv("FUNDAMENTALS_SOURCE") or "polygon").lower()
 
-    # Primary: Simfin
+    if source == "legacy":
+        _ingest_fundamentals_legacy()
+        return
+
+    universe = load_universe_df()["ticker"].tolist()
+    df = fetch_polygon_financials(universe)
+    if df.empty:
+        print("No fundamentals fetched from Polygon.")
+        return
+    # Drop rows missing the natural key, then dedupe to one row per
+    # (ticker, fiscal_period_end) keeping the latest report_date — PIT
+    # convention: most recently published value for that quarter wins.
+    df = df.dropna(subset=["fiscal_period_end"])
+    df = (
+        df.sort_values(["ticker", "fiscal_period_end", "report_date"])
+          .drop_duplicates(subset=["ticker", "fiscal_period_end"], keep="last")
+    )
+    store_fundamentals(df)
+
+
+def _ingest_fundamentals_legacy() -> None:
+    """Legacy SimFin + yfinance fallback flow.
+
+    Kept as a safety net while the Polygon Financials path matures. Re-enable
+    by setting FUNDAMENTALS_SOURCE=legacy in env.
+    """
     income_df = fetch_simfin_income()
     simfin_pit = pd.DataFrame()
     if not income_df.empty:
         simfin_pit = build_pit_fundamentals(income_df)
 
-    # Drop thin Simfin tickers so yfinance can fully own them
     thin = identify_thin_simfin_tickers(simfin_pit)
     if thin:
-        print(f"\nThin Simfin coverage (<{_MIN_SIMFIN_QUARTERS}q or >{_MAX_STALENESS_BEHIND_DATASET_DAYS}d behind dataset newest): "
-              f"{len(thin)} tickers -> {sorted(thin)}")
+        print(
+            f"\nThin Simfin coverage (<{_MIN_SIMFIN_QUARTERS}q or >{_MAX_STALENESS_BEHIND_DATASET_DAYS}d behind dataset newest): "
+            f"{len(thin)} tickers -> {sorted(thin)}"
+        )
         simfin_pit = simfin_pit[~simfin_pit["ticker"].isin(thin)].copy()
 
     simfin_tickers = set(simfin_pit["ticker"]) if not simfin_pit.empty else set()
-
-    # Fallback: yfinance for missing + thin tickers
-    universe = pd.read_csv(settings.paths.universe_path)["ticker"].tolist()
+    universe = load_universe_df()["ticker"].tolist()
     gap = sorted((set(universe) - simfin_tickers) | thin)
     yf_pit = pd.DataFrame()
     if gap:
-        print(f"\nyfinance fallback: {len(gap)} tickers "
-              f"(missing from Simfin or routed away from thin coverage)")
+        print(
+            f"\nyfinance fallback: {len(gap)} tickers "
+            f"(missing from Simfin or routed away from thin coverage)"
+        )
         yf_pit = fetch_yfinance_fundamentals(gap)
     else:
         print("\nNo Simfin gap — skipping yfinance fallback")
 
-    # Combine. Simfin already had thin tickers dropped, so no collision risk.
     frames = [f for f in [simfin_pit, yf_pit] if not f.empty]
     if not frames:
         print("No fundamentals fetched from any source.")
         return
-    combined = pd.concat(frames, ignore_index=True)
-    combined = combined.drop_duplicates(
+    combined = pd.concat(frames, ignore_index=True).drop_duplicates(
         subset=["ticker", "fiscal_period_end"], keep="first"
     )
-
     store_fundamentals(combined)
 
 

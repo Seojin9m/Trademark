@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
 from src.db.schema import get_connection
+from src.db.state import load_universe_df
 
 
 # ─── Helper ──────────────────────────────────────────────────────────────────
@@ -201,7 +202,7 @@ def get_risk_metrics() -> str:
     weights = compute_portfolio_weights(portfolio, prices)
     pnl = compute_pnl(portfolio, prices)
 
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
     sector_weights = {}
     for ticker, weight in weights.items():
         sector = universe.loc[universe["ticker"] == ticker, "sub_sector"]
@@ -253,7 +254,7 @@ def get_news_research(ticker: str = "", limit: int = 10) -> str:
 def get_stock_universe() -> str:
     """Get the investable stock universe with sector and sub-sector tags."""
     import pandas as pd
-    df = pd.read_csv(settings.paths.universe_path)
+    df = load_universe_df()
     return df.to_json(orient="records")
 
 

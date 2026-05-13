@@ -8,6 +8,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.db.schema import get_connection
+from src.db.state import load_universe_df
 from config.settings import settings
 
 
@@ -105,7 +106,7 @@ def pit_validation() -> pd.DataFrame:
 
 def generate_full_report() -> None:
     """Generate and print the full data quality report."""
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
     universe_tickers = set(universe["ticker"].tolist())
 
     print("=" * 70)

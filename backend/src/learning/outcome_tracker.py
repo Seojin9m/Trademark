@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
 from src.db.schema import get_connection
+from src.db.state import load_universe_df
 
 FACTOR_COLUMNS = [
     "momentum_12m1m",
@@ -33,7 +34,7 @@ FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
-    "forward_estimate_revision",
+    # forward_estimate_revision removed.
 ]
 
 
@@ -114,7 +115,7 @@ def seed_outcomes_from_proposals() -> int:
           AND decision_outcomes.proposal_status != tp.status
     """)
 
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
     sector_map = dict(zip(universe["ticker"], universe.get("sub_sector", pd.Series())))
 
     new_proposals = con.execute("""

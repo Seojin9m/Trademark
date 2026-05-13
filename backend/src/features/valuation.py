@@ -13,6 +13,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from src.db.state import load_universe_df
+
 from src.db.schema import get_connection
 from config.settings import settings
 
@@ -86,7 +88,7 @@ def compute_relative_valuation(as_of_date: str | None = None) -> pd.DataFrame:
     merged["market_cap"] = merged["price"] * merged["shares"]
     merged["ps_ratio"] = merged["market_cap"] / merged["ttm_revenue"]
 
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
     merged = merged.merge(universe[["ticker", "sub_sector"]], on="ticker", how="left")
 
     sector_medians = merged.groupby("sub_sector")["ps_ratio"].median().rename("sector_median_ps")
@@ -157,7 +159,7 @@ def compute_per_filter(as_of_date: str | None = None) -> pd.DataFrame:
             "per_absolute_pass", "per_relative_pass", "per_penalty",
         ])
 
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
     merged = merged.merge(universe[["ticker", "sub_sector"]], on="ticker", how="left")
 
     # Compute peer median PER

@@ -1,0 +1,2166 @@
+ticker,name,sub_sector,market_cap_tier
+NVDA,Nvidia Corp,semiconductors,mega
+TSLA,"Tesla, Inc. Common Stock",hardware,mega
+MU,"Micron Technology, Inc.",semiconductors,mega
+MSFT,Microsoft Corp,enterprise_software,mega
+SNDK,Sandisk Corporation Common Stock,hardware,mega
+AAPL,Apple Inc.,hardware,mega
+AMZN,Amazon.Com Inc,internet_platforms,mega
+GOOGL,Alphabet Inc. Class A Common Stock,internet_platforms,mega
+META,"Meta Platforms, Inc. Class A Common Stock",internet_platforms,mega
+AVGO,Broadcom Inc. Common Stock,semiconductors,mega
+AMD,Advanced Micro Devices,semiconductors,mega
+PLTR,Palantir Technologies Inc. Class A Common Stock,ai_infrastructure,mega
+GOOG,Alphabet Inc. Class C Capital Stock,internet_platforms,mega
+LITE,Lumentum Holdings Inc. Common Stock,enterprise_software,mega
+INTC,Intel Corp,semiconductors,mega
+ORCL,Oracle Corp,enterprise_software,mega
+NFLX,NetFlix Inc,media_entertainment,mega
+XOM,Exxon Mobil Corporation,energy_majors,mega
+LLY,Eli Lilly & Co.,pharma,mega
+JPM,JPMorgan Chase & Co.,banks,mega
+MSTR,Strategy Inc Common Stock Class A,cloud_software,mega
+WDC,Western Digital Corp.,hardware,mega
+MRVL,"Marvell Technology, Inc. Common Stock",semiconductors,mega
+LRCX,Lam Research Corp,semiconductors,mega
+AMAT,Applied Materials Inc,semiconductors,mega
+CRM,"Salesforce, Inc.",cloud_software,mega
+UNH,UNITEDHEALTH GROUP INCORPORATED (Delaware),managed_care,mega
+WMT,Walmart Inc. Common Stock,retail,mega
+CVX,Chevron Corporation,energy_majors,mega
+CRWV,"CoreWeave, Inc. Class A Common Stock",cloud_software,mega
+V,VISA Inc.,payments,mega
+GEV,GE Vernova Inc.,industrial_machinery,mega
+COIN,"Coinbase Global, Inc. Class A Common Stock",fintech,mega
+APP,Applovin Corporation Class A Common Stock,media_entertainment,mega
+NOW,"SERVICENOW, INC.",cloud_software,mega
+HOOD,"Robinhood Markets, Inc. Class A Common Stock",capital_markets,mega
+CAT,Caterpillar Inc.,industrial_machinery,mega
+NBIS,Nebius Group N.V. Class A Ordinary Shares,internet_platforms,mega
+BAC,Bank of America Corporation,banks,mega
+COHR,Coherent Corp.,hardware,mega
+JNJ,Johnson & Johnson,pharma,mega
+MA,Mastercard Incorporated,payments,mega
+GLW,Corning Incorporated,hardware,mega
+COST,Costco Wholesale Corp,retail,mega
+GS,Goldman Sachs Group Inc.,capital_markets,mega
+GE,GE Aerospace,aerospace_defense,mega
+BE,Bloom Energy Corporation,industrial_machinery,mega
+VRT,Vertiv Holdings Co Class A Common Stock,industrial_machinery,mega
+C,Citigroup Inc.,banks,mega
+CSCO,"Cisco Systems, Inc. Common Stock (DE)",hardware,mega
+STX,Seagate Technology Holdings PLC Ordinary Shares (Ireland),hardware,mega
+BKNG,Booking Holdings Inc. Common Stock,media_entertainment,mega
+KLAC,KLA Corporation Common Stock,semiconductors,mega
+CRWD,"CrowdStrike Holdings, Inc. Class A Common Stock",cybersecurity,mega
+AAOI,"Applied Optoelectronics, Inc.",enterprise_software,mega
+RKLB,Rocket Lab Corporation Common Stock,aerospace_defense,mega
+TXN,Texas Instruments Incorporated,semiconductors,mega
+PG,Procter & Gamble Company,household_products,mega
+ABBV,ABBVIE INC.,pharma,mega
+CRCL,"Circle Internet Group, Inc.",capital_markets,mega
+IREN,IREN Limited Ordinary Shares,capital_markets,mega
+WFC,Wells Fargo & Co.,banks,mega
+QCOM,Qualcomm Inc,semiconductors,mega
+HD,"Home Depot, Inc.",retail,mega
+ADBE,Adobe Inc.,enterprise_software,mega
+BA,Boeing Company,aerospace_defense,mega
+IBM,International Business Machines Corporation,enterprise_software,mega
+INTU,Intuit Inc,enterprise_software,mega
+ADI,"Analog Devices, Inc.",semiconductors,mega
+PANW,"Palo Alto Networks, Inc. Common Stock",cybersecurity,mega
+VZ,Verizon Communications,telecom,mega
+UBER,"Uber Technologies, Inc.",internet_platforms,mega
+LIN,Linde plc Ordinary Share,materials,mega
+DELL,Dell Technologies Inc.,hardware,mega
+KO,Coca-Cola Company,food_beverage,mega
+TMUS,"T-Mobile US, Inc.",telecom,mega
+APH,Amphenol Corporation,hardware,mega
+COP,ConocoPhillips,energy_majors,mega
+ASTS,"AST SpaceMobile, Inc. Class A Common Stock",enterprise_software,mega
+ACN,Accenture PLC,enterprise_software,mega
+SOFI,"SoFi Technologies, Inc. Common Stock",payments,mega
+MS,Morgan Stanley,capital_markets,mega
+AXP,American Express Company,payments,mega
+SHOP,Shopify Inc. Class A subordinate voting shares,internet_platforms,mega
+ABT,Abbott Laboratories,healthcare_equipment,mega
+ANET,Arista Networks,hardware,mega
+MRK,"Merck & Co., Inc.",pharma,mega
+FCX,Freeport-McMoran Inc.,materials,mega
+T,AT&T Inc.,telecom,mega
+PFE,Pfizer Inc.,pharma,mega
+CIEN,Ciena Corporation,enterprise_software,mega
+RTX,RTX Corporation,aerospace_defense,large
+MCD,McDonald's Corporation,restaurants,large
+NEM,Newmont Corporation,materials,large
+DIS,The Walt Disney Company,media_entertainment,large
+BX,Blackstone Inc.,capital_markets,large
+ETN,"Eaton Corporation, plc Ordinary Shares",industrial_machinery,large
+TER,"Teradyne, Inc. Common Stock",semiconductors,large
+SPOT,Spotify Technology S.A.,media_entertainment,large
+BSX,Boston Scientific Corp.,healthcare_equipment,large
+TMO,"Thermo Fisher Scientific, Inc.",healthcare_equipment,large
+CVNA,Carvana Co.,autos,large
+PEP,"PepsiCo, Inc.",food_beverage,large
+COF,Capital One Financial,payments,large
+NKE,"Nike, Inc.",retail,large
+SCHW,The Charles Schwab Corporation,capital_markets,large
+AMGN,Amgen Inc,biotech,large
+SNOW,Snowflake Inc.,cloud_software,large
+OXY,Occidental Petroleum Corporation,energy_majors,large
+SPGI,S&P Global Inc.,capital_markets,large
+LMT,Lockheed Martin Corp.,aerospace_defense,large
+ISRG,Intuitive Surgical Inc.,healthcare_equipment,large
+CEG,Constellation Energy Corporation Common Stock,utilities,large
+GILD,Gilead Sciences Inc,biotech,large
+SLB,SLB Limited,oil_services,large
+BMNR,"BitMine Immersion Technologies, Inc.",capital_markets,large
+HON,"Honeywell International, Inc.",industrial_machinery,large
+SNPS,Synopsys Inc,enterprise_software,large
+NEE,"NextEra Energy, Inc.",utilities,large
+DHR,Danaher Corporation,healthcare_equipment,large
+CMCSA,Comcast Corp,media_entertainment,large
+SMCI,"Super Micro Computer, Inc. Common Stock",ai_infrastructure,large
+VLO,Valero Energy Corporation,energy_majors,large
+MELI,"Mercado Libre, Inc",retail,large
+CRDO,Credo Technology Group Holding Ltd Ordinary Shares,semiconductors,large
+PM,Philip Morris International Inc.,food_beverage,large
+NET,"Cloudflare, Inc. Class A common stock, par value $0.001 per share",cloud_software,large
+BLK,"Blackrock, Inc.",capital_markets,large
+MDT,Medtronic plc,healthcare_equipment,large
+CDNS,Cadence Design Systems,enterprise_software,large
+AAL,American Airlines Group Inc.,transports,large
+NU,Nu Holdings Ltd.,banks,large
+UNP,Union Pacific Corp.,transports,large
+DE,Deere & Company,industrial_machinery,large
+PYPL,"PayPal Holdings, Inc. Common Stock",payments,large
+DAL,"Delta Air Lines, Inc.",transports,large
+SYK,Stryker Corporation,healthcare_equipment,large
+ADP,Automatic Data Processing,cloud_software,large
+UAL,"United Airlines Holdings, Inc. Common Stock",transports,large
+DASH,"DoorDash, Inc. Class A Common Stock",internet_platforms,large
+ONDS,Ondas Inc. Common Stock,enterprise_software,large
+SBUX,Starbucks Corp,restaurants,large
+TJX,"TJX Companies, Inc. (The)",retail,large
+RDDT,"Reddit, Inc.",internet_platforms,large
+VST,Vistra Corp.,utilities,large
+LNG,Cheniere Energy Inc,midstream,large
+WDAY,"Workday, Inc. Class A Common Stock",cloud_software,large
+IONQ,"IonQ, Inc.",hardware,large
+ALAB,"Astera Labs, Inc. Common Stock",semiconductors,large
+CME,CME Group Inc.,capital_markets,large
+CCL,Carnival Corporation Ltd.,media_entertainment,large
+PH,Parker-Hannifin Corporation,industrial_machinery,large
+MCHP,Microchip Technology Inc,semiconductors,large
+MPWR,"Monolithic Power Systems, Inc.",semiconductors,large
+EOG,"EOG Resources, Inc.",energy_majors,large
+RCL,Royal Caribbean Group,media_entertainment,large
+MCK,McKesson Corporation,healthcare_services,large
+AXTI,AXT Inc,semiconductors,large
+DVN,Devon Energy Corporation,energy_majors,large
+LOW,Lowe's Companies Inc.,retail,large
+PWR,"Quanta Services, Inc.",industrial_machinery,large
+TGT,Target Corporation,retail,large
+FIX,"Comfort Systems USA, Inc.",industrial_machinery,large
+BMY,Bristol-Myers Squibb Co.,pharma,large
+CLS,"Celestica, Inc.",hardware,large
+WBD,"Warner Bros. Discovery, Inc. Series A Common Stock",media_entertainment,large
+KKR,KKR & Co. Inc.,capital_markets,large
+CRH,CRH Public Limited Company,materials,large
+TT,Trane Technologies plc,industrial_machinery,large
+PGR,Progressive Corporation,insurance,large
+F,Ford Motor Company,autos,large
+EQIX,"Equinix, Inc. Common Stock REIT",reits,large
+FDX,FedEx Corporation,transports,large
+MO,"Altria Group, Inc.",food_beverage,large
+APO,"Apollo Global Management, Inc.",capital_markets,large
+NXPI,NXP Semiconductors N.V.,semiconductors,large
+SHW,The Sherwin-Williams Company,materials,large
+WELL,Welltower Inc.,reits,large
+FANG,"Diamondback Energy, Inc.",energy_majors,large
+MMM,3M Company,industrial_machinery,large
+HWM,Howmet Aerospace Inc.,aerospace_defense,large
+DDOG,"Datadog, Inc. Class A Common Stock",cloud_software,large
+APLD,Applied Digital Corporation Common Stock,enterprise_software,large
+CVS,CVS HEALTH CORPORATION,healthcare_services,large
+AZO,"AutoZone, Inc.",autos,large
+MCO,Moody's Corporation,capital_markets,large
+GM,General Motors Company,autos,large
+AMT,American Tower Corporation,reits,large
+UPS,"United Parcel Service, Inc. Class B",transports,large
+VRTX,Vertex Pharmaceuticals Inc,biotech,large
+BKR,Baker Hughes Company,oil_services,large
+CB,Chubb Limited,insurance,large
+ON,ON Semiconductor Corp,semiconductors,large
+CMG,"Chipotle Mexican Grill, Inc.",restaurants,large
+B,Barrick Mining Corporation,materials,large
+RBLX,Roblox Corporation,media_entertainment,large
+MDLZ,"Mondelez International, Inc. Class A",food_beverage,large
+MPC,MARATHON PETROLEUM CORPORATION,energy_majors,large
+SATS,EchoStar Corporation,telecom,large
+CL,Colgate-Palmolive Company,household_products,large
+HIMS,"Hims & Hers Health, Inc.",pharma,large
+HAL,Halliburton Company,oil_services,large
+LYB,LyondellBasell Industries N.V. Class A,materials,large
+HLT,Hilton Worldwide Holdings Inc.,media_entertainment,large
+ELV,"Elevance Health, Inc.",managed_care,large
+USB,U.S. Bancorp,banks,large
+EQT,EQT CORP,energy_majors,large
+DOW,Dow Inc.,materials,large
+WULF,TeraWulf Inc. Common Stock,capital_markets,large
+PNC,PNC Financial Services Group,banks,large
+JCI,Johnson Controls International plc,industrial_machinery,large
+SO,The Southern Company,utilities,large
+WM,"Waste Management, Inc.",industrial_machinery,large
+MAR,Marriott International Class A Common Stock,media_entertainment,large
+CSX,CSX Corporation,transports,large
+OKLO,Oklo Inc.,utilities,large
+NOC,Northrop Grumman Corp.,aerospace_defense,large
+ICE,Intercontinental Exchange  Inc.,capital_markets,large
+DUK,Duke Energy Corporation,utilities,large
+PSX,PHILLIPS 66,energy_majors,large
+MRSH,Marsh,insurance,large
+ORLY,"O'Reilly Automotive, Inc.",autos,large
+TEAM,Atlassian Corporation Class A Common Stock,cloud_software,large
+AEM,Agnico Eagle Mines Ltd.,materials,large
+ROST,Ross Stores Inc,retail,large
+REGN,Regeneron Pharmaceuticals Inc,biotech,large
+HCA,"HCA Healthcare, Inc.",healthcare_services,large
+ABNB,"Airbnb, Inc. Class A Common Stock",internet_platforms,large
+EBAY,eBay Inc,retail,large
+FTNT,"Fortinet, Inc.",cybersecurity,large
+AKAM,Akamai Technologies Inc,cloud_software,large
+TEL,TE Connectivity plc,hardware,large
+CMI,Cummins Inc.,industrial_machinery,large
+ROP,"Roper Technologies, Inc. Common Stock",enterprise_software,large
+ADSK,Autodesk Inc,cloud_software,large
+GD,General Dynamics Corporation,aerospace_defense,large
+CF,"CF Industries Holding, Inc.",materials,large
+PLD,"PROLOGIS, INC.",reits,large
+CNQ,Canadian Natural Resources Limited,energy_majors,large
+KMB,Kimberly-Clark Corp.,household_products,large
+LHX,"L3Harris Technologies, Inc.",aerospace_defense,large
+ZTS,ZOETIS INC.,healthcare_equipment,large
+EXPE,"Expedia Group, Inc. Common Stock",media_entertainment,large
+URI,"United Rentals, Inc.",industrial_machinery,large
+CI,The Cigna Group,managed_care,large
+NCLH,Norwegian Cruise Line Holdings Ltd. Ordinary Shares,media_entertainment,large
+MSI,"Motorola Solutions, Inc. New",enterprise_software,large
+LYV,Live Nation Entertainment Inc.,media_entertainment,large
+BK,Bank of New York Mellon Corporation,banks,large
+AJG,Arthur J. Gallagher & Co.,insurance,large
+TDG,TransDigm Group Incorporated,aerospace_defense,large
+CPNG,"Coupang, Inc.",retail,large
+MARA,"MARA Holdings, Inc. Common Stock",capital_markets,large
+WMB,Williams Companies Inc.,midstream,large
+TSEM,Tower Semiconductor Ltd,semiconductors,large
+CDE,"Coeur Mining, Inc.",materials,large
+AON,Aon plc Class A,insurance,large
+BDX,"Becton, Dickinson and Co.",healthcare_equipment,large
+AXON,"Axon Enterprise, Inc. Common Stock",aerospace_defense,large
+ARES,Ares Management Corporation Class A Common Stock,capital_markets,large
+RGTI,"Rigetti Computing, Inc. Common Stock",hardware,large
+KMI,"Kinder Morgan, Inc.",midstream,large
+TTD,"The Trade Desk, Inc.",internet_platforms,large
+AG,FIRST MAJESTIC SILVER CORP,materials,large
+AEP,"American Electric Power Company, Inc.",utilities,large
+QBTS,D-Wave Quantum Inc.,hardware,large
+TRV,"The Travelers Companies, Inc.",insurance,large
+EXC,Exelon Corporation,utilities,large
+OKE,"Oneok, Inc.",midstream,large
+ZS,"Zscaler, Inc. Common Stock",cybersecurity,large
+MDB,"MongoDB, Inc. Class A",cloud_software,large
+ODFL,Old Dominion Freight Line,transports,large
+ECL,"Ecolab, Inc.",materials,large
+LULU,lululemon athletica inc.,retail,large
+COR,"Cencora, Inc.",healthcare_services,large
+TFC,Truist Financial Corporation,banks,large
+NRG,"NRG Energy, Inc.",utilities,large
+HBAN,Huntington Bancshares Inc,banks,large
+XYZ,"Block, Inc.",fintech,large
+FN,Fabrinet,hardware,large
+EW,Edwards Lifesciences Corp,healthcare_equipment,large
+EMR,Emerson Electric Co.,industrial_machinery,large
+DG,Dollar General Corp.,retail,large
+CCJ,Cameco Corporation,energy_majors,large
+FSLR,"First Solar, Inc.",hardware,large
+RIVN,"Rivian Automotive, Inc. Class A Common Stock",autos,large
+MNST,Monster Beverage Corporation,food_beverage,large
+EA,Electronic Arts Inc,media_entertainment,large
+CTAS,Cintas Corp,industrial_machinery,large
+FITB,Fifth Third Bancorp,banks,large
+CHTR,Charter Comm Inc Del CL A New,telecom,large
+CIFR,Cipher Digital Inc. Common Stock,enterprise_software,large
+NSC,Norfolk Southern Corp.,transports,large
+PCG,PG&E Corporation,utilities,large
+KEYS,"Keysight Technologies, Inc.",hardware,large
+TTWO,Take-Two Interactive Software Inc,media_entertainment,large
+CARR,Carrier Global Corporation,industrial_machinery,large
+RKT,"Rocket Companies, Inc.",banks,large
+AZN,AstraZeneca PLC,pharma,large
+LUV,Southwest Airlines Co.,transports,large
+VEEV,Veeva Systems Inc.,cloud_software,large
+FISV,"Fiserv, Inc. Common Stock",uncategorized,large
+HUBS,"HUBSPOT, INC.",cloud_software,large
+KR,The Kroger Co.,retail,large
+DHI,D.R. Horton Inc.,household_products,large
+O,Realty Income Corporation,reits,large
+DPZ,Domino's Pizza Inc.,restaurants,large
+HPE,Hewlett Packard Enterprise Company,enterprise_software,large
+HSY,The Hershey Company,food_beverage,large
+EXE,Expand Energy Corporation Common Stock,energy_majors,large
+CTSH,Cognizant Technology Solutions,enterprise_software,large
+RF,Regions Financial Corp.,banks,large
+FLUT,Flutter Entertainment plc,media_entertainment,large
+OMC,Omnicom Group Inc.,media_entertainment,large
+KVUE,Kenvue Inc.,household_products,large
+XEL,"Xcel Energy, Inc.",utilities,large
+VRSK,"Verisk Analytics, Inc. Common Stock",industrial_machinery,large
+ULTA,"Ulta Beauty, Inc. Common Stock",retail,large
+ROK,"Rockwell Automation, Inc.",industrial_machinery,large
+VMC,Vulcan Materials Company(Holding Company),materials,large
+FTAI,FTAI Aviation Ltd. Common Stock,aerospace_defense,large
+PAAS,Pan American Silver Corp.,materials,large
+ALB,Albemarle Corporation,materials,large
+ALNY,"Alnylam Pharmaceuticals, Inc.",biotech,large
+APD,"Air Products & Chemicals, Inc.",materials,large
+ITW,Illinois Tool Works Inc.,industrial_machinery,large
+EL,The Estee Lauder Companies Inc. Class A,household_products,large
+DLR,"Digital Realty Trust, Inc.",reits,large
+MRNA,"Moderna, Inc. Common Stock",biotech,large
+DLTR,Dollar Tree Inc.,retail,large
+HPQ,HP Inc.,hardware,large
+STM,STMicroelectronics N.V.,semiconductors,large
+ZM,"Zoom Communications, Inc. Class A Common Stock",cloud_software,large
+AA,Alcoa Corporation,materials,large
+TRGP,Targa Resources Corp.,midstream,large
+KHC,The Kraft Heinz Company Common Stock,food_beverage,large
+PL,Planet Labs PBC,aerospace_defense,large
+FICO,Fair Isaac Corporation,cloud_software,large
+CAH,"Cardinal Health, Inc.",healthcare_services,large
+PCAR,Paccar Inc,industrial_machinery,large
+PAYX,Paychex Inc,cloud_software,large
+IBKR,"Interactive Brokers Group, Inc. Class A Common Stock",capital_markets,large
+WAT,Waters Corp,healthcare_equipment,large
+SYY,Sysco Corporation,food_beverage,large
+PINS,"Pinterest, Inc. Class A Common Stock",internet_platforms,large
+FERG,Ferguson Enterprises Inc.,industrial_machinery,large
+MP,MP Materials Corp.,materials,large
+DOCN,"DigitalOcean Holdings, Inc.",cloud_software,large
+PSA,Public Storage,reits,large
+FSLY,"Fastly, Inc. Class A Common Stock",cloud_software,large
+GIS,"General Mills, Inc.",food_beverage,large
+ENTG,Entegris Inc,semiconductors,large
+JBL,Jabil Inc.,hardware,large
+WPM,Wheaton Precious Metals Corp. Common Stock,materials,large
+MLM,Martin Marietta Materials,materials,large
+SRE,Sempra,utilities,large
+MSCI,"MSCI, Inc.",capital_markets,large
+PATH,"UiPath, Inc.",enterprise_software,large
+KGC,Kinross Gold Corporation,materials,large
+IDXX,Idexx Laboratories Inc,healthcare_services,large
+TSCO,Tractor Supply Co,retail,large
+GTLS,"Chart Industries, Inc.",industrial_machinery,large
+DKNG,DraftKings Inc. Class A Common Stock,media_entertainment,large
+ATI,ATI Inc.,industrial_machinery,large
+HL,Hecla Mining Company,materials,large
+INSM,"Insmed, Inc.",biotech,large
+ET,Energy Transfer LP Common Units representing limited partner interests,midstream,large
+KEY,KeyCorp,banks,large
+ETR,Entergy Corporation,utilities,large
+CHRW,"C.H. Robinson Worldwide, Inc.",transports,large
+RSG,Republic Services Inc.,industrial_machinery,large
+CVE,Cenovus Energy Inc.,energy_majors,large
+FAST,Fastenal Co,industrial_machinery,large
+OTIS,Otis Worldwide Corporation,industrial_machinery,large
+HUM,Humana Inc.,managed_care,large
+CFG,"Citizens Financial Group, Inc.",banks,large
+OWL,Blue Owl Capital Inc.,capital_markets,large
+SMR,NuScale Power Corporation,industrial_machinery,large
+ALL,The Allstate Corporation,insurance,large
+VG,"Venture Global, Inc.",midstream,large
+EME,"EMCOR Group, Inc.",industrial_machinery,large
+AIG,"American International Group, Inc.",insurance,large
+CTVA,"Corteva, Inc. Common Stock",materials,large
+STZ,"Constellation Brands, Inc.",food_beverage,large
+PPL,PPL Corporation,utilities,large
+SCCO,Southern Copper Corporation,materials,large
+LPLA,LPL Financial Holdings Inc.,capital_markets,large
+MKSI,MKS Inc. Common Stock,hardware,large
+U,Unity Software Inc.,cloud_software,large
+MTZ,"MasTec, Inc.",industrial_machinery,large
+CASY,Casey's General Stores Inc,retail,large
+NVT,nVent Electric plc Ordinary Shares,industrial_machinery,large
+CRS,Carpenter Technology Corp,industrial_machinery,large
+RIOT,"Riot Platforms, Inc. Common Stock",capital_markets,large
+NDAQ,"Nasdaq, Inc. Common Stock",capital_markets,large
+D,"Dominion Energy, Inc Common Stock",utilities,large
+SPG,"Simon Property Group, Inc.",reits,large
+KDP,Keurig Dr Pepper Inc.,food_beverage,large
+EFX,"Equifax, Incorporated",industrial_machinery,large
+AMP,"Ameriprise Financial, Inc.",capital_markets,large
+APA,APA Corporation Common Stock,energy_majors,large
+CBRE,"CBRE GROUP, INC.",reits,large
+LEN,Lennar Corporation Class A,household_products,large
+FIS,"Fidelity National Information Services, Inc.",payments,large
+AFRM,"Affirm Holdings, Inc. Class A Common Stock",payments,large
+SYF,SYNCHRONY FINANCIAL,payments,large
+IR,Ingersoll Rand Inc. Common Stock,industrial_machinery,large
+XPO,"XPO, Inc.",transports,large
+ROKU,"Roku, Inc. Class A Common Stock",media_entertainment,large
+NUE,Nucor Corporation,materials,large
+FTI,TechnipFMC plc Ordinary Share,oil_services,large
+KTOS,"Kratos Defense & Security Solutions, Inc.",aerospace_defense,large
+DXCM,"DexCom, Inc.",healthcare_equipment,large
+TOST,"Toast, Inc.",cloud_software,large
+IQV,IQVIA Holdings Inc.,healthcare_equipment,large
+STT,State Street Corporation,capital_markets,large
+MTSI,"MACOM Technology Solutions Holdings, Inc",semiconductors,large
+UTHR,United Therapeutics Corp,pharma,large
+CPRT,Copart Inc,industrial_machinery,large
+AU,AngloGold Ashanti plc,materials,large
+AME,"Ametek, Inc.",industrial_machinery,large
+VTR,"Ventas, Inc.",reits,large
+TWLO,Twilio Inc.,cloud_software,large
+SU,"Suncor Energy, Inc.",energy_majors,large
+PR,Permian Resources Corporation,energy_majors,large
+OKTA,"Okta, Inc. Class A Common Stock",cybersecurity,large
+MET,"MetLife, Inc.",insurance,large
+HUBB,Hubbell Incorporated,industrial_machinery,large
+W,Wayfair Inc.,retail,large
+GWW,"W.W. Grainger, Inc.",industrial_machinery,large
+GEHC,GE HealthCare Technologies Inc. Common Stock,healthcare_equipment,large
+CCI,Crown Castle Inc.,reits,large
+QSR,Restaurant Brands International Inc.,restaurants,large
+YUM,"Yum! Brands, Inc.",restaurants,large
+TPR,"Tapestry, Inc. Common Stock",retail,large
+GPN,"Global Payments, Inc.",industrial_machinery,large
+BN,Brookfield Corporation,capital_markets,large
+XYL,Xylem Inc,industrial_machinery,large
+CSGP,CoStar Group Inc,reits,large
+TEM,"Tempus AI, Inc. Class A Common Stock",healthcare_services,large
+NTR,Nutrien Ltd. Common Shares,materials,large
+WWD,"Woodward, Inc.",aerospace_defense,large
+FLEX,Flex Ltd. Ordinary Shares,hardware,large
+A,Agilent Technologies Inc.,healthcare_equipment,large
+WBS,Webster Financial Corporation Waterbury,banks,large
+RMD,ResMed Inc.,healthcare_equipment,large
+USAR,"USA Rare Earth, Inc. Class A Common Stock",materials,large
+ADM,Archer Daniels Midland Company,food_beverage,large
+CLX,Clorox Company,household_products,large
+RGLD,Royal Gold Inc,materials,large
+NTRA,"Natera, Inc. Common Stock",healthcare_equipment,large
+IP,International Paper Co.,materials,large
+ENB,"Enbridge, Inc",midstream,large
+WAB,Wabtec Inc.,transports,large
+TLN,Talen Energy Corporation Common Stock,utilities,large
+THC,Tenet Healthcare Corporation New,healthcare_services,large
+SW,Smurfit Westrock plc,materials,large
+DRI,"Darden Restaurants, Inc.",restaurants,large
+AVAV,"AeroVironment, Inc.",aerospace_defense,large
+AWK,"American Water Works Company, Inc",utilities,large
+OVV,Ovintiv Inc.,energy_majors,large
+CAVA,"CAVA Group, Inc.",restaurants,large
+LUNR,"Intuitive Machines, Inc. Class A Common Stock",aerospace_defense,large
+WING,Wingstop Inc,restaurants,large
+MOS,The Mosaic Company,materials,large
+RIG,Transocean LTD.,oil_services,large
+WCN,"Waste Connections, Inc.",industrial_machinery,large
+AFL,Aflac Inc.,insurance,large
+CELH,"Celsius Holdings, Inc. Common Stock",food_beverage,large
+VICI,VICI Properties Inc. Common Stock,reits,large
+LII,Lennox International Inc.,industrial_machinery,large
+BR,Broadridge Financial Solutions Inc,enterprise_software,large
+PPG,"PPG Industries, Inc.",materials,large
+MTB,M&T Bank Corp.,banks,large
+Q,"Qnity Electronics, Inc.",semiconductors,large
+TKO,"TKO Group Holdings, Inc.",media_entertainment,large
+DOV,Dover Corporation,industrial_machinery,large
+CMS,CMS Energy Corporation,utilities,large
+PODD,Insulet Corporation,healthcare_equipment,large
+HUT,Hut 8 Corp. Common Stock,capital_markets,large
+FIVE,"Five Below, Inc. Common Stock",retail,large
+BBY,"Best Buy Company, Inc.",retail,large
+BURL,"BURLINGTON STORES, INC.",retail,large
+FE,FirstEnergy Corp.,utilities,large
+IT,"Gartner, Inc.",enterprise_software,large
+BROS,Dutch Bros Inc.,restaurants,large
+EIX,Edison International,utilities,large
+MOD,Modine Manufacturing Co,autos,large
+SNAP,Snap Inc.,internet_platforms,large
+RY,Royal Bank of Canada,banks,large
+DT,"Dynatrace, Inc.",cloud_software,large
+VIAV,Viavi Solutions Inc. Common Stock,enterprise_software,large
+PHM,"Pultegroup, Inc.",household_products,large
+CP,Canadian Pacific Kansas City Limited,transports,large
+STLD,Steel Dynamics Inc,materials,large
+TPL,Texas Pacific Land Corporation,energy_majors,large
+NTAP,"NetApp, Inc",cloud_software,large
+STRL,"Sterling Infrastructure, Inc. Common Stock",industrial_machinery,large
+WEC,"WEC Energy Group, Inc.",utilities,large
+CAG,"Conagra Brands, Inc.",food_beverage,large
+LVS,Las Vegas Sands Corp.,media_entertainment,large
+PEG,Public Service Enterprise Group Incorporated,utilities,large
+RVMD,"Revolution Medicines, Inc. Common Stock",biotech,large
+CORZ,"Core Scientific, Inc. Common Stock",cloud_software,large
+AEIS,Advanced Energy Industries Inc,industrial_machinery,large
+TROW,T Rowe Price Group Inc,capital_markets,large
+PRU,"Prudential Financial, Inc.",insurance,large
+WSM,"Williams-Sonoma, Inc.",retail,large
+DECK,Deckers Outdoor Corp,retail,large
+WST,"West Pharmaceutical Services, Inc.",healthcare_equipment,large
+CNC,Centene Corporation,managed_care,large
+ENPH,"Enphase Energy, Inc.",hardware,large
+MOH,"Molina Healthcare, Inc.",managed_care,large
+AMKR,Amkor Technology Inc,semiconductors,large
+MKC,"McCormick & Company, Incorporated Non-VTG CS",food_beverage,large
+TD,Toronto Dominion Bank,banks,large
+DUOL,"Duolingo, Inc. Class A Common Stock",cloud_software,large
+SBAC,SBA Communications Corp,reits,large
+DKS,"Dick's Sporting Goods, Inc.",retail,large
+RACE,Ferrari N.V.,autos,large
+BG,Bunge Global SA,food_beverage,large
+ED,"Consolidated Edison, Inc.",utilities,large
+RRX,Regal Rexnord Corporation,industrial_machinery,large
+VRSN,VeriSign Inc,cloud_software,large
+RJF,"Raymond James Financial, Inc.",capital_markets,large
+CAR,"Avis Budget Group, Inc.",industrial_machinery,large
+TRI,Thomson Reuters Corporation Common Shares,industrial_machinery,large
+BRO,"Brown & Brown, Inc.",insurance,large
+BWXT,"BWX Technologies, Inc.",aerospace_defense,large
+GRMN,Garmin Ltd,hardware,large
+NXT,Nextpower Inc. Class A Common Stock,hardware,large
+AR,ANTERO RESOURCES CORPORATION,energy_majors,large
+ONTO,Onto Innovation Inc.,semiconductors,large
+JOBY,"Joby Aviation, Inc.",transports,large
+TTMI,TTM Technologies Inc,hardware,large
+CNP,"CenterPoint Energy, Inc.",utilities,large
+AMCR,Amcor plc Ordinary Shares,materials,large
+CLSK,CLEANSPARK INC,capital_markets,large
+GPC,Genuine Parts Company,autos,large
+CHWY,"Chewy, Inc.",retail,large
+EVR,Evercore Inc.,capital_markets,large
+SUNB,"Sunbelt Rentals Holdings, Inc.",industrial_machinery,large
+BLDR,"Builders FirstSource, Inc.",industrial_machinery,large
+RL,Ralph Lauren Corporation,retail,large
+RMBS,Rambus Inc,semiconductors,large
+USFD,US Foods Holding Corp.,food_beverage,large
+SGI,Somnigroup International Inc.,household_products,large
+SN,"SharkNinja, Inc.",household_products,large
+MTD,Mettler-Toledo International,healthcare_equipment,large
+ALGN,Align Technology Inc,healthcare_equipment,large
+LYFT,"Lyft, Inc. Class A Common Stock",cloud_software,large
+MASI,Masimo Corporation,healthcare_equipment,large
+ONON,On Holding AG,retail,large
+PKG,Packaging Corp of America,materials,large
+SOUN,"SoundHound AI, Inc. Class A Common Stock",cloud_software,large
+VIK,Viking Holdings Ltd,media_entertainment,large
+ILMN,Illumina Inc,healthcare_equipment,large
+WIX,WIX.com Ltd.,cloud_software,large
+NI,NiSource Inc.,utilities,large
+GNRC,GENERAC HOLDINGS INC,industrial_machinery,large
+SMTC,Semtech Corp,semiconductors,large
+SAIA,"Saia, Inc.",transports,large
+FDS,Factset Research Systems,capital_markets,large
+AEE,Ameren Corporation,utilities,large
+FFIV,"F5, Inc. Common Stock",cloud_software,large
+GWRE,"GUIDEWIRE SOFTWARE, INC.",cloud_software,large
+TDY,Teledyne Technologies Incorporated,hardware,large
+AGNC,AGNC Investment Corp. Common Stock,reits,large
+FNV,Franco-Nevada Corporation,materials,large
+PEN,"Penumbra, Inc.",healthcare_equipment,large
+HIG,"The Hartford Insurance Group, Inc.",insurance,large
+TECK,Teck Resources Limited,materials,large
+DOCU,"DocuSign, Inc. Common Stock",cloud_software,large
+CHD,"Church & Dwight Co., Inc.",household_products,large
+FOXA,Fox Corporation Class A Common Stock,media_entertainment,large
+CDW,CDW Corporation,enterprise_software,large
+JBHT,JB Hunt Transport Services Inc,transports,large
+OPEN,Opendoor Technologies Inc Common Stock,reits,large
+GRAB,Grab Holdings Limited Class A Ordinary Shares,cloud_software,large
+TTE,TotalEnergies SE,energy_majors,large
+BIIB,Biogen Inc. Common Stock,pharma,large
+CPAY,"Corpay, Inc.",cloud_software,large
+HII,"Huntington Ingalls Industries, Inc.",aerospace_defense,large
+GFS,GlobalFoundries Inc. Ordinary Shares,semiconductors,large
+AER,Aercap Holdings N.V.,industrial_machinery,large
+GAP,"The Gap, Inc.",retail,large
+WTW,Willis Towers Watson Public Limited Company Ordinary Shares,insurance,large
+BAM,Brookfield Asset Management Ltd.,capital_markets,large
+QXO,"QXO, Inc.",industrial_machinery,large
+CHKP,Check Point Software Technologies Ltd,cloud_software,large
+NVTS,Navitas Semiconductor Corporation Common Stock,semiconductors,large
+PLUG,Plug Power Inc.,industrial_machinery,large
+TRU,TransUnion,capital_markets,large
+SJM,The J.M. Smucker Company,food_beverage,large
+ZBH,"Zimmer Biomet Holdings, Inc.",healthcare_equipment,large
+SSNC,SS&C Technologies Inc,cloud_software,large
+HEI,HEICO Corporation,aerospace_defense,large
+SFM,"Sprouts Farmers Market, Inc.",retail,large
+BJ,"BJs Wholesale Club Holdings, Inc. Common Stock",retail,large
+DTE,DTE Energy Company,utilities,large
+NYT,New York Times Co.,media_entertainment,large
+CW,Curtiss-Wright Corp.,aerospace_defense,large
+CPB,The Campbell's Company Common Stock,food_beverage,large
+IOT,Samsara Inc.,ai_infrastructure,large
+ACGL,Arch Capital Group Ltd,insurance,large
+SWKS,Skyworks Solutions Inc,semiconductors,large
+FCNCA,First Citizens BancShares Inc,banks,large
+ZBRA,Zebra Technologies Corporation,hardware,large
+TYL,"Tyler Technologies, Inc.",cloud_software,large
+FWONK,Liberty Media Corporation Series C Liberty Formula One Common Stock,media_entertainment,large
+GDDY,GoDaddy Inc,cloud_software,large
+FTV,Fortive Corporation,hardware,large
+AGX,"Argan, Inc",industrial_machinery,large
+RBRK,"Rubrik, Inc.",cloud_software,large
+TSN,"Tyson Foods, Inc.",food_beverage,large
+TXRH,"Texas Roadhouse, Inc.",restaurants,large
+EXPD,"Expeditors International of Washington, Inc.",transports,large
+ETSY,"Etsy, Inc.",retail,large
+GH,"Guardant Health, Inc. Common Stock",healthcare_equipment,large
+DAR,DARLING INGREDIENTS INC.,food_beverage,large
+STE,STERIS plc,healthcare_equipment,large
+BLD,TopBuild Corp. Common Stock,industrial_machinery,large
+EAT,"Brinker International, Inc.",restaurants,large
+Z,"Zillow Group, Inc. Class C Capital Stock",internet_platforms,large
+MAS,Masco Corporation,industrial_machinery,large
+ITT,ITT Inc.,industrial_machinery,large
+EPAM,"EPAM SYSTEMS, INC.",enterprise_software,large
+HST,"Host Hotels & Resorts, Inc.",reits,large
+ACHR,Archer Aviation Inc.,aerospace_defense,large
+KNX,Knight-Swift Transportation Holdings Inc. Class A Common Stock,transports,large
+PTC,"PTC, INC",cloud_software,large
+TW,Tradeweb Markets Inc. Class A Common Stock,capital_markets,large
+IRM,Iron Mountain Inc.,reits,large
+DGX,Quest Diagnostics Inc.,healthcare_equipment,large
+LDOS,"Leidos Holdings, Inc.",enterprise_software,large
+EXR,"Extra Space Storage, Inc.",reits,large
+INVH,Invitation Homes Inc. Common Stock,reits,large
+ES,Eversource Energy,utilities,large
+MEDP,"Medpace Holdings, Inc. Common Stock",healthcare_equipment,large
+CNH,CNH INDUSTRIAL N.V.,industrial_machinery,large
+ATO,Atmos Energy Corporation,utilities,large
+CLF,Cleveland-Cliffs Inc.,materials,large
+DD,"DuPont de Nemours, Inc. Common Stock",materials,large
+ALK,"Alaska Air Group, Inc.",transports,large
+LSCC,Lattice Semiconductor Corp,semiconductors,large
+MUSA,MURPHY USA INC.,retail,large
+AMRZ,Amrize Ltd,materials,large
+MGM,MGM RESORTS INTERNATIONAL,media_entertainment,large
+CG,The Carlyle Group Inc. Common Stock,capital_markets,large
+NVR,"NVR, Inc.",retail,large
+VICR,Vicor Corp,hardware,large
+EVRG,"Evergy, Inc.",utilities,large
+LH,Labcorp Holdings Inc.,healthcare_equipment,large
+TOL,"Toll Brothers, Inc.",household_products,large
+RDW,Redwire Corporation,aerospace_defense,large
+WYNN,Wynn Resorts Ltd,media_entertainment,large
+RCAT,"Red Cat Holdings, Inc. Common Stock",aerospace_defense,large
+AGI,Alamos Gold Inc. Class A Common Shares,materials,large
+AVB,"AvalonBay Communities, Inc.",reits,large
+VLTO,Veralto Corporation,industrial_machinery,large
+FND,"Floor & Decor Holdings, Inc.",retail,large
+AES,AES Corporation,utilities,large
+FORM,FormFactor Inc.,semiconductors,large
+SM,SM Energy Company,energy_majors,large
+BBIO,"BridgeBio Pharma, Inc. Common Stock",biotech,large
+JAZZ,"Jazz Pharmaceuticals, Inc.",biotech,large
+WSO,"Watsco, Inc.",industrial_machinery,large
+APTV,Aptiv PLC,autos,large
+NVMI,Nova Ltd. Ordinary Shares,semiconductors,large
+CNI,Canadian National Railway,transports,large
+SEDG,"SolarEdge Technologies, Inc.",hardware,large
+WCC,Wesco International Inc.,industrial_machinery,large
+TRP,TC Energy Corporation,midstream,large
+KRMN,Karman Holdings Inc.,aerospace_defense,large
+SITM,SiTime Corporation Common Stock,semiconductors,large
+POOL,Pool Corporation,industrial_machinery,large
+LEU,Centrus Energy Corp.,energy_majors,large
+LNT,Alliant Energy Corporation Common Stock,utilities,large
+OC,Owens Corning,industrial_machinery,large
+IBRX,"ImmunityBio, Inc. Common Stock",biotech,large
+NTRS,Northern Trust Corp,capital_markets,large
+CRL,"Charles River Laboratories International, Inc.",healthcare_equipment,large
+HAS,"Hasbro, Inc.",media_entertainment,large
+ELF,"e.l.f. Beauty, Inc.",household_products,large
+EPD,Enterprise Products Partners L.P.,midstream,large
+BNS,Bank of Nova Scotia,banks,large
+VTRS,Viatris Inc. Common Stock,pharma,large
+PBF,PBF ENERGY INC.,energy_majors,large
+NLY,Annaly Capital Management. Inc.,reits,large
+DY,"Dycom Industries, Inc.",industrial_machinery,large
+RPRX,Royalty Pharma plc Class A Ordinary Shares,biotech,large
+EQR,Equity Residential,reits,large
+RRC,Range Resources Corp,energy_majors,large
+JKHY,Henry (Jack) & Associates,enterprise_software,large
+SEI,"Solaris Energy Infrastructure, Inc.",oil_services,large
+FLS,Flowserve Corporation,industrial_machinery,large
+CACI,CACI INTERNATIONAL CLA,enterprise_software,large
+SWK,"Stanley Black & Decker, Inc.",industrial_machinery,large
+ROL,"Rollins, Inc.",household_products,large
+MDGL,"Madrigal Pharmaceuticals, Inc. Common Stock",biotech,large
+FIGR,"Figure Technology Solutions, Inc. Class A Common Stock",capital_markets,large
+CLH,"Clean Harbors, Inc",industrial_machinery,large
+PAYC,"PAYCOM SOFTWARE, INC.",cloud_software,large
+IONS,"Ionis Pharmaceuticals, Inc. Common Stock",biotech,large
+BAX,Baxter International Inc.,healthcare_equipment,large
+CART,Maplebear Inc. Common Stock,retail,large
+RH,RH,retail,large
+EQH,"Equitable Holdings, Inc.",capital_markets,large
+INCY,Incyte Genomics Inc,biotech,large
+WHR,Whirlpool Corp.,household_products,large
+UHS,"Universal Health Services, Inc. Class B",healthcare_services,large
+DINO,HF Sinclair Corporation,energy_majors,large
+TPG,TPG Inc. Class A Common Stock,capital_markets,large
+COO,"The Cooper Companies, Inc. Common Stock",healthcare_equipment,large
+AS,"Amer Sports, Inc.",media_entertainment,large
+BBAI,"BigBear.ai Holdings, Inc.",enterprise_software,large
+GME,GameStop Corp. Class A,retail,large
+ALLY,Ally Financial Inc.,payments,large
+CSL,"Carlisle Companies, Inc.",industrial_machinery,large
+ALLE,Allegion Public Limited Company,industrial_machinery,large
+IAG,IAMGold Corporation,materials,large
+ROIV,Roivant Sciences Ltd. Common Shares,biotech,large
+JLL,"Jones Lang LaSalle, Inc.",reits,large
+FLY,Firefly Aerospace Inc. Common Stock,aerospace_defense,large
+IEX,IDEX Corporation,industrial_machinery,large
+UPST,"Upstart Holdings, Inc. Common stock",payments,large
+PNR,Pentair plc,industrial_machinery,large
+NBIX,Neurocrine Biosciences Inc,pharma,large
+PFGC,Performance Food Group Company,food_beverage,large
+ASND,Ascendis Pharma A/S Ordinary Share,biotech,large
+BWA,BorgWarner Inc.,autos,large
+NTNX,"Nutanix, Inc. Class A Common Stock",cloud_software,large
+IVZ,Invesco LTD,capital_markets,large
+CE,Celanese Corporation Common Stock,materials,large
+EOSE,"Eos Energy Enterprises, Inc. Class A Common Stock",industrial_machinery,large
+TAP,Molson Coors Beverage Company Class B,food_beverage,large
+SNA,Snap-on Incorporated,industrial_machinery,large
+POWL,Powell Industries Inc,industrial_machinery,large
+DOC,"Healthpeak Properties, Inc.",reits,large
+ARCC,Ares Capital Corporation,capital_markets,large
+JHX,James Hardie Industries plc,materials,large
+BEN,"Franklin Resources, Inc.",capital_markets,large
+GTLB,GitLab Inc. Class A Common Stock,cloud_software,large
+H,Hyatt Hotels Corporation,media_entertainment,large
+GEN,Gen Digital Inc. Common Stock,cybersecurity,large
+FNB,F.N.B. Corp,capital_markets,large
+WFRD,Weatherford International plc Ordinary Shares,oil_services,large
+PFG,"Principal Financial Group, Inc.",capital_markets,large
+WLK,Westlake Corporation,materials,large
+BALL,Ball Corporation,materials,large
+CM,Canadian Imperial Bank of Commerce,banks,large
+WY,Weyerhaeuser Company,reits,large
+PNFP,"Pinnacle Financial Partners, Inc.",capital_markets,large
+RBA,"RB Global, Inc.",industrial_machinery,large
+CENX,Century Aluminum Co,materials,large
+AMPX,"Amprius Technologies, Inc.",industrial_machinery,large
+ZETA,Zeta Global Holdings Corp.,cloud_software,large
+ICLR,Icon Plc,pharma,large
+WRB,W.R. Berkley Corporation,insurance,large
+CYTK,Cytokinetics Inc.,biotech,large
+APG,APi Group Corporation,industrial_machinery,large
+TECH,Bio-Techne Corp.,biotech,large
+TPH,"Tri Pointe Homes, Inc.",retail,large
+ARWR,Arrowhead Research Corporation,biotech,large
+FLR,Fluor Corporation,industrial_machinery,large
+HBM,Hudbay Minerals Inc.,materials,large
+CHRD,Chord Energy Corporation Common Stock,energy_majors,large
+TXT,"Textron, Inc.",aerospace_defense,large
+PRAX,"Praxis Precision Medicines, Inc. Common Stock",biotech,large
+PCOR,"Procore Technologies, Inc.",cloud_software,large
+FRO,Frontline Plc,midstream,large
+BAH,Booz Allen Hamilton Holding Corporation,industrial_machinery,large
+KMX,CarMax Inc.,autos,large
+MTCH,"Match Group, Inc",internet_platforms,large
+OLLI,"Ollie's Bargain Outlet Holdings, Inc. Common Stock",retail,large
+M,Macy's Inc.,retail,large
+FBIN,"Fortune Brands Innovations, Inc.",industrial_machinery,large
+PNW,Pinnacle West Capital Corporation,utilities,large
+UDR,"UDR, Inc.",reits,large
+AYI,Acuity Inc.,industrial_machinery,large
+ALC,Alcon Inc. Ordinary Shares,healthcare_equipment,large
+FROG,JFrog Ltd. Ordinary Shares,cloud_software,large
+JEF,Jefferies Financial Group Inc.,capital_markets,large
+ESLT,Elbit Systems Ltd,aerospace_defense,large
+PLNT,"Planet Fitness, Inc.",media_entertainment,large
+AHR,"American Healthcare REIT, Inc.",reits,large
+BAP,Credicorp LTD,banks,large
+CROX,"Crocs, Inc.",retail,large
+BBWI,"Bath & Body Works, Inc.",retail,large
+IFF,International Flavors & Fragrances Inc.,materials,large
+VNOM,"Viper Energy, Inc. Class A Common Stock",energy_majors,large
+EG,"Everest Group, Ltd.",insurance,large
+SNX,TD SYNNEX Corporation,enterprise_software,large
+BXP,"BXP, Inc.",reits,large
+CRBG,"Corebridge Financial, Inc.",capital_markets,large
+AEHR,Aehr Test Systems,semiconductors,large
+WMS,"ADVANCED DRAINAGE SYSTEMS, INC.",materials,large
+GLXY,Galaxy Digital Inc. Class A Common Stock,capital_markets,large
+JBLU,JetBlue Airways Corp,transports,large
+SHAK,Shake Shack Inc.,restaurants,large
+DVA,DaVita Inc.,healthcare_services,large
+UAMY,United States Antimony Corporation,materials,large
+COMP,"Compass, Inc.",reits,large
+CZR,"Caesars Entertainment, Inc. Common Stock",retail,large
+TRMB,Trimble Inc. Common Stock,hardware,large
+MAA,"Mid-America Apartment Communities, Inc.",reits,large
+VSEC,VSE Corp,aerospace_defense,large
+CNM,"Core & Main, Inc.",industrial_machinery,large
+CPT,Camden Property Trust,reits,large
+RUN,Sunrun Inc,hardware,large
+FHN,First Horizon Corporation,banks,large
+JHG,Janus Henderson Group plc Ordinary Shares,capital_markets,large
+ESS,"Essex Property Trust, Inc",reits,large
+VFC,V.F. Corporation,retail,large
+MNDY,monday.com Ltd. Ordinary Shares,cloud_software,large
+LBRT,Liberty Energy Inc.,oil_services,large
+CWAN,"Clearwater Analytics Holdings, Inc.",fintech,large
+LMND,"Lemonade, Inc.",insurance,large
+CCK,Crown Holdings Inc.,materials,large
+AVY,Avery Dennison Corp.,industrial_machinery,large
+ESI,Element Solutions Inc.,materials,large
+HYMC,Hycroft Mining Holding Corporation Class A Common Stock,materials,large
+XP,XP Inc. Class A Common Stock,capital_markets,large
+DTM,"DT Midstream, Inc.",midstream,large
+EGO,Eldorado Gold Corporation,materials,large
+J,Jacobs Solutions Inc.,industrial_machinery,large
+IESC,"IES Holdings, Inc. Common Stock",industrial_machinery,large
+ELAN,Elanco Animal Health Incorporated Common Stock,pharma,large
+RGEN,Repligen Corp,healthcare_equipment,large
+EWBC,East-West Bancorp Inc,capital_markets,large
+PRIM,Primoris Services Corporation,industrial_machinery,large
+ANF,Abercrombie & Fitch Co.,retail,large
+BMRN,BioMarin Pharmaceuticals Inc,biotech,large
+HXL,Hexcel Corporation,aerospace_defense,large
+EXEL,Exelixis Inc,biotech,large
+SF,Stifel Financial Corp.,capital_markets,large
+S,"SentinelOne, Inc.",cybersecurity,large
+PSKY,Paramount Skydance Corporation Class B Common Stock,media_entertainment,large
+UNM,Unum Group,insurance,large
+WH,"Wyndham Hotels & Resorts, Inc. Common Stock",retail,large
+EMN,Eastman Chemical Company,materials,large
+DAVE,Dave Inc. Class A Common Stock,cloud_software,large
+MTDR,MATADOR RESOURCES COMPANY,energy_majors,large
+AMG,Affiliated Managers Group,capital_markets,large
+CINF,Cincinnati Financial Corp,insurance,large
+MTN,"Vail Resorts, Inc.",media_entertainment,large
+RBC,RBC Bearings Incorporated,industrial_machinery,large
+RVTY,"Revvity, Inc.",healthcare_equipment,large
+UBS,UBS Group AG,capital_markets,large
+RS,"Reliance, Inc.",materials,large
+AXSM,"Axsome Therapeutics, Inc",biotech,large
+DB,Deutsche Bank Aktiengesellschaft,capital_markets,large
+SUI,"Sun Communities, Inc",reits,large
+GLPI,"Gaming and Leisure Properties, Inc.",reits,large
+TMDX,"TransMedics Group, Inc. Common Stock",healthcare_equipment,large
+MKL,Markel Group Inc.,insurance,large
+ARE,"Alexandria Real Estate Equities, Inc.",reits,large
+ACM,Aecom,industrial_machinery,large
+BTSG,"BrightSpring Health Services, Inc. Common Stock",healthcare_services,large
+CHE,Chemed Corporation,pharma,large
+MT,ArcelorMittal,materials,large
+FRPT,"Freshpet, Inc.",food_beverage,mid
+MPLX,MPLX LP,midstream,mid
+ALSN,"ALLISON TRANSMISSION HOLDINGS, INC.",autos,mid
+ACI,"Albertsons Companies, Inc.",food_beverage,mid
+REG,Regency Centers Corporation,reits,mid
+MHK,"Mohawk Industries, Inc.",retail,mid
+HRL,Hormel Foods Corporation,food_beverage,mid
+SARO,"StandardAero, Inc.",aerospace_defense,mid
+TFX,Teleflex Incorporated,healthcare_equipment,mid
+IBP,"INSTALLED BUILDING PRODUCTS, INC.",household_products,mid
+ARMK,ARAMARK,restaurants,mid
+VSCO,Victorias Secret & Co.,retail,mid
+BMO,Bank of Montreal,banks,mid
+BTU,Peabody Energy Corporation,materials,mid
+SSRM,SSR Mining Inc.,materials,mid
+CGNX,Cognex Corp,hardware,mid
+PTEN,Patterson-UTI Energy Inc,energy_majors,mid
+AMH,AMERICAN HOMES 4 RENT,reits,mid
+HALO,"Halozyme Therapeutics, Inc.",biotech,mid
+ALM,Almonty Industries Inc. Common Shares,materials,mid
+OSK,Oshkosh Corp.,industrial_machinery,mid
+SCI,Service Corporation International,food_beverage,mid
+LASR,"nLIGHT, Inc. Common Stock",semiconductors,mid
+URBN,Urban Outfitters Inc,retail,mid
+SLAB,Silicon Laboratories Inc,enterprise_software,mid
+BTE,Baytex Energy Corp.,uncategorized,mid
+CRGY,Crescent Energy Company,energy_majors,mid
+ELS,"Equity Lifestyle Properties, Inc.",reits,mid
+EHC,Encompass Health Corporation Common Stock,healthcare_services,mid
+MGA,Magna International,uncategorized,mid
+REXR,"REXFORD INDUSTRIAL REALTY, INC.",reits,mid
+CUBE,CubeSmart,reits,mid
+ESTC,Elastic N.V.,cloud_software,mid
+VAL,Valaris Limited,energy_majors,mid
+KNSL,"Kinsale Capital Group, Inc.",insurance,mid
+MANH,Manhattan Associates Inc,enterprise_software,mid
+RNR,RenaissanceRe Holdings Ltd.,capital_markets,mid
+BOOT,"Boot Barn Holdings, Inc.",retail,mid
+MORN,"Morningstar, Inc.",capital_markets,mid
+AOS,A.O. Smith Corporation,industrial_machinery,mid
+NWSA,News Corporation Class A Common Stock,media_entertainment,mid
+SIRI,"Sirius XM Holdings,  Inc",media_entertainment,mid
+HSIC,Henry Schein Inc,healthcare_services,mid
+IDCC,"InterDigital, Inc.",uncategorized,mid
+PRMB,Primo Brands Corporation,food_beverage,mid
+TTEK,Tetra Tech Inc,industrial_machinery,mid
+NOV,NOV Inc.,energy_majors,mid
+ZION,Zions Bancorporation N.A.,capital_markets,mid
+TIGO,Millicom International Cellular S.A. Common Stock,telecom,mid
+NDSN,Nordson Corp,industrial_machinery,mid
+BSY,"Bentley Systems, Incorporated Class B Common Stock",enterprise_software,mid
+GMED,GLOBUS MEDICAL INC,healthcare_equipment,mid
+OHI,Omega Healthcare Investors Inc.,reits,mid
+LAD,"Lithia Motors, Inc.",retail,mid
+EXK,Endeavour Silver Corp.,materials,mid
+SOLV,Solventum Corporation,healthcare_equipment,mid
+HLI,"Houlihan Lokey, Inc.",capital_markets,mid
+SITE,"SiteOne Landscape Supply, Inc.",industrial_machinery,mid
+OSCR,"Oscar Health, Inc.",managed_care,mid
+GGG,Graco Inc,industrial_machinery,mid
+FOUR,"Shift4 Payments, Inc.",enterprise_software,mid
+QRVO,"Qorvo, Inc.",semiconductors,mid
+CRUS,Cirrus Logic Inc,semiconductors,mid
+G,GENPACT LIMITED,enterprise_software,mid
+VISN,"Vistance Networks, Inc. Common Stock",uncategorized,mid
+RPM,"RPM International, Inc.",materials,mid
+AEO,American Eagle Outfitters,retail,mid
+FER,Ferrovial N.V. Ordinary Shares,industrial_machinery,mid
+CACC,Credit Acceptance Corp,payments,mid
+SANM,Sanmina  Corp,hardware,mid
+CHDN,Churchill Downs Inc,retail,mid
+SPXC,"SPX Technologies, Inc.",industrial_machinery,mid
+QUBT,Quantum Computing Inc. Common,hardware,mid
+WAL,Western Alliance Bancorporation,capital_markets,mid
+LUMN,"Lumen Technologies, Inc.",telecom,mid
+LW,"Lamb Weston Holdings, Inc.",food_beverage,mid
+STNG,Scorpio Tankers Inc.,midstream,mid
+PEGA,Pegasystems Inc,enterprise_software,mid
+LGN,Legence Corp. Class A Common stock,industrial_machinery,mid
+LFUS,Littelfuse Inc,hardware,mid
+VLY,Valley National Bancorp,capital_markets,mid
+TEX,Terex Corporation,industrial_machinery,mid
+SPHR,Sphere Entertainment Co.,media_entertainment,mid
+COKE,"Coca-Cola Consolidated, Inc. Common Stock",food_beverage,mid
+DBX,"Dropbox, Inc. Class A",cloud_software,mid
+CRSP,CRISPR Therapeutics AG,biotech,mid
+ADC,Agree Realty Corporation,reits,mid
+KEX,Kirby Corporation,industrial_machinery,mid
+WPC,W.P. Carey Inc. (REIT),reits,mid
+MYRG,"MYR Group, Inc.",industrial_machinery,mid
+MIDD,Middleby Corp,industrial_machinery,mid
+MKTX,MarketAxess Holdings Inc.,capital_markets,mid
+QS,QuantumScape Corporation Class A Common Stock,autos,mid
+EXP,"Eagle Materials, Inc.",materials,mid
+LECO,Lincoln Electric Holdings Inc,industrial_machinery,mid
+FNF,"Fidelity National Financial, Inc.",insurance,mid
+MEOH,Methanex Corp,uncategorized,mid
+CELC,Celcuity Inc. Common Stock,biotech,mid
+AUR,"Aurora Innovation, Inc. Class A Common Stock",autos,mid
+AIZ,"Assurant, Inc.",insurance,mid
+CNR,"Core Natural Resources, Inc.",industrial_machinery,mid
+ALV,"Autoliv, Inc.",retail,mid
+ARW,"Arrow Electronics, Inc.",enterprise_software,mid
+FRT,Federal Realty Investment Trust,reits,mid
+ESE,"ESCO Technologies, Inc.",hardware,mid
+LOGI,Logitech International SA,hardware,mid
+AAP,ADVANCE AUTO PARTS INC,autos,mid
+VMI,"Valmont Industries, Inc.",industrial_machinery,mid
+NEU,NewMarket Corporation,materials,mid
+AGCO,AGCO Corporation,industrial_machinery,mid
+KVYO,"Klaviyo, Inc.",cloud_software,mid
+SSB,SouthState Bank Corporation,capital_markets,mid
+TE,T1 Energy Inc.,industrial_machinery,mid
+HLNE,Hamilton Lane Incorporated Class A Common Stock,capital_markets,mid
+ORA,"Ormat Technologies, Inc.",utilities,mid
+HUN,Huntsman Corporation,materials,mid
+MGY,Magnolia Oil & Gas Corporation Class A Common Stock,energy_majors,mid
+CR,Crane Company,industrial_machinery,mid
+PARR,"Par Pacific Holdings, Inc. Common Stock",energy_majors,mid
+BIRK,Birkenstock Holding plc,uncategorized,mid
+FOX,Fox Corporation Class B Common Stock,media_entertainment,mid
+BRX,BRIXMOR PROPERTY GROUP INC.,reits,mid
+RITM,Rithm Capital Corp.,reits,mid
+MC,MOELIS & COMPANY,capital_markets,mid
+DHT,"DHT HOLDINGS, INC.",energy_majors,mid
+ITRI,Itron Inc,hardware,mid
+CNX,CNX Resources Corporation,energy_majors,mid
+ENSG,"The Ensign Group, Inc.",healthcare_services,mid
+GLNG,Golar LNG Ltd,midstream,mid
+BCE,"BCE, Inc.",uncategorized,mid
+HRI,Herc Holdings Inc.,industrial_machinery,mid
+SLM,SLM Corporation,payments,mid
+PCTY,Paylocity Holding Corporation Common Stock,cloud_software,mid
+APLS,"Apellis Pharmaceuticals, Inc. Common Stock",biotech,mid
+CVLT,"Commault Systems, Inc.",cloud_software,mid
+NXE,NexGen Energy Ltd.,uncategorized,mid
+TTAN,"ServiceTitan, Inc. Class A Common Stock",uncategorized,mid
+R,"Ryder System, Inc.",industrial_machinery,mid
+AWI,"Armstrong World Industries, Inc.",materials,mid
+RHI,Robert Half Inc.,industrial_machinery,mid
+VOYA,"VOYA FINANCIAL, INC.",capital_markets,mid
+CVCO,Cavco Industries Inc.,retail,mid
+MUR,Murphy Oil Corp.,energy_majors,mid
+CHYM,"Chime Financial, Inc. Class A Common Stock",cloud_software,mid
+BIO,"Bio-Rad Laboratories, Inc.Class A",pharma,mid
+ERAS,"Erasca, Inc. Common Stock",biotech,mid
+NE,Noble Corporation plc,energy_majors,mid
+AN,"AutoNation, Inc.",retail,mid
+VSAT,Viasat Inc,enterprise_software,mid
+AVTR,"Avantor, Inc.",healthcare_equipment,mid
+MLI,"Mueller Industries, Inc.",industrial_machinery,mid
+COLB,Columbia Banking Systems Inc,banks,mid
+CTRE,"CareTrust REIT, Inc",reits,mid
+GFL,GFL Environmental Inc. Subordinate Voting Shares,industrial_machinery,mid
+UCTT,"Ultra Clean Holdings, Inc.",semiconductors,mid
+BRKR,Bruker Corporation,healthcare_equipment,mid
+GSAT,"Globalstar, Inc. Common Stock",uncategorized,mid
+NXST,"Nexstar Media Group, Inc. Common Stock",media_entertainment,mid
+WTRG,"Essential Utilities, Inc.",utilities,mid
+OGE,OGE Energy Corp.,utilities,mid
+TKR,The Timken Company,industrial_machinery,mid
+CAKE,Cheesecake Factory (The),restaurants,mid
+PSN,Parsons Corporation,aerospace_defense,mid
+GKOS,Glaukos Corporation,healthcare_equipment,mid
+VKTX,"Viking Therapeutics, Inc",biotech,mid
+LNC,Lincoln National Corp.,insurance,mid
+SIG,Signet Jewelers Limited,retail,mid
+HQY,"HealthEquity, Inc",enterprise_software,mid
+JBTM,JBT Marel Corporation,industrial_machinery,mid
+PVH,PVH Corp.,retail,mid
+LSTR,Landstar System Inc,industrial_machinery,mid
+TXNM,"TXNM Energy, Inc.",utilities,mid
+KGS,"Kodiak Gas Services, Inc.",oil_services,mid
+YOU,"Clear Secure, Inc.",cloud_software,mid
+CWST,Casella Waste Systems Inc,industrial_machinery,mid
+DOX,Amdocs Limited,enterprise_software,mid
+RNG,"RINGCENTRAL, INC.",cloud_software,mid
+BPOP,Popular Inc,capital_markets,mid
+CFR,Cullen/Frost Bankers Inc.,capital_markets,mid
+AXTA,Axalta Coating Systems Ltd.,materials,mid
+QLYS,"Qualys, Inc. Common Stock",cloud_software,mid
+MFC,Manulife Financial Corp.,uncategorized,mid
+ACHC,"Acadia Healthcare Company, Inc.",pharma,mid
+OLN,Olin Corp.,materials,mid
+LKQ,LKQ Corporation,retail,mid
+OSIS,OSI Systems Inc,hardware,mid
+WU,The Western Union Company,payments,mid
+CMC,Commercial Metals Company,materials,mid
+UI,Ubiquiti Inc. Common Stock,enterprise_software,mid
+YUMC,"Yum China Holdings, Inc. Common Stock",restaurants,mid
+PTCT,"PTC Therapeutics, Inc.",biotech,mid
+QGEN,QIAGEN N.V.,pharma,mid
+WEX,WEX Inc.,cloud_software,mid
+BYD,Boyd Gaming Corporation,media_entertainment,mid
+RYAN,"Ryan Specialty Holdings, Inc.",insurance,mid
+LAMR,Lamar Advertising Co,reits,mid
+L,Loews Corporation,insurance,mid
+AIT,"Applied Industrial Technologies, Inc.",industrial_machinery,mid
+SEIC,SEI Investments Co,capital_markets,mid
+GVA,Granite Construction Inc.,industrial_machinery,mid
+ONB,Old National Bancorp,capital_markets,mid
+RYTM,"Rhythm Pharmaceuticals, Inc. Common Stock",biotech,mid
+GL,Globe Life Inc.,insurance,mid
+BILL,"BILL Holdings, Inc.",fintech,mid
+MAT,"Mattel, Inc.",media_entertainment,mid
+SYM,Symbotic Inc. Class A Common Stock,industrial_machinery,mid
+STNE,StoneCo Ltd. Class A Common Shares,enterprise_software,mid
+HOG,"Harley-Davidson, Inc.",retail,mid
+TU,Telus Corporation,uncategorized,mid
+DX,"Dynex Capital, Inc.",reits,mid
+ACLS,Axcelis Technologies Inc,semiconductors,mid
+EXLS,"ExlService Holdings, Inc.",enterprise_software,mid
+ASO,"Academy Sports and Outdoors, Inc.",retail,mid
+LPX,Louisiana-Pacific Corp.,industrial_machinery,mid
+TREX,"Trex Company, Inc.",industrial_machinery,mid
+HRB,"H&R Block, Inc.",household_products,mid
+GIL,Gildan Activewear Inc.,uncategorized,mid
+MSGS,Madison Square Garden Sports Corp.,media_entertainment,mid
+MIRM,"Mirum Pharmaceuticals, Inc. Common Stock",biotech,mid
+POST,"POST HOLDINGS, INC.",food_beverage,mid
+ALGM,"Allegro MicroSystems, Inc. Common Stock",semiconductors,mid
+ST,Sensata Technologies Holding plc,hardware,mid
+PTGX,"Protagonist Therapeutics, Inc",biotech,mid
+EPRT,"Essential Properties Realty Trust, Inc.",reits,mid
+OLED,Universal Display Corp,semiconductors,mid
+RGA,"Reinsurance Group of America, Incorporated",insurance,mid
+TMHC,Taylor Morrison Home Corporation Common Stock,retail,mid
+HCC,"Warrior Met Coal, Inc.",materials,mid
+PB,Prosperity Bancshares Inc,capital_markets,mid
+AVT,"Avnet, Inc.",enterprise_software,mid
+SLNO,"Soleno Therapeutics, Inc. Common Stock",biotech,mid
+DOCS,"Doximity, Inc.",enterprise_software,mid
+JBS,JBS N.V.,food_beverage,mid
+CAMT,Camtek Ltd,semiconductors,mid
+LNTH,"Lantheus Holdings, Inc",pharma,mid
+AUGO,Aura Minerals Inc. Common Shares,uncategorized,mid
+TDW,"Tidewater, Inc.",energy_majors,mid
+OMF,"OneMain Holdings, Inc.",payments,mid
+LCID,"Lucid Group, Inc. Common Stock",retail,mid
+FSM,Fortuna Mining Corp.,uncategorized,mid
+NVST,"Envista Holdings Corporation Common stock, $0.01 par value per share",healthcare_equipment,mid
+AAON,Aaon Inc,industrial_machinery,mid
+KRYS,"Krystal Biotech, Inc. Common Stock",biotech,mid
+PLXS,Plexus Corp,hardware,mid
+LOAR,Loar Holdings Inc.,aerospace_defense,mid
+POET,POET Technologies Inc. Common Shares,semiconductors,mid
+INDV,"Indivior Pharmaceuticals, Inc. Common Stock",pharma,mid
+GPOR,Gulfport Energy Corporation,energy_majors,mid
+NOG,"Northern Oil and Gas, Inc.",energy_majors,mid
+GPK,Graphic Packaging Holding Company,materials,mid
+IRTC,"iRhythm Holdings, Inc. Common Stock",healthcare_equipment,mid
+OBDC,Blue Owl Capital Corporation,uncategorized,mid
+TTC,Toro Company (The),industrial_machinery,mid
+MIR,"Mirion Technologies, Inc.",industrial_machinery,mid
+FCN,"FTI Consulting, Inc.",uncategorized,mid
+GXO,"GXO Logistics, Inc.",industrial_machinery,mid
+COGT,"Cogent Biosciences, Inc. Common Stock",biotech,mid
+UMBF,UMB Financial Corp,capital_markets,mid
+NNN,"NNN REIT, Inc.",reits,mid
+BTDR,Bitdeer Technologies Group Class A Ordinary Shares,enterprise_software,mid
+BFAM,BRIGHT HORIZONS FAMILY SOLUTIONS INC.,household_products,mid
+INGR,Ingredion Incorporated,food_beverage,mid
+MMYT,MakeMyTrip Limited,retail,mid
+NKTR,Nektar Therapeutics,biotech,mid
+KRC,Kilroy Realty Corp.,reits,mid
+GPGI,"GPGI, Inc.",industrial_machinery,mid
+IDA,"IDACORP, Inc.",utilities,mid
+BC,Brunswick Corporation,retail,mid
+EGP,EastGroup Properties Inc.,reits,mid
+LAZ,"Lazard, Inc.",capital_markets,mid
+CCC,CCC Intelligent Solutions Holdings Inc. Common Stock,uncategorized,mid
+ALKS,Alkermes Inc. plc,pharma,mid
+BXSL,Blackstone Secured Lending Fund,uncategorized,mid
+LEA,Lear Corporation,retail,mid
+FCFS,"FirstCash Holdings, Inc. Common Stock",household_products,mid
+NPO,Enpro Inc.,industrial_machinery,mid
+NFG,National Fuel Gas Co.,energy_majors,mid
+PCVX,"Vaxcyte, Inc. Common Stock",biotech,mid
+JXN,Jackson Financial Inc.,insurance,mid
+PAA,"Plains All American Pipeline, L.P. Common Units representing Limited Partner Interests",midstream,mid
+ECG,"Everus Construction Group, Inc.",uncategorized,mid
+POR,Portland General Electric Company,utilities,mid
+CGON,"CG Oncology, Inc. Common stock",uncategorized,mid
+FLG,"Flagstar Bank, National Association",uncategorized,mid
+COCO,"The Vita Coco Company, Inc. Common Stock",food_beverage,mid
+AFG,"American Financial Group, Inc.",insurance,mid
+CALM,Cal-Maine Foods Inc,food_beverage,mid
+WTFC,Wintrust Financial Corp,capital_markets,mid
+ADT,ADT Inc.,industrial_machinery,mid
+CBSH,Commerce Bancshares Inc,capital_markets,mid
+FAF,First American Financial Corporation,capital_markets,mid
+MTH,Meritage Homes Corporation,retail,mid
+CSTM,Constellium SE Class A Ordinary shares,materials,mid
+VVV,Valvoline Inc.,autos,mid
+ORI,Old Republic International Corporation,capital_markets,mid
+ENS,"EnerSys, Inc.",hardware,mid
+IRDM,Iridium Communications Inc.,telecom,mid
+CHH,Choice Hotels Intnl.,retail,mid
+KOS,Kosmos Energy Ltd.,energy_majors,mid
+FLNC,"Fluence Energy, Inc. Class A Common Stock",utilities,mid
+KSS,Kohls Corporation,retail,mid
+SMG,The Scotts Miracle-Gro Company,materials,mid
+ULS,UL Solutions Inc.,uncategorized,mid
+GLOB,GLOBANT S.A.,enterprise_software,mid
+DDS,Dillards Inc.,retail,mid
+LTH,"Life Time Group Holdings, Inc.",media_entertainment,mid
+FR,"First Industrial Realty Trust, Inc.",reits,mid
+SRRK,Scholar Rock Holding Corporation Common Stock,biotech,mid
+APPF,"AppFolio, Inc. Class A",enterprise_software,mid
+ROAD,"Construction Partners, Inc. Class A Common Stock",industrial_machinery,mid
+TENB,"Tenable Holdings, Inc.",enterprise_software,mid
+VC,VISTEON CORPORATION,industrial_machinery,mid
+HESM,Hess Midstream LP Class A Share representing a limited partner Interest,midstream,mid
+HR,Healthcare Realty Trust Incorporated,reits,mid
+LRN,"Stride, Inc.",household_products,mid
+BKH,Black Hills Corporation,utilities,mid
+UNF,Unifirst Corp,industrial_machinery,mid
+TNGX,"Tango Therapeutics, Inc.",biotech,mid
+WES,"Western Midstream Partners, LP",energy_majors,mid
+CC,The Chemours Company,materials,mid
+AM,Antero Midstream Corporation Common Stock,uncategorized,mid
+ASB,Associated Banc-Corp,capital_markets,mid
+BRBR,"BellRing Brands, Inc.",food_beverage,mid
+WAY,Waystar Holding Corp. Common Stock,uncategorized,mid
+PII,Polaris Inc.,retail,mid
+TGTX,"TG Therapeutics, Inc.",biotech,mid
+BULL,Webull Corporation Class A Ordinary Shares,uncategorized,mid
+THO,"Thor Industries, Inc.",retail,mid
+WMG,Warner Music Group Corp. Class A Common Stock,media_entertainment,mid
+KBH,KB Home,retail,mid
+TWST,Twist Bioscience Corporation Common Stock,biotech,mid
+ESAB,ESAB Corporation,industrial_machinery,mid
+PI,"Impinj, Inc. Common Stock",hardware,mid
+WTS,"Watts Water Technologies, Inc. Class A",industrial_machinery,mid
+SNEX,StoneX Group Inc. Common Stock,capital_markets,mid
+BMI,"Badger Meter, Inc.",hardware,mid
+CNK,"Cinemark Holdings, Inc.",media_entertainment,mid
+RAL,Ralliant Corporation,uncategorized,mid
+DK,"Delek US Holdings, Inc.",energy_majors,mid
+VNO,Vornado Realty Trust,reits,mid
+LBRDK,Liberty Broadband Corporation Class C,uncategorized,mid
+ADMA,"ADMA Biologics, Inc.",biotech,mid
+RYN,Rayonier Inc.,materials,mid
+AXS,Axis Capital Holders Limited,capital_markets,mid
+ITGR,Integer Holdings Corporation,healthcare_equipment,mid
+ATR,"AptarGroup, Inc.",healthcare_equipment,mid
+WRBY,Warby Parker Inc.,healthcare_equipment,mid
+UWMC,UWM Holdings Corporation,capital_markets,mid
+WK,Workiva Inc.,enterprise_software,mid
+MIAX,"Miami International Holdings, Inc.",uncategorized,mid
+RELY,"Remitly Global, Inc. Common Stock",cloud_software,mid
+WEN,The Wendy's Company,restaurants,mid
+CRC,California Resources Corporation,energy_majors,mid
+AROC,Archrock Inc,energy_majors,mid
+PBA,PEMBINA PIPELINE CORPORATION,uncategorized,mid
+BRZE,"Braze, Inc. Class A Common Stock",enterprise_software,mid
+PENN,"PENN Entertainment, Inc. Common Stock",media_entertainment,mid
+PFSI,"PennyMac Financial Services, Inc. Common Stock",capital_markets,mid
+GT,Goodyear Tire & Rubber,retail,mid
+IPGP,IPG Photonics Corporation,semiconductors,mid
+DNTH,"Dianthus Therapeutics, Inc. Common Stock",biotech,mid
+APGE,"Apogee Therapeutics, Inc. Common Stock",biotech,mid
+GTES,Gates Industrial Corporation plc,industrial_machinery,mid
+KAI,Kadant Inc.,industrial_machinery,mid
+KBR,"KBR, Inc.",industrial_machinery,mid
+VRNS,"Varonis Systems, Inc.",enterprise_software,mid
+PIPR,Piper Sandler Companies,capital_markets,mid
+MSM,"MSC Industrial Direct Co., Inc. Class A",industrial_machinery,mid
+ACMR,"ACM Research, Inc. Class A Common Stock",semiconductors,mid
+PJT,PJT Partners Inc.,capital_markets,mid
+INSP,"Inspire Medical Systems, Inc.",healthcare_equipment,mid
+ALHC,"Alignment Healthcare, Inc. Common Stock",pharma,mid
+SAIC,Science Applications International Corporation Common Stock,enterprise_software,mid
+UGI,UGI Corporation,energy_majors,mid
+BEAM,Beam Therapeutics Inc. Common Stock,biotech,mid
+KNTK,Kinetik Holdings Inc.,energy_majors,mid
+STWD,"STARWOOD PROPERTY TRUST, INC.",reits,mid
+BOX,"BOX, INC.",enterprise_software,mid
+ATMU,Atmus Filtration Technologies Inc.,industrial_machinery,mid
+SOC,Sable Offshore Corp.,uncategorized,mid
+ARR,"ARMOUR Residential REIT, Inc.",reits,mid
+ERIE,Erie Indemnity Co,capital_markets,mid
+TXG,"10x Genomics, Inc. Class A Common Stock",healthcare_services,mid
+XRAY,DENTSPLY SIRONA Inc.,pharma,mid
+SYNA,Synaptics Inc,semiconductors,mid
+XENE,Xenon Pharmaceuticals Inc,biotech,mid
+MTG,MGIC Investment Corp.,insurance,mid
+KD,"Kyndryl Holdings, Inc.",enterprise_software,mid
+BEPC,Brookfield Renewable Corporation Class A Exchangeable Subordinate Voting Shares,energy_majors,mid
+SLG,SL Green Realty Corp.,reits,mid
+SON,Sonoco Products Company,industrial_machinery,mid
+KTB,"Kontoor Brands, Inc. Common Stock",retail,mid
+NUVL,"Nuvalent, Inc. Class A Common Stock",biotech,mid
+OPCH,"Option Care Health, Inc. Common Stock",pharma,mid
+YETI,"YETI Holdings, Inc. Common Stock",retail,mid
+PRI,"PRIMERICA, INC.",capital_markets,mid
+TNL,Travel + Leisure Co.,retail,mid
+LIVN,LivaNova PLC Ordinary Shares,healthcare_equipment,mid
+TDC,TERADATA CORPORATION,hardware,mid
+PTON,"Peloton Interactive, Inc. Class A Common Stock",media_entertainment,mid
+LEVI,Levi Strauss & Co. Class A Common Stock,retail,mid
+TVTX,"Travere Therapeutics, Inc. Common Stock",biotech,mid
+CPA,"Copa Holdings, S.A.",transports,mid
+FRSH,Freshworks Inc. Class A Common Stock,restaurants,mid
+DCI,"Donaldson Company, Inc.",industrial_machinery,mid
+VIRT,"Virtu Financial, Inc. Class A",capital_markets,mid
+ORKA,"Oruka Therapeutics, Inc. Common Stock",uncategorized,mid
+BANC,"Banc of California, Inc.",capital_markets,mid
+HWC,Hancock Whitney Corporation Common Stock,capital_markets,mid
+FSS,Federal Signal Corp.,industrial_machinery,mid
+CPRI,Capri Holdings Limited,retail,mid
+OZK,Bank OZK,capital_markets,mid
+LAUR,"Laureate Education, Inc. Common Stock",food_beverage,mid
+RRR,"Red Rock Resorts, Inc. Class A Common Stock",media_entertainment,mid
+RDNT,"RadNet, Inc. Common Stock",pharma,mid
+AESI,Atlas Energy Solutions Inc.,energy_majors,mid
+CUZ,Cousins Properties Inc.,reits,mid
+RHP,"Ryman Hospitality Properties, Inc",reits,mid
+HP,"Helmerich & Payne, Inc.",energy_majors,mid
+NOVT,Novanta Inc. Common Stock,hardware,mid
+GTM,ZoomInfo Technologies Inc Common Stock,cloud_software,mid
+NSA,National Storage Affiliates Trust,reits,mid
+COLD,"Americold Realty Trust, Inc.",reits,mid
+WGS,GeneDx Holdings Corp. Class A Common Stock,uncategorized,mid
+MMSI,Merit Medical Systems Inc,healthcare_equipment,mid
+AMTM,"Amentum Holdings, Inc.",uncategorized,mid
+STEP,StepStone Group Inc. Class A Common Stock,capital_markets,mid
+KYMR,"Kymera Therapeutics, Inc. Common Stock",biotech,mid
+UAA,"Under Armour, Inc.",uncategorized,mid
+WHD,"Cactus, Inc.",energy_majors,mid
+IOVA,"Iovance Biotherapeutics, Inc. Common Stock",biotech,mid
+THG,"The Hanover Insurance Group, Inc.",insurance,mid
+AMR,"Alpha Metallurgical Resources, Inc.",materials,mid
+ZG,ZILLOW GROUP INC CLASS A,uncategorized,mid
+GPI,"Group 1 Automotive, Inc.",retail,mid
+SRPT,"Sarepta Therapeutics,, Inc. Common Stock",biotech,mid
+BFH,"Bread Financial Holdings, Inc.",payments,mid
+KRG,Kite Realty Group Trust,reits,mid
+DRS,"Leonardo DRS, Inc. Common Stock",aerospace_defense,mid
+SXI,Standex International Corporation,industrial_machinery,mid
+SBRA,"Sabra Healthcare REIT, Inc.",reits,mid
+PLPC,Preformed Line Products Co,hardware,mid
+WT,"WisdomTree, Inc.",capital_markets,mid
+SBET,"Sharplink, Inc. Common Stock",uncategorized,mid
+ABG,"Asbury Automotive Group, Inc.",retail,mid
+BKD,"Brookdale Senior Living, Inc.",pharma,mid
+BW,"Babcock & Wilcox Enterprises, Inc.",industrial_machinery,mid
+SSD,"Simpson Manufacturing Co., Inc.",industrial_machinery,mid
+TFII,TFI International Inc.,uncategorized,mid
+BKSY,BlackSky Technology Inc.,industrial_machinery,mid
+CORT,Corcept Therapeutics Inc.,biotech,mid
+EEFT,Euronet Worldwide Inc,industrial_machinery,mid
+SEZL,Sezzle Inc. Common Stock,payments,mid
+ZIM,ZIM Integrated Shipping Services Ltd.,industrial_machinery,mid
+KMT,Kennametal Inc.,industrial_machinery,mid
+MMS,"MAXIMUS, Inc.",industrial_machinery,mid
+DBRG,"DigitalBridge Group, Inc.",reits,mid
+FLO,"Flowers Foods, Inc.",food_beverage,mid
+EPR,EPR Properties,reits,mid
+RXRX,"Recursion Pharmaceuticals, Inc. Class A Common Stock",biotech,mid
+NTLA,"Intellia Therapeutics, Inc",biotech,mid
+AIR,AAR Corp.,aerospace_defense,mid
+MAC,The Macerich Company,reits,mid
+BCO,The Brink's Company,industrial_machinery,mid
+PATK,Patrick Industries Inc,retail,mid
+SGML,Sigma Lithium Corporation Common Shares,materials,mid
+HAE,Haemonetics Corporation,healthcare_equipment,mid
+KNF,Knife River Corporation,materials,mid
+NESR,National Energy Services Reunited Corp. Ordinary Shares,energy_majors,mid
+SWX,"Southwest Gas Holdings, Inc.",utilities,mid
+STAG,"STAG INDUSTRIAL, INC.",reits,mid
+FMC,FMC Corporation,materials,mid
+BLSH,Bullish,uncategorized,mid
+KLIC,Kulicke & Soffa Industries Inc,semiconductors,mid
+PAGP,"Plains GP Holdings, L.P. Class A Units representing Limited Partner Interests",energy_majors,mid
+SAM,Boston Beer Company,food_beverage,mid
+BDC,Belden Inc.,industrial_machinery,mid
+TCBI,"Texas Capital Bancshares, Inc.",capital_markets,mid
+PK,Park Hotels & Resorts Inc. Common Stock,reits,mid
+VERA,"Vera Therapeutics, Inc. Class A Common Stock",biotech,mid
+AMBA,"Ambarella, Inc. Ordinary Shares",semiconductors,mid
+VSH,"Vishay Intertechnology, Inc.",semiconductors,mid
+RDN,Radian Group Inc.,insurance,mid
+GBCI,Glacier Bancorp Inc,capital_markets,mid
+ICHR,Ichor Holdings,industrial_machinery,mid
+LGND,Ligand Pharmaceuticals Inc.,biotech,mid
+RARE,Ultragenyx Pharmaceutical Inc.,biotech,mid
+OR,OR Royalties Inc.,uncategorized,mid
+RCI,"Rogers Communications, Inc.",uncategorized,mid
+GRAL,"GRAIL, Inc. Common Stock",uncategorized,mid
+FHI,"Federated Hermes, Inc.",capital_markets,mid
+IAC,IAC Inc. Common Stock,enterprise_software,mid
+SMMT,Summit Therapeutics Inc. Common Stock,biotech,mid
+MATX,"Matsons, Inc.",industrial_machinery,mid
+SIGI,Selective Insurance Group,insurance,mid
+SHOO,Steven Madden Ltd,retail,mid
+PPTA,Perpetua Resources Corp. Common Shares,materials,mid
+GNTX,Gentex Corp,retail,mid
+SKY,"Champion Homes, Inc.",retail,mid
+OII,Oceaneering International Inc.,energy_majors,mid
+FIGS,"FIGS, Inc.",retail,mid
+SATL,Satellogic Inc. Class A Ordinary Shares,hardware,mid
+BOKF,BOK Financial Corp,capital_markets,mid
+MBLY,Mobileye Global Inc. Class A Common Stock,retail,mid
+SLF,Sun Life Financial Inc.,uncategorized,mid
+POWI,Power Integrations Inc,semiconductors,mid
+LOPE,"Grand Canyon Education, Inc",food_beverage,mid
+OTEX,Open Text Corp,cloud_software,mid
+ZWS,Zurn Elkay Water Solutions Corporation,industrial_machinery,mid
+WSC,WillScot Holdings Corporation Class A Common Stock,industrial_machinery,mid
+ESNT,Essent Group LTD,insurance,mid
+LQDA,Liquidia Corporation Common Stock,biotech,mid
+UPWK,Upwork Inc. Common Stock,internet_platforms,mid
+VITL,"Vital Farms, Inc. Common Stock",food_beverage,mid
+ASAN,"Asana, Inc. Class A Common Stock",enterprise_software,mid
+BORR,Borr Drilling Limited,energy_majors,mid
+CARG,"CarGurus, Inc. Class A Common Stock",enterprise_software,mid
+AI,"C3.ai, Inc.",ai_infrastructure,mid
+ORC,"Orchid Island Capital, Inc.",reits,mid
+GTX,Garrett Motion Inc. Common Stock,autos,mid
+PUMP,ProPetro Holding Corp.,energy_majors,mid
+MRX,Marex Group plc Ordinary Shares,uncategorized,mid
+PAG,"Penske Automotive Group, Inc.",retail,mid
+RLI,RLI Corp.,insurance,mid
+DSGX,Descartes Systems Group Inc,enterprise_software,mid
+LIF,"Life360, Inc. Common Stock",uncategorized,mid
+BELFB,Bel Fuse Inc,hardware,mid
+FSK,FS KKR Capital Corp. Common Stock,capital_markets,mid
+NCNO,"nCino, Inc. Common Stock",enterprise_software,mid
+CRNX,"Crinetics Pharmaceuticals, Inc.",biotech,mid
+SRAD,Sportradar Group AG Class A Ordinary Shares,enterprise_software,mid
+ABCB,Ameris Bancorp,capital_markets,mid
+ALGT,Allegiant Travel Company,transports,mid
+ARRY,"Array Technologies, Inc. Common Stock",semiconductors,mid
+QTWO,Q2 Holdings Inc,enterprise_software,mid
+SYRE,"Spyre Therapeutics, Inc. Common Stock",biotech,mid
+DAN,Dana Incorporated,retail,mid
+HTZ,"Hertz Global Holdings, Inc Common Stock",retail,mid
+ASH,Ashland Inc.,materials,mid
+IRT,Independence Realty Trust Inc.,reits,mid
+DJCO,Daily Journal Corp,media_entertainment,mid
+PPC,Pilgrims Pride Corporation,food_beverage,mid
+HSAI,"Hesai Group American Depositary Share, each ADS represents one Class B ordinary share",retail,mid
+EBC,"Eastern Bankshares, Inc. Common Stock",capital_markets,mid
+FTS,Fortis Inc. Common Shares,uncategorized,mid
+CRK,"Comstock Resources, Inc.",energy_majors,mid
+FULT,Fulton Financial Corp,capital_markets,mid
+NNE,Nano Nuclear Energy Inc. Common Stock,uncategorized,mid
+DLB,"Dolby Laboratories, Inc.Class A",media_entertainment,mid
+SPSC,"SPS Commerce, Inc.",enterprise_software,mid
+CALX,"CALIX, INC.",enterprise_software,mid
+UFPT,UFP Technologies Inc,healthcare_equipment,mid
+OUST,"Ouster, Inc.",hardware,mid
+MZTI,The Marzetti Company Common Stock,uncategorized,mid
+CTRI,"Centuri Holdings, Inc.",uncategorized,mid
+VCTR,"Victory Capital Holdings, Inc. Class A Common Stock",capital_markets,mid
+CNXC,Concentrix Corporation Common Stock,enterprise_software,mid
+WTM,White Mountains Insurance Group Ltd.,insurance,mid
+PGY,Pagaya Technologies Ltd. Class A Ordinary Shares,cloud_software,mid
+BL,"BlackLine, Inc. Common Stock",enterprise_software,mid
+INSW,"International Seaways, Inc. Common Stock",industrial_machinery,mid
+VECO,Veeco Instruments Inc,semiconductors,mid
+TNDM,"Tandem Diabetes Care, Inc.",healthcare_equipment,mid
+OUT,OUTFRONT Media Inc.,reits,mid
+CRI,Carter's Inc.,retail,mid
+TPC,Tutor Perini Corporation,industrial_machinery,mid
+FHB,"First Hawaiian, Inc. Common Stock",capital_markets,mid
+SHC,Sotera Health Company Common Stock,pharma,mid
+CAI,"Caris Life Sciences, Inc. Common Stock",biotech,mid
+REZI,"Resideo Technologies, Inc. Common Stock",retail,mid
+BCRX,BioCryst Pharmaceuticals Inc,biotech,mid
+TNK,Teekay Tankers Ltd.,energy_majors,mid
+GLBE,Global-E Online Ltd. Ordinary Shares,retail,mid
+OGS,"ONE GAS, INC.",utilities,mid
+MRCY,Mercury Systems Inc.,hardware,mid
+FTDR,"Frontdoor, Inc. Common Stock",household_products,mid
+PSIX,"Power Solutions International, Inc. Common Stock",industrial_machinery,mid
+DIOD,Diodes Inc,semiconductors,mid
+HOMB,"Home BancShares, Inc.",capital_markets,mid
+LWLG,"Lightwave Logic, Inc. Common Stock",materials,mid
+INOD,Innodata Inc.,enterprise_software,mid
+SAIL,"SailPoint, Inc. Common Stock",enterprise_software,mid
+CLMT,"Calumet, Inc. Common Stock",energy_majors,mid
+IMAX,Imax Corp,media_entertainment,mid
+LAC,Lithium Americas Corp.,materials,mid
+LINE,"Lineage, Inc. Common Stock",energy_majors,mid
+CECO,Ceco Environmental Corp,industrial_machinery,mid
+NTSK,"Netskope, Inc. Class A Common Stock",cloud_software,mid
+NATL,NCR Atleos Corporation,uncategorized,mid
+BNL,"Broadstone Net Lease, Inc.",reits,mid
+DNOW,DNOW Inc.,energy_majors,mid
+AMC,"AMC ENTERTAINMENT HOLDINGS, INC.",media_entertainment,mid
+FIBK,"First Interstate BancSystem, Inc. Common Stock (DE)",capital_markets,mid
+MAIN,Main Street Capital Corporation,capital_markets,mid
+ACAD,Acadia Pharmaceuticals Inc.,biotech,mid
+PAGS,PagSeguro Digital Ltd.,enterprise_software,mid
+MSA,Mine Safety Incorporated,industrial_machinery,mid
+GATX,GATX Corporation,industrial_machinery,mid
+UBSI,United Bankshares Inc,capital_markets,mid
+APLE,"Apple Hospitality REIT, Inc.",reits,mid
+AMSC,American Superconductor Corp,hardware,mid
+LCII,LCI Industries,retail,mid
+TPB,"Turning Point Brands, Inc.",food_beverage,mid
+VAC,MARRIOTT VACATIONS WORLDWIDE CORPORATION,retail,mid
+MRP,"Millrose Properties, Inc.",uncategorized,mid
+BIPC,Brookfield Infrastructure Corporation Class A Exchangeable Subordinate Voting Shares,utilities,mid
+MTRN,Materion Corporation,materials,mid
+CVI,"CVR ENERGY, INC.",energy_majors,mid
+PLAB,Photronics Inc,semiconductors,mid
+CIGI,Colliers International Group Inc. Subordinate Voting Shares,reits,mid
+TRIP,"TripAdvisor, Inc.",retail,mid
+WDFC,Wd-40 Co,materials,mid
+ICUI,ICU Medical Inc,pharma,mid
+TRNO,Terreno Realty Corporation,reits,mid
+FIVN,"FIVE9, INC.",enterprise_software,mid
+BWIN,"The Baldwin Insurance Group, Inc. Class A Common Stock",uncategorized,mid
+BHF,"Brighthouse Financial, Inc.",insurance,mid
+MAN,ManpowerGroup,industrial_machinery,mid
+VNT,Vontier Corporation,hardware,mid
+RSI,"Rush Street Interactive, Inc.",retail,mid
+BKU,"Bankunited, Inc.",capital_markets,mid
+CSW,"CSW Industrials, Inc.",uncategorized,mid
+REAL,"The RealReal, Inc. Common Stock",retail,mid
+AUB,Atlantic Union Bankshares Corporation,capital_markets,mid
+PRCT,PROCEPT BioRobotics Corporation Common Stock,healthcare_equipment,mid
+TARS,"Tarsus Pharmaceuticals, Inc. Common Stock",biotech,mid
+GEO,"The GEO Group, Inc.",reits,mid
+DXC,DXC Technology Company,enterprise_software,mid
+DYN,"Dyne Therapeutics, Inc. Common Stock",biotech,mid
+ATRO,Astronics Corp,aerospace_defense,mid
+QURE,uniQure N.V.,biotech,mid
+CVSA,Covista Inc.,household_products,mid
+VRDN,"Viridian Therapeutics, Inc. Common Stock",biotech,mid
+ENVA,"Enova International, Inc.",payments,mid
+SLDE,"Slide Insurance Holdings, Inc. Common Stock",uncategorized,mid
+SOBO,South Bow Corporation,uncategorized,mid
+UFPI,"UFP Industries, Inc. Common Stock",industrial_machinery,mid
+PRKS,United Parks & Resorts Inc.,uncategorized,mid
+COLM,Columbia Sportswear Co,retail,mid
+ETOR,eToro Group Ltd. Class A Common Shares,uncategorized,mid
+SDRL,Seadrill Limited,energy_majors,mid
+XMTR,"Xometry, Inc. Class A Common Stock",industrial_machinery,mid
+CALY,Callaway Golf Company,media_entertainment,mid
+CWEN,"Clearway Energy, Inc. Class C Common Stock",utilities,mid
+PZZA,Papa John's International Inc,restaurants,mid
+ERO,Ero Copper Corp.,uncategorized,mid
+GIB,CGI Inc.,uncategorized,mid
+ANAB,"AnaptysBio, Inc. Common Stock",biotech,mid
+HTGC,"Hercules Capital, Inc.",capital_markets,mid
+LLYVK,"Liberty Live Holdings, Inc. Series C Liberty Live Group Common Stock",uncategorized,mid
+HURN,Huron Consulting Group Inc.,industrial_machinery,mid
+HGV,Hilton Grand Vacations Inc. Common Stock,retail,mid
+CBZ,"CBIZ, Inc.",uncategorized,mid
+TYRA,"Tyra Biosciences, Inc. Common Stock",biotech,mid
+PRGO,PERRIGO COMPANY PLC,pharma,mid
+NWS,News Corporation Class B Common Stock,media_entertainment,mid
+MDU,"MDU Resources Group, Inc.",utilities,mid
+BIP,Brookfield Infrastructure Partners L.P. Limited Partnership Units,utilities,mid
+SFD,"Smithfield Foods, Inc. Common Stock",uncategorized,mid
+OCUL,"Ocular Therapeutix, Inc.",biotech,mid
+ACA,"Arcosa, Inc. Common Stock",industrial_machinery,mid
+CSIQ,Canadian Solar Inc. Common Shares (ON),hardware,mid
+KFY,Korn Ferry,industrial_machinery,mid
+BCPC,Balchem Corporation,materials,mid
+SLGN,Silgan Holdings Inc,industrial_machinery,mid
+WERN,Werner Enterprises Inc,industrial_machinery,mid
+OGN,Organon & Co.,pharma,mid
+VVX,"V2X, Inc.",aerospace_defense,mid
+HTFL,"Heartflow, Inc. Common Stock",uncategorized,mid
+TDS,Telephone and Data Systems Inc.,uncategorized,mid
+EYE,"National Vision Holdings, Inc. Common Stock",retail,mid
+DJT,Trump Media & Technology Group Corp. Common Stock,uncategorized,mid
+SHLS,"Shoals Technologies Group, Inc. Class A Common Stock",industrial_machinery,mid
+HAYW,"Hayward Holdings, Inc.",industrial_machinery,mid
+NWE,"NorthWestern Energy Group, Inc. Common Stock",utilities,mid
+EXPO,Exponent Inc,industrial_machinery,mid
+PSMT,Pricesmart Inc,food_beverage,mid
+SMPL,The Simply Good Foods Company Common Stock,food_beverage,mid
+CXT,"Crane NXT, Co.",uncategorized,mid
+ALMS,Alumis Inc. Common Stock,uncategorized,mid
+KNSA,"Kiniksa Pharmaceuticals International, plc Class A Ordinary Shares",biotech,mid
+BTBT,"Bit Digital, Inc. Ordinary Shares",capital_markets,mid
+SKYW,Skywest Inc,transports,mid
+HASI,"HA Sustainable Infrastructure Capital, Inc.",reits,mid
+YELP,YELP INC.,enterprise_software,mid
+ESTA,Establishment Labs Holdings Inc.,healthcare_equipment,mid
+DFTX,"Definium Therapeutics, Inc. Common Shares",uncategorized,mid
+GBDC,"Golub Capital BDC, Inc.",capital_markets,mid
+AX,"Axos Financial, Inc. Common Stock",capital_markets,mid
+ARCB,ArcBest Corporation,industrial_machinery,mid
+WVE,Wave Life Sciences Ltd. Ordinary Shares,biotech,mid
+SERV,Serve Robotics Inc. Common Stock,uncategorized,mid
+RHLD,"Resolute Holdings Management, Inc.",uncategorized,mid
+TALO,"Talos Energy, Inc. Common Stock",energy_majors,mid
+AXGN,"Axogen, Inc. Common Stock",healthcare_equipment,mid
+HHH,Howard Hughes Holdings Inc.,uncategorized,mid
+SUPN,"Supernus Pharmaceuticals, Inc.",pharma,mid
+CBRL,"Cracker Barrel Old Country Store, Inc,.",restaurants,mid
+IMVT,"Immunovant, Inc. Common Stock",biotech,mid
+RUSHA,Rush Enterprises Inc,retail,mid
+SNDX,"Syndax Pharmaceuticals, Inc.",biotech,mid
+CDP,COPT Defense Properties,reits,mid
+PVLA,"Palvella Therapeutics, Inc. Common Stock",uncategorized,mid
+NVAX,Novavax Inc,biotech,mid
+ACIW,"ACI Worldwide, Inc.",enterprise_software,mid
+CGAU,Centerra Gold Inc.,uncategorized,mid
+ENVX,Enovix Corporation Common Stock,industrial_machinery,mid
+SUN,SUNOCO L.P.,energy_majors,mid
+PBI,Pitney Bowes Inc.,industrial_machinery,mid
+NBR,Nabors Industries Ltd.,energy_majors,mid
+GOLF,Acushnet Holdings Corp.,retail,mid
+NSIT,Insight Enterprises Inc,enterprise_software,mid
+BH,Biglari Holdings Inc. Class B Common Stock,uncategorized,mid
+CPRX,Catalyst Pharmaceutical  Inc.,biotech,mid
+INGM,Ingram Micro Holding Corporation,uncategorized,mid
+SKYT,"SkyWater Technology, Inc. Common Stock",semiconductors,mid
+DNLI,Denali Therapeutics Inc. Common Stock,biotech,mid
+HTO,H2O America Common Stock,uncategorized,mid
+ADEA,Adeia Inc. Common Stock,enterprise_software,mid
+BB,BlackBerry Limited,cloud_software,mid
+SII,Sprott Inc.,uncategorized,mid
+KALU,Kaiser Aluminum Corporation,materials,mid
+HE,"Hawaiian Electric Industries, Inc.",utilities,mid
+MHO,"M/I Homes, Inc.",retail,mid
+BOH,Bank of Hawaii Corp.,capital_markets,mid
+GFF,Griffon Corp,materials,mid
+FUL,H.B. Fuller Company,materials,mid
+SR,Spire Inc.,utilities,mid
+PECO,"Phillips Edison & Company, Inc. Common Stock",reits,mid
+SBLK,Star Bulk Carriers Corp.,industrial_machinery,mid
+ZD,"Ziff Davis, Inc. Common Stock",retail,mid
+SGHC,Super Group (SGHC) Limited,retail,mid
+FUN,Six Flags Entertainment Corporation,retail,mid
+RXO,"RXO, Inc.",industrial_machinery,mid
+CAPR,Capricor Therapeutics Inc,biotech,mid
+GOLD,"Gold.com, Inc.",uncategorized,mid
+SXT,Sensient Technology Corporation,materials,mid
+MLYS,"Mineralys Therapeutics, Inc. Common Stock",biotech,mid
+PEB,Pebblebrook Hotel Trust,reits,mid
+PRM,"Perimeter Solutions, Inc.",materials,mid
+BCC,Boise Cascade Company,materials,mid
+HUBG,HUB Group Inc,industrial_machinery,mid
+PRGS,Progress Software Corp (DE),enterprise_software,mid
+ALKT,"Alkami Technology, Inc. Common Stock",enterprise_software,mid
+COUR,"Coursera, Inc.",food_beverage,mid
+CRAI,"CRA International, Inc.",industrial_machinery,mid
+QDEL,QuidelOrtho Corporation Common Stock,pharma,mid
+GCT,GigaCloud Technology Inc Class A Ordinary Shares,enterprise_software,mid
+LC,LendingClub Corporation,payments,mid
+PHG,KONINKLIJKE PHILIPS  N.V.,healthcare_equipment,mid
+ARQT,"Arcutis Biotherapeutics, Inc. Common Stock",biotech,mid
+PLMR,"Palomar Holdings, Inc. Common stock",insurance,mid
+ATEC,"Alphatec Holdings, Inc.",healthcare_equipment,mid
+IRON,"Disc Medicine, Inc. Common Stock",biotech,mid
+ARIS,Aris Mining Corporation,utilities,mid
+TWO,Two Harbors Investment Corp.,reits,mid
+SLS,"SELLAS Life Sciences Group, Inc. Common Stock",biotech,mid
+COHU,Cohu Inc,semiconductors,mid
+UNFI,United Natural Foods Inc,food_beverage,mid
+WTI,"W&T Offshore, Inc.",energy_majors,mid
+HIW,Highwoods Properties Inc.,reits,mid
+NAMS,NewAmsterdam Pharma Company N.V. Ordinary Shares,biotech,mid
+FELE,Franklin Electric Co Inc,industrial_machinery,mid
+LXP,LXP Industrial Trust,reits,mid
+RLAY,"Relay Therapeutics, Inc. Common Stock",biotech,mid
+DORM,"Dorman Products, Inc. New",retail,mid
+SA,"Seabridge Gold, Inc.",materials,mid
+TROX,TRONOX LIMITED CL A ORDINARY SHARES,materials,mid
+GERN,Geron Corp,biotech,mid
+FBP,First BanCorp.,capital_markets,mid
+HNI,HNI Corporation,industrial_machinery,mid
+ELVN,"Enliven Therapeutics, Inc. Common Stock",biotech,mid
+CSGS,CSG Systems International,enterprise_software,mid
+PBH,Prestige Consumer Healthcare Inc.,healthcare_services,mid
+VCYT,"Veracyte, Inc.",pharma,mid
+CHEF,The Chef's Warehouse Inc,food_beverage,mid
+DCH,Dauch Corporation,uncategorized,mid
+TMC,TMC the metals company Inc. Common Stock,materials,mid
+PHIN,PHINIA Inc.,retail,mid
+GNW,"Genworth Financial, Inc.",capital_markets,mid
+MPT,"Medical Properties Trust, Inc.",uncategorized,mid
+IDYA,"IDEAYA Biosciences, Inc. Common Stock",biotech,mid
+SKT,Tanger Inc.,reits,mid
+CBT,Cabot Corporation,materials,mid
+ADTN,"ADTRAN Holdings, Inc. Common Stock",enterprise_software,mid
+NSP,"Insperity, Inc",uncategorized,mid
+FSV,FirstService Corporation Common Shares,uncategorized,mid
+CVBF,CVB Financial Corp,capital_markets,mid
+UCB,"United Community Banks, Inc.",uncategorized,mid
+MWA,"Mueller Water Products, Inc.",industrial_machinery,mid
+WINA,Winmark Corp,retail,mid
+PENG,"Penguin Solutions, Inc. Ordinary Shares",enterprise_software,mid
+TBBK,The Bancorp Inc.,capital_markets,mid
+EWTX,"Edgewise Therapeutics, Inc. Common Stock",biotech,mid
+STN,"Stantec, Inc.",uncategorized,mid
+NJR,New Jersey Resources Corp,utilities,mid
+AQN,Algonquin Power & Utilities Corp,uncategorized,mid
+BKV,BKV Corporation,uncategorized,mid
+LION,Lionsgate Studios Corp.,capital_markets,mid
+GENI,Genius Sports Limited,enterprise_software,mid
+SPB,"Spectrum Brands Holdings, Inc.",retail,mid
+APAM,ARTISAN PARTNERS ASSET MANAGEMENT INC.,capital_markets,mid
+LBTYA,Liberty Global Ltd. Class A Common Shares,uncategorized,mid
+CLDX,"Celldex Therapeutics, Inc",biotech,mid
+LB,LandBridge Company LLC,uncategorized,mid
+ALG,"Alamo Group, Inc.",industrial_machinery,mid
+NHI,National Health Investors,reits,mid
+EXTR,Extreme Networks,enterprise_software,mid
+AVNT,Avient Corporation,materials,mid
+WTTR,"Select Water Solutions, Inc.",energy_majors,mid
+CNO,"CNO Financial Group, Inc.",insurance,mid
+DV,"DoubleVerify Holdings, Inc.",enterprise_software,mid
+TDOC,"Teladoc Health, Inc.",pharma,mid
+PGNY,"Progyny, Inc. Common Stock",managed_care,mid
+PACS,"PACS Group, Inc.",uncategorized,mid
+NN,NextNav Inc. Common Stock,enterprise_software,mid
+CUBI,CUSTOMERS BANCORP INC,capital_markets,mid
+SNDR,"Schneider National, Inc.",industrial_machinery,mid
+NIC,"Nicolet Bankshares,Inc.",capital_markets,mid
+AGO,"Assured Guaranty, LTD",insurance,mid
+STUB,"StubHub Holdings, Inc.",uncategorized,mid
+OPLN,"OPENLANE, Inc",uncategorized,mid
+BGC,"BGC Group, Inc. Class A Common Stock",uncategorized,mid
+BYND,"Beyond Meat, Inc. Common Stock",food_beverage,mid
+PCT,"PureCycle Technologies, Inc. Common stock",industrial_machinery,mid
+OTTR,Otter Tail Corp,utilities,mid
+LPTH,Lightpath Technologies Inc,hardware,mid
+RCUS,"Arcus Biosciences, Inc.",biotech,mid
+OTF,Blue Owl Technology Finance Corp.,capital_markets,mid
+NMRK,"Newmark Group, Inc. Class A Common Stock",reits,mid
+BEP,Brookfield Renewable Partners L.P.,energy_majors,mid
+MGNI,"Magnite, Inc. Common Stock",enterprise_software,mid
+AGIO,"Agios Pharmaceuticals, Inc.",biotech,mid
+WSFS,WSFS Financial Corp,capital_markets,mid
+BXMT,"Blackstone Mortgage Trust, Inc. (NEW)",reits,mid
+NTST,NetSTREIT Corp.,reits,mid
+WLDN,"Willdan Group, Inc.",industrial_machinery,mid
+NEXT,NextDecade Corporation Common Stock,energy_majors,mid
+GO,Grocery Outlet Holding Corp. Common Stock,food_beverage,mid
+RNST,Renasant Corporation,capital_markets,mid
+ECVT,Ecovyst Inc.,materials,mid
+VET,VERMILION ENERGY INC.,uncategorized,mid
+VRRM,Verra Mobility Corporation Class A Common Stock,industrial_machinery,mid
+NAT,Nordic American Tanker,industrial_machinery,mid
+STRA,"Strategic Education, Inc. Common Stock",food_beverage,mid
+SIDU,"Sidus Space, Inc. Class A Common Stock",uncategorized,mid
+ADPT,Adaptive Biotechnologies Corporation Common Stock,biotech,mid
+DXPE,DXP Enterprises Inc,industrial_machinery,mid
+SKE,Skeena Resources Limited,uncategorized,mid
+SMA,"SmartStop Self Storage REIT, Inc.",uncategorized,mid
+ICFI,"ICF International, Inc.",industrial_machinery,mid
+KMPR,Kemper Corporation,insurance,mid
+SEM,SELECT MEDICAL HOLDINGS CORP,pharma,mid
+INDB,Independent Bank Corp/MA,capital_markets,mid
+DEI,"Douglas Emmett, Inc.",reits,mid
+ABR,"Arbor Realty Trust, Inc.",reits,mid
+LAR,Lithium Argentina AG,uncategorized,mid
+BLKB,"Blackbaud, Inc.",enterprise_software,mid
+INTR,Inter & Co. Inc. Class A Common Shares,capital_markets,mid
+RVLV,"Revolve Group, Inc.",retail,mid
+AZZ,AZZ Inc.,industrial_machinery,mid
+CWH,"Camping World Holdings, Inc.",retail,mid
+PAR,PAR Technology Corp.,enterprise_software,mid
+ADUS,Addus HomeCare Corp.,pharma,mid
+UTI,"Universal Technical Institute, Inc.",food_beverage,mid
+SFNC,Simmons First National Corp,capital_markets,mid
+OI,"O-I Glass, Inc.",materials,mid
+MBC,"MasterBrand, Inc.",retail,mid
+GPRE,"Green Plains, Inc.",materials,mid
+NB,NioCorp Developments Ltd. Common Stock,uncategorized,mid
+ANIP,"ANI Pharmaceuticals, Inc.",pharma,mid
+DCO,Ducommun Incorporated,aerospace_defense,mid
+MUX,McEwen Inc.,materials,mid
+KWR,Quaker Houghton,materials,mid
+DBD,"Diebold Nixdorf, Incorporated",enterprise_software,mid
+MAZE,"Maze Therapeutics, Inc. Common Stock",uncategorized,mid
+HWKN,Hawkins Inc,materials,mid
+IMNM,"Immunome, Inc.",biotech,mid
+TRMD,TORM plc Class A Common Stock,energy_majors,mid
+SG,"Sweetgreen, Inc.",restaurants,mid
+SFBS,ServisFirst Bancshares Inc.,capital_markets,mid
+ANDE,Andersons Inc/The,food_beverage,mid
+BLBD,Blue Bird Corporation Common Stock,retail,mid
+AMRX,"Amneal Pharmaceuticals, Inc. Class A Common Stock",pharma,mid
+ENR,"Energizer Holdings, Inc",hardware,mid
+METC,"Ramaco Resources, Inc. Class A Common Stock",materials,mid
+IPAR,"Interparfums, Inc. Common Stock",food_beverage,mid
+NGVT,Ingevity Corporation,materials,mid
+BBT,Beacon Financial Corporation,uncategorized,mid
+REYN,Reynolds Consumer Products Inc. Common Stock,materials,mid
+IBOC,International Bancshares Corp,capital_markets,mid
+DVLT,Datavault AI Inc. Common Stock,uncategorized,mid
+ODD,ODDITY Tech Ltd. Class A Ordinary Shares,enterprise_software,mid
+HCI,"HCI Group, Inc.",insurance,mid
+CERT,"Certara, Inc. Common Stock",enterprise_software,mid
+AVA,Avista Corporation,utilities,mid
+NEOG,Neogen Corp,pharma,mid
+CAE,CAE INC,uncategorized,mid
+SAH,"Sonic Automotive, Inc.",retail,mid
+SBCF,Seacoast Banking Corp of Florida,capital_markets,mid
+ENOV,Enovis Corporation,uncategorized,mid
+HIVE,HIVE Digital Technologies Ltd. Common Shares,uncategorized,mid
+AKR,Acadia Realty Trust,reits,mid
+FFIN,First Financial Bankshares Inc,capital_markets,mid
+CLBT,Cellebrite DI Ltd. Class A Ordinary Shares,enterprise_software,mid
+CMBT,CMB.TECH NV,uncategorized,mid
+CURB,Curbline Properties Corp.,uncategorized,mid
+TNC,TENNANT COMPANY,industrial_machinery,mid
+INTA,"Intapp, Inc. Common Stock",enterprise_software,mid
+THR,"THERMON GROUP HOLDINGS, INC.",industrial_machinery,mid
+MCY,Mercury General Corp.,insurance,mid
+CWK,Cushman & Wakefield Ltd.,reits,mid
+ATKR,Atkore Inc.,industrial_machinery,mid
+NWL,Newell Brands Inc.,food_beverage,mid
+HROW,"Harrow, Inc. Common Stock",biotech,mid
+TLRY,"Tilray Brands, Inc. Common Stock",pharma,mid
+ECPG,"Encore Capital Group, Inc.",capital_markets,mid
+PRDO,Perdoceo Education Corporation,food_beverage,mid
+AZTA,"Azenta, Inc.",uncategorized,mid
+EZPW,Ezcorp Inc,payments,mid
+LMAT,"LeMaitre Vascular, Inc.",pharma,mid
+CNS,Cohen & Steers Inc.,capital_markets,mid
+STAA,Staar Surgical Co,pharma,mid
+HLIO,"Helios Technologies, Inc.",industrial_machinery,mid
+FFBC,First Financial Bancorp,capital_markets,mid
+ECO,Okeanis Eco Tankers Corp.,industrial_machinery,mid
+EFC,Ellington Financial Inc. Common Stock,reits,mid
+ATEN,A10 NETWORKS INC,enterprise_software,mid
+HRMY,"Harmony Biosciences Holdings, Inc. Common Stock",biotech,mid
+SBH,"Sally Beauty Holdings, Inc.",retail,mid
+VELO,"Velo3D, Inc. Common stock",uncategorized,mid
+LXU,LSB INDUSTRIES INC,materials,mid
+BKE,"The Buckle, Inc.",retail,mid
+WRLD,World Acceptance Corp,payments,mid
+AWR,American States Water Company,utilities,mid
+TFPM,Triple Flag Precious Metals Corp.,uncategorized,mid
+CATY,Cathay General Bancorp,capital_markets,mid
+WAFD,"WaFd, Inc. Common Stock",capital_markets,mid
+ROG,Rogers Corporation,industrial_machinery,mid
+GHC,GRAHAM HOLDINGS COMPANY,food_beverage,mid
+BRC,Brady Corporation,industrial_machinery,mid
+HLF,Herbalife Ltd.,food_beverage,mid
+WSBC,WesBanco Inc,capital_markets,mid
+AGYS,"Agilysys, Inc. Common Stock (DE)",enterprise_software,mid
+MXL,"MaxLinear, Inc. Common Stock",semiconductors,mid
+JJSF,J&J Snack Foods Corp,food_beverage,mid
+CCOI,"Cogent Communications Holdings, Inc.",uncategorized,mid
+ALRM,"Alarm.com Holdings, Inc.",enterprise_software,mid
+TRN,"Trinity Industries, Inc.",industrial_machinery,mid
+ALIT,"Alight, Inc.",enterprise_software,mid
+FLYW,Flywire Corporation Voting Common Stock,capital_markets,mid
+KOD,Kodiak Sciences Inc Common Stock,biotech,mid
+MSGE,Madison Square Garden Entertainment Corp.,media_entertainment,mid
+APPN,Appian Corporation Class A Common Stock,enterprise_software,mid
+VERX,"Vertex, Inc. Class A Common Stock",enterprise_software,mid
+TRIN,Trinity Capital Inc. Common Stock,capital_markets,mid
+OLMA,"Olema Pharmaceuticals, Inc. Common Stock",biotech,mid
+AEVA,"Aeva Technologies, Inc.",retail,mid
+DRH,Diamondrock Hospitality Company Common Stock,reits,mid
+ATRC,"AtriCure, Inc.",pharma,mid
+ARDX,"Ardelyx, Inc.",biotech,mid
+PRA,ProAssurance Corporation,insurance,mid
+CXW,"CoreCivic, Inc.",reits,mid
+RR,Richtech Robotics Inc. Class B Common Stock,uncategorized,mid
+GSHD,"Goosehead Insurance, Inc. Class A Common Stock",capital_markets,mid
+OMCL,Omnicell Inc,enterprise_software,mid
+BNAI,Brand Engagement Network Inc. Common Stock,uncategorized,mid
+UNIT,Uniti Group Inc. Common Stock,reits,mid
+PD,"PagerDuty, Inc.",enterprise_software,mid
+STOK,"Stoke Therapeutics, Inc. Common Stock",biotech,mid
+ABM,"ABM Industries, Inc.",industrial_machinery,mid
+WBI,WaterBridge Infrastructure LLC,uncategorized,mid
+BHE,Benchmark Electronics,hardware,mid
+VRE,"Veris Residential, Inc.",reits,mid
+WGO,"Winnebago Industries, Inc.",retail,mid
+VCEL,Vericel Corporation,biotech,mid
+CXM,"Sprinklr, Inc.",enterprise_software,mid
+SONO,"Sonos, Inc. Common Stock",media_entertainment,mid
+NVRI,Enviri Corporation,industrial_machinery,mid
+CNA,CNA Financial Corporation,insurance,mid
+KALV,"KalVista Pharmaceuticals, Inc. Common Stock",biotech,mid
+LEG,"Leggett & Platt, Inc.",retail,mid
+SKWD,"Skyward Specialty Insurance Group, Inc. Common Stock",insurance,mid
+MGRC,Mcgrath Rentcorp,industrial_machinery,mid
+SGRY,"Surgery Partners, Inc. Common Stock",pharma,mid
+AMN,AMN Healthcare Services,healthcare_services,mid
+BFLY,"Butterfly Network, Inc.",healthcare_equipment,mid
+VIR,"Vir Biotechnology, Inc. Common Stock",biotech,mid
+CASH,"Pathward Financial, Inc. Common Stock",capital_markets,mid
+LGIH,"LGI Homes, Inc.",retail,mid
+NSSC,"Napco Security Technologies, Inc",industrial_machinery,mid
+TNET,"TRINET GROUP, INC.",industrial_machinery,mid
+OSW,OneSpaWorld Holdings Limited Common Shares,retail,mid
+DRVN,Driven Brands Holdings Inc. Common Stock,retail,mid
+TGLS,Tecnoglass Inc.,industrial_machinery,mid
+DOO,BRP Inc. Common Subordinate Voting Shares,uncategorized,mid
+RAMP,"LiveRamp Holdings, Inc. Common Stock",enterprise_software,mid
+SNDA,"Sonida Senior Living, Inc.",pharma,mid
+UE,UBRAN EDGE PROPERTIES,reits,mid
+CWT,California Water Service,utilities,mid
+FUBO,FuboTV Inc.,media_entertainment,mid
+XPRO,Expro Group Holdings N.V.,energy_majors,mid
+NUVB,Nuvation Bio Inc.,biotech,mid
+ULCC,"Frontier Group Holdings, Inc. Common Stock",transports,mid
+COLL,"Collegium Pharmaceutical, Inc. Common Stock",pharma,mid
+ASPI,ASP Isotopes Inc. Common Stock,uncategorized,mid
+TSSI,"TSS, Inc. Common Stock",payments,mid
+IVR,Invesco Mortgage Capital Inc.,reits,mid
+SCHL,Scholastic Corp,media_entertainment,mid
+BANR,Banner Corp.,capital_markets,mid
+DLO,DLocal Limited Class A Common Shares,enterprise_software,mid
+WKC,World Kinect Corporation,energy_majors,mid
+GRPN,"Groupon, Inc.Common Stock",internet_platforms,mid
+NTCT,Netscout Systems Inc,enterprise_software,mid
+PLAY,"Dave & Buster's Entertainment, Inc.",restaurants,mid
+CRVS,"Corvus Pharmaceuticals, Inc.",biotech,mid
+TRS,Trimas Corporation,materials,mid
+ADNT,Adient plc Ordinary Shares,retail,mid
+FWRG,"First Watch Restaurant Group, Inc. Common Stock",restaurants,mid
+BHVN,Biohaven Ltd.,biotech,mid
+TRMK,Trustmark Corp,capital_markets,mid
+NNI,"Nelnet, Inc. Class A",payments,mid
+LMB,"Limbach Holdings, Inc Common Stock",industrial_machinery,mid
+AGRO,ADECOAGRO S.A.,food_beverage,mid
+EMA,Emera Incorporated,uncategorized,mid
+FCPT,"Four Corners Property Trust, Inc.",reits,mid
+NUTX,Nutex Health Inc. Common Stock,enterprise_software,mid
+LPG,DORIAN LPG LTD,energy_majors,mid
+NBHC,NATIONAL BANK HOLDINGS CORP.,capital_markets,mid
+GBX,"The Greenbrier Companies, Inc.",industrial_machinery,mid
+HLX,"Helix Energy Solutions Group, Inc.",energy_majors,mid
+INBX,"Inhibrx Biosciences, Inc. Common Stock",biotech,mid
+PRVA,"Privia Health Group, Inc. Common Stock",enterprise_software,mid
+LINC,Lincoln Educational Services,food_beverage,mid
+ATAI,AtaiBeckley Inc. Common Stock,biotech,mid
+AAMI,Acadian Asset Management Inc.,uncategorized,mid
+WLY,"John Wiley & Sons, Inc. Class A",media_entertainment,mid
+COTY,COTY INC,food_beverage,mid
+IOSP,Innospec Inc.,materials,mid
+WWW,"Wolverine World Wide, Inc.",retail,mid
+CTMX,"CytomX Therapeutics, Inc.",biotech,mid
+AVPT,"AvePoint, Inc. Class A Common Stock",enterprise_software,mid
+CPK,Chesapeake Utilities,utilities,mid
+PHR,"Phreesia, Inc.",enterprise_software,mid
+BUR,Burford Capital Limited,capital_markets,mid
+PAYO,Payoneer Global Inc. Common Stock,enterprise_software,mid
+RLJ,RLJ Lodging Trust,reits,mid
+CNMD,CONMED Corporation,healthcare_equipment,mid
+KN,KNOWLES CORPORATION,industrial_machinery,mid
+TAC,TransAlta Corporation,uncategorized,mid
+ABTC,American Bitcoin Corp. Class A Common Stock,uncategorized,mid
+ARLO,"Arlo Technologies, Inc.",enterprise_software,mid
+EVLV,"Evolv Technologies Holdings, Inc. Class A Common Stock",industrial_machinery,mid
+MD,"Pediatrix Medical Group, Inc.",pharma,mid
+FLNG,FLEX LNG Ltd. Ordinary Shares,energy_majors,mid
+BLMN,"Bloomin' Brands, Inc. Common Stock",restaurants,mid
+MLTX,MoonLake Immunotherapeutics Class A Ordinary Shares,biotech,mid
+LNN,Lindsay Corporation,industrial_machinery,mid
+CON,"Concentra Group Holdings Parent, Inc.",uncategorized,mid
+TBBB,BBB Foods Inc.,food_beverage,mid
+ROOT,"Root, Inc. Class A Common Stock",insurance,mid
+NVCR,NovoCure Limited Ordinary Shares,pharma,mid
+NMIH,NMI Holdings Inc. Common Stock,insurance,mid
+LBTYK,Liberty Global Ltd. Class C Common Shares,uncategorized,mid
+FTRE,Fortrea Holdings Inc. Common Stock,biotech,mid
+SDGR,"Schrodinger, Inc. Common Stock",enterprise_software,mid
+EPC,Edgewell Personal Care Company,food_beverage,mid
+NUAI,"New Era Energy & Digital, Inc. Common Stock",uncategorized,mid
+TEN,Tsakos Energy Navigation Ltd.,retail,mid
+CCS,"CENTURY COMMUNITIES, INC.",retail,mid
+VYX,NCR Voyix Corporation,enterprise_software,mid
+GNL,"Global Net Lease, Inc.",reits,mid
+GLUE,"Monte Rosa Therapeutics, Inc. Common Stock",biotech,mid
+LZ,"LegalZoom.com, Inc. Common Stock",uncategorized,mid
+IIPR,"Innovative Industrial Properties, Inc. Common stock",reits,mid
+GRND,Grindr Inc.,cloud_software,mid
+PWP,Perella Weinberg Partners Class A Common Stock,capital_markets,mid
+AUPH,Aurinia Pharmaceuticals Inc,biotech,mid
+TRVI,"Trevi Therapeutics, Inc. Common Stock",biotech,mid
+TFIN,"Triumph Financial, Inc.",capital_markets,mid
+USLM,United States Lime & Minerals,materials,mid
+WD,"Walker & Dunlop, Inc.",capital_markets,mid
+SLVM,Sylvamo Corporation,materials,mid
+MBX,"MBX Biosciences, Inc. Common Stock",uncategorized,mid
+FRME,First Merchants Corp,capital_markets,mid
+GTY,Getty Realty Corp.,reits,mid
+AHCO,AdaptHealth Corp. Common Stock,healthcare_equipment,mid
+PRG,"PROG Holdings, Inc.",payments,mid
+NRIX,"Nurix Therapeutics, Inc. Common stock",biotech,mid
+SLDP,"Solid Power, Inc. Class A Common Stock",industrial_machinery,mid
+AGM,Federal Agricultural Mortgage Corporation,payments,mid
+MQ,"Marqeta, Inc. Class A Common Stock",enterprise_software,mid
+FG,"F&G Annuities & Life, Inc.",insurance,mid
+TIGR,UP Fintech Holding Ltd American Depositary Share representing fifteen Class A Ordinary Shares,capital_markets,mid
+RES,"RPC, Inc.",energy_majors,mid
+KRUS,"Kura Sushi USA, Inc. Class A Common Stock",restaurants,mid
+NEO,"NeoGenomics, Inc.",pharma,mid
+UPBD,"Upbound Group, Inc. Common Stock",enterprise_software,mid
+BBW,"Build-A-Bear Workshop, Inc.",retail,mid
+UA,"Under Armour, Inc. Class C Common Stock, $0.0003 1/3 par value",retail,mid
+SHO,"Sunstone Hotel Investors, Inc.",reits,mid
+BRSL,Brightstar Lottery PLC,uncategorized,mid
+ORIC,"Oric Pharmaceuticals, Inc. Common Stock",biotech,mid
+CCO,"Clear Channel Outdoor Holdings, Inc. Common Stock",uncategorized,mid
+TSLX,"Sixth Street Specialty Lending, Inc.",capital_markets,mid
+SFL,SFL Corporation Ltd.,industrial_machinery,mid
+AMLX,"Amylyx Pharmaceuticals, Inc. Common Stock",biotech,mid
+EE,"Excelerate Energy, Inc.",energy_majors,mid
+HAFN,Hafnia Limited,uncategorized,mid
+URGN,UroGen Pharma Ltd. Ordinary Shares,biotech,mid
+TILE,Interface Inc,retail,mid
+BATRK,"Atlanta Braves Holdings, Inc. Series C Common Stock",media_entertainment,mid
+IVT,InvenTrust Properties Corp.,reits,mid
+ESPR,"Esperion Therapeutics, Inc.",pharma,mid
+AORT,"Artivion, Inc.",healthcare_equipment,mid
+FBK,FB Financial Corporation,capital_markets,mid
+INVA,"Innoviva, Inc. Common Stock",biotech,mid
+EHAB,"Enhabit, Inc.",pharma,mid
+ARI,"APOLLO COMMERCIAL REAL ESTATE FINANCE, INC.",reits,mid
+UTZ,"Utz Brands, Inc.",food_beverage,mid
+BUSE,First Busey Corporation Class A Common Stock,capital_markets,mid
+FCF,First Commonwealth Financial Corporation,capital_markets,mid
+ARX,Accelerant Holdings,uncategorized,mid
+NWBI,"Northwest Bancshares, Inc",capital_markets,mid
+MNRO,"Monro, Inc. Common Stock",retail,mid
+TOWN,Towne Bank,uncategorized,mid
+CSWC,Capital Southwest Corp,capital_markets,mid
+EFSC,Enterprise Financial Services Corporation,capital_markets,mid
+YEXT,"Yext, Inc.",uncategorized,mid
+EYPT,"EyePoint, Inc. Common Stock",pharma,mid
+BJRI,"BJ's Restaurants, Inc.",restaurants,mid
+DGII,Digi International Inc,enterprise_software,mid
+SPNT,SiriusPoint Ltd.,insurance,mid
+PCRX,"Pacira BioSciences, Inc. Common Stock",pharma,mid
+PAHC,Phibro Animal Health Corporation Class A,pharma,mid
+ZYME,Zymeworks Inc.,biotech,mid
+AIN,Albany International Corp Class A,retail,mid
+BETR,Better Home & Finance Holding Company Class A Common Stock,uncategorized,mid
+NOMD,Nomad Foods Limited,food_beverage,mid
+RXT,"Rackspace Technology, Inc. Common Stock",cloud_software,mid
+CABO,"Cable One, Inc.",uncategorized,mid
+ROCK,"Gibraltar Industries, Inc.",materials,mid
+VRTS,"Virtus Investment Partners, Inc.",capital_markets,mid
+CBU,"Community Financial System, Inc.",capital_markets,mid
+JOE,St. Joe Company,reits,mid
+ORBS,Eightco Holdings Inc. Common Stock,uncategorized,mid
+GIII,G-Iii Apparel Group Ltd,retail,mid
+LTC,"LTC Properties, Inc.",reits,mid
+TTI,"TETRA Technologies, Inc.",energy_majors,mid
+APEI,"American Public Education, Inc.",food_beverage,mid
+JANX,"Janux Therapeutics, Inc. Common Stock",biotech,mid
+CLVT,Clarivate Plc,enterprise_software,mid
+SENEA,Seneca Foods Corp,food_beverage,mid
+MCW,"Mister Car Wash, Inc.",household_products,mid
+MFA,"MFA Financial, Inc",reits,mid
+MGEE,MGE Energy Inc,utilities,mid
+PGEN,"Precigen, Inc. Common Stock",biotech,mid
+LZB,La-Z-Boy Incorporated,retail,mid
+AMRC,"Ameresco, Inc.",industrial_machinery,mid
+FWRD,Forward Air Corp,transports,mid
+ALX,Alexander's Inc.,reits,mid
+GSBD,"Goldman Sachs BDC, Inc.",capital_markets,mid
+GEF,"Greif, Inc.",industrial_machinery,mid
+HG,"Hamilton Insurance Group, Ltd. Class B Common Shares",uncategorized,mid
+EPAC,Enerpac Tool Group Corp.,industrial_machinery,mid
+PLUS,ePlus Inc,uncategorized,mid
+HCSG,Healthcare Services Group,industrial_machinery,mid
+NWN,Northwest Natural Holding Company,utilities,mid
+GSL,"Global Ship Lease, Inc.",industrial_machinery,mid
+CMPX,"Compass Therapeutics, Inc. Common Stock",biotech,mid
+MFIC,MidCap Financial Investment Corporation Common Stock,uncategorized,mid
+ATEX,Anterix Inc. Common Stock,uncategorized,mid
+GRBK,"Green Brick Partners, Inc",retail,mid
+PAY,"Paymentus Holdings, Inc.",enterprise_software,mid
+ACVA,ACV Auctions Inc.,retail,mid
+CHCO,City Holding Co,capital_markets,mid
+STC,Stewart Information Services Corporation,insurance,mid
+LFST,"LifeStance Health Group, Inc. Common Stock",healthcare_services,mid
+ANNX,"Annexon, Inc. Common Stock",biotech,mid
+AMPL,"Amplitude, Inc. Class A Common Stock",enterprise_software,mid
+HNRG,Hallador Energy Company,materials,mid
+NIQ,NIQ Global Intelligence plc,enterprise_software,mid
+MTX,Minerals Technologies Inc,materials,mid
+SPIR,"Spire Global, Inc.",industrial_machinery,mid
+ALLO,"Allogene Therapeutics, Inc. Common Stock",biotech,mid
+RPD,"Rapid7, Inc. Common Stock",enterprise_software,mid
+EVER,"EverQuote, Inc. Class A Common Stock",enterprise_software,mid
+BANF,Bancfirst Corp,capital_markets,mid
+PDS,Precision Drilling Corporation,uncategorized,mid
+LIND,Lindblad Expeditions Holdings Inc. Common Stock,retail,mid
+WLFC,Willis Lease Finance Corp,industrial_machinery,mid
+TSHA,"Taysha Gene Therapies, Inc. Common Stock",biotech,mid
+GRDN,"Guardian Pharmacy Services, Inc.",uncategorized,mid
+FA,First Advantage Corporation Common Stock,industrial_machinery,mid
+PHAT,"Phathom Pharmaceuticals, Inc. Common Stock",biotech,mid
+DRUG,Bright Minds Biosciences Inc. Common Stock,uncategorized,mid
+CMP,"Compass Minerals International, Inc.",materials,mid
+OCGN,"Ocugen, Inc. Common Stock",biotech,mid
+CRVL,Corvel Corp,capital_markets,mid
+HTH,HILLTOP HOLDINGS INC.,capital_markets,mid
+STEL,"Stellar Bancorp, Inc.",capital_markets,mid
+ENLT,Enlight Renewable Energy Ltd. Ordinary Shares,energy_majors,mid
+FRHC,Freedom Holding Corp.,capital_markets,mid
+VOR,Vor Biopharma Inc. Common Stock,biotech,mid
+ASTE,Astec Industries Inc,industrial_machinery,mid
+HLMN,Hillman Solutions Corp. Common Stock,industrial_machinery,mid
+MITK,"Mitek Systems, Inc.",enterprise_software,mid
+INDI,"indie Semiconductor, Inc. Class A Common Stock",semiconductors,mid
+PSEC,Prospect Capital Corporation,capital_markets,mid
+BFC,Bank First Corporation Common Stock,capital_markets,mid
+SION,"Sionna Therapeutics, Inc. Common Stock",uncategorized,mid
+USPH,US Physical Therapy Inc,pharma,mid
+AB,"AllianceBernstein Holding, L.P.",capital_markets,mid
+NBN,Northeast Bank Common Stock,capital_markets,mid
+SNCY,"Sun Country Airlines Holdings, Inc. Common Stock",transports,mid
+CCB,Coastal Financial Corporation,capital_markets,mid
+PRCH,"Porch Group, Inc. Common Stock",enterprise_software,mid
+PNRG,PrimeEnergy Resources Corporation Common Stock,energy_majors,mid
+BELFA,Bel Fuse Inc,hardware,mid
+TDAY,"USA TODAY Co., Inc.",uncategorized,mid
+ABAT,American Battery Technology Company Common Stock,uncategorized,mid
+OSS,"One Stop Systems, Inc. Common Stock",hardware,mid
+MNKD,Mannkind Corporation,biotech,mid
+ACT,"Enact Holdings, Inc. Common Stock",biotech,mid
+REPL,"Replimune Group, Inc.",biotech,mid
+CTLP,"Cantaloupe, Inc. Common Stock",uncategorized,mid
+OFG,OFG BANCORP,capital_markets,mid
+IMKTA,Ingles Markets Inc,food_beverage,mid
+DFIN,"Donnelley Financial Solutions, Inc.",capital_markets,mid
+HOV,"Hovnanian Enterprises, Inc. Class A",retail,mid
+AVO,"Mission Produce, Inc. Common Stock",food_beverage,mid
+PMT,PennyMac Mortgage Investment Trust,uncategorized,mid
+SPRY,"ARS Pharmaceuticals, Inc. Common Stock",biotech,mid
+OCFC,OceanFirst Financial Corp,capital_markets,mid
+CLOV,"Clover Health Investments, Corp",pharma,mid
+FWONA,Liberty Media Corporation Series A Liberty Formula One Common Stock,uncategorized,mid
+ABCL,AbCellera Biologics Inc. Common Shares,biotech,mid
+MSDL,Morgan Stanley Direct Lending Fund,uncategorized,mid
+PDFS,PDF Solutions Inc,enterprise_software,mid
+FBNC,First Bancorp/NC,capital_markets,mid
+WFG,West Fraser Timber Co. Ltd,materials,mid
+MCRI,Monarch Casino & Resort Inc,retail,mid
+EFXT,Enerflex Ltd.,uncategorized,mid
+NRGV,"Energy Vault Holdings, Inc.",energy_majors,mid
+FLOC,Flowco Holdings Inc.,uncategorized,mid
+INVX,"Innovex International, Inc.",uncategorized,mid
+CDRE,"Cadre Holdings, Inc.",aerospace_defense,mid
+CDNA,"CareDx, Inc.",pharma,mid
+CTS,CTS Corporation,industrial_machinery,mid
+MLKN,"MillerKnoll, Inc. Common Stock",retail,mid
+BMBL,Bumble Inc. Class A Common Stock,retail,mid
+ABSI,Absci Corporation Common Stock,biotech,mid
+IPI,"Intrepid Potash, Inc",materials,mid
+KRP,"Kimbell Royalty Partners, LP Common Units representing Limited Partner Interests",energy_majors,mid
+AAUC,Allied Gold Corporation,uncategorized,mid
+ASTH,Astrana Health Inc. Common Stock,uncategorized,mid
+NMM,Navios Maritime Partners L.P.,industrial_machinery,mid
+PAX,Patria Investments Limited Class A Common Shares,capital_markets,mid
+KODK,EASTMAN KODAK COMPANY,retail,mid
+FET,"Forum Energy Technologies, Inc.",energy_majors,mid
+VSTM,"Verastem, Inc.",biotech,mid
+CARS,Cars.com Inc. Common Stock,retail,mid
+NPK,"National Presto Industries, Inc.",aerospace_defense,mid
+LLYVA,"Liberty Live Holdings, Inc. Series A Liberty Live Group Common Stock",uncategorized,mid
+WYFI,"WhiteFiber, Inc. Ordinary Shares",enterprise_software,mid
+OMER,Omeros Corporation,biotech,mid
+INMD,InMode Ltd. Ordinary Shares,healthcare_equipment,mid
+MCB,"Metropolitan Bank Holding Corp. Common Stock, $0.01 par value per share",capital_markets,mid
+TFSL,TFS Financial Corporation,capital_markets,mid
+ALT,"Altimmune, Inc. Common Stock",biotech,mid
+ARLP,Alliance Resource Partners LP,materials,mid
+KW,"KENNEDY-WILSON HOLDINGS, INC.",reits,mid
+TREE,"LendingTree, Inc.",capital_markets,mid
+RUM,Rumble Inc. Class A Common Stock,uncategorized,mid
+OXM,"Oxford Industries, Inc.",retail,mid
+VSTS,Vestis Corporation,uncategorized,mid
+KURA,"Kura Oncology, Inc.",biotech,mid
+DIN,"Dine Brands Global, Inc.",restaurants,mid
+EVTC,"EVERTEC, INC.",industrial_machinery,mid
+ZBIO,"Zenas BioPharma, Inc. Common Stock",uncategorized,mid
+OCSL,Oaktree Specialty Lending Corporation,payments,mid
+SYBT,"Stock Yards Bancorp, Inc.",capital_markets,mid
+PSNL,"Personalis, Inc. Common Stock",biotech,mid
+GILT,Gilat Satellite Networks Ltd,enterprise_software,mid
+AVBP,"ArriVent BioPharma, Inc. Common Stock",uncategorized,mid
+EIG,"Employers Holdings, Inc.",insurance,mid
+AMPH,"Amphastar Pharmaceuticals, Inc.",pharma,mid
+FCEL,FuelCell Energy Inc  NEW (DE),industrial_machinery,mid
+WLTH,Wealthfront Corporation Common Stock,uncategorized,mid
+SABR,Sabre Corporation,industrial_machinery,mid
+HLIT,Harmonic Inc,enterprise_software,mid
+TRUP,"Trupanion, Inc.",insurance,mid
+FDP,Fresh Del Monte Produce Inc.,food_beverage,mid
+DOLE,Dole plc,food_beverage,mid
+NTGR,"NETGEAR, Inc.",enterprise_software,mid
+UHAL,U-Haul Holding Company,industrial_machinery,mid
+ASC,ARDMORE SHIPPING CORPORATION,industrial_machinery,mid
+BBNX,"Beta Bionics, Inc. Common Stock",uncategorized,mid
+UVV,Universal Corporation,food_beverage,mid
+STBA,S&T Bancorp Inc,capital_markets,mid
+UAN,"CVR Partners, LP",materials,mid
+ALNT,Allient Inc. Common Stock,hardware,mid
+ALMU,"Aeluma, Inc. Common Stock",semiconductors,mid
+NPKI,NPK International Inc.,uncategorized,mid

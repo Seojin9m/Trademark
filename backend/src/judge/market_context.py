@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
 from src.db.schema import get_connection
+from src.db.state import load_universe_df
 
 
 def _compute_ticker_metrics(prices_df: pd.DataFrame) -> dict:
@@ -69,7 +70,7 @@ def get_price_context(ticker: str) -> dict:
         """, [[ticker, benchmark]]).fetchdf()
 
         # Load universe for sector lookup
-        universe = pd.read_csv(settings.paths.universe_path)
+        universe = load_universe_df()
         sub_sector_row = universe.loc[universe["ticker"] == ticker, "sub_sector"]
         sub_sector = sub_sector_row.iloc[0] if not sub_sector_row.empty else None
 
@@ -155,7 +156,7 @@ def get_batch_price_context(tickers: list[str]) -> dict[str, dict]:
         """, [all_tickers]).fetchdf()
 
         # Load universe for sector info
-        universe = pd.read_csv(settings.paths.universe_path)
+        universe = load_universe_df()
         sector_map = dict(zip(universe["ticker"], universe.get("sub_sector", pd.Series())))
 
         # Also fetch sector peers for sector context

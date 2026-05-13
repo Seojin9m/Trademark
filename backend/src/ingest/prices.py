@@ -11,13 +11,13 @@ import yfinance as yf
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.db.schema import get_connection, init_db
+from src.db.state import load_universe_df
 from config.settings import settings
 
 
 def load_universe() -> list[str]:
-    """Load ticker list from universe CSV."""
-    df = pd.read_csv(settings.paths.universe_path)
-    return df["ticker"].tolist()
+    """Load ticker list (routes to Postgres or CSV via state helper)."""
+    return load_universe_df()["ticker"].tolist()
 
 
 def default_polygon_eod_calendar_date() -> str:
@@ -168,13 +168,29 @@ def check_eod_data_exists(min_tickers: int = 50) -> tuple[bool, int, str | None]
 
 
 def store_prices(df: pd.DataFrame) -> None:
-    """Insert price data into DuckDB, replacing existing rows on conflict."""
+    """Upsert price data into the configured backend (DuckDB or Postgres).
+
+    Both backends use a temp/staging approach to absorb the DataFrame and
+    then atomically replace overlapping (ticker, date) rows. DuckDB does it
+    via DELETE+INSERT through a registered DataFrame; Postgres uses
+    INSERT ... ON CONFLICT (ticker, date) DO UPDATE with a fast COPY load
+    into the staging table.
+    """
+    import os
     if df.empty:
         print("No data to store.")
         return
 
+    backend = (os.getenv("DB_BACKEND") or "duckdb").lower()
     con = get_connection()
 
+    if backend == "postgres":
+        _store_prices_postgres(con, df)
+    else:
+        _store_prices_duckdb(con, df)
+
+
+def _store_prices_duckdb(con, df: pd.DataFrame) -> None:
     # Delete existing data for these tickers/dates, then insert
     # Using a temp table approach for upsert
     con.execute("CREATE TEMP TABLE prices_staging AS SELECT * FROM prices WHERE 1=0")
@@ -198,6 +214,69 @@ def store_prices(df: pd.DataFrame) -> None:
     con.close()
 
     print(f"Stored in DuckDB: {row_count} total rows, {ticker_count} tickers")
+
+
+def _store_prices_postgres(con, df: pd.DataFrame) -> None:
+    """Postgres path — TEMP staging + INSERT ... ON CONFLICT in one transaction.
+
+    Opens a fresh raw psycopg2 connection because `con` is a
+    PgConnectionAdapter with autocommit=True. With autocommit on, each
+    statement commits separately and the ON COMMIT DROP temp table is
+    destroyed between statements. With autocommit=False (here), the temp
+    table survives across the COPY + INSERT and the whole flow is atomic.
+    """
+    import io
+    from src.db.postgres import get_pg_connection
+
+    cols = ["ticker", "date", "open", "high", "low", "close", "volume", "adj_close"]
+    payload = df[cols].copy()
+    # volume is BIGINT in Postgres; cast to nullable Int64 so NaN -> NULL
+    # and integer values don't serialize with .0 (which Postgres rejects).
+    payload["volume"] = pd.to_numeric(payload["volume"], errors="coerce").astype("Int64")
+
+    buf = io.StringIO()
+    payload.to_csv(buf, index=False, header=False, na_rep="\\N")
+    buf.seek(0)
+
+    raw_conn = get_pg_connection(role="pooled")
+    raw_conn.autocommit = False
+    try:
+        with raw_conn.cursor() as cur:
+            cur.execute("""
+                CREATE TEMP TABLE prices_staging (LIKE prices INCLUDING ALL) ON COMMIT DROP
+            """)
+            cur.copy_expert(
+                "COPY prices_staging (ticker, date, open, high, low, close, volume, adj_close) "
+                "FROM STDIN WITH (FORMAT CSV, NULL '\\N')",
+                buf,
+            )
+            cur.execute("""
+                INSERT INTO prices (ticker, date, open, high, low, close, volume, adj_close)
+                SELECT ticker, date, open, high, low, close, volume, adj_close FROM prices_staging
+                ON CONFLICT (ticker, date) DO UPDATE SET
+                    open      = EXCLUDED.open,
+                    high      = EXCLUDED.high,
+                    low       = EXCLUDED.low,
+                    close     = EXCLUDED.close,
+                    volume    = EXCLUDED.volume,
+                    adj_close = EXCLUDED.adj_close
+            """)
+            cur.execute("SELECT COUNT(*) FROM prices")
+            row_count = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(DISTINCT ticker) FROM prices")
+            ticker_count = cur.fetchone()[0]
+
+        raw_conn.commit()
+        print(f"Stored in Postgres: {row_count} total rows, {ticker_count} tickers")
+    except Exception:
+        raw_conn.rollback()
+        raise
+    finally:
+        raw_conn.close()
+        try:
+            con.close()
+        except Exception:
+            pass
 
 
 def fetch_polygon_eod(tickers: list[str], date: str | None = None) -> pd.DataFrame:
@@ -298,11 +377,11 @@ def _fetch_polygon_eod_per_ticker(tickers: list[str], date: str, client) -> pd.D
         except Exception as e:
             print(f"  WARNING: Polygon failed for {ticker}: {e}")
 
-        if (i + 1) % 5 == 0 and i < len(todo) - 1:
+        if (i + 1) % 50 == 0 and i < len(todo) - 1:
             _flush_batch()
             print(
                 f"  Polygon per-ticker: {i + 1}/{len(todo)} tickers tried, "
-                f"{len(records)} bars saved — pausing for rate limit..."
+                f"{len(records)} bars saved"
             )
             if not records and not warned_zero_bars:
                 print(
@@ -310,7 +389,8 @@ def _fetch_polygon_eod_per_ticker(tickers: list[str], date: str, client) -> pd.D
                     "or bad session date). Check Polygon calendar vs this date."
                 )
                 warned_zero_bars = True
-            time.sleep(61)
+            # No 61s sleep — Polygon Starter has unlimited calls. Restore
+            # time.sleep(61) here if the project drops back to free 5/min.
 
     _flush_batch()
 
@@ -320,16 +400,106 @@ def _fetch_polygon_eod_per_ticker(tickers: list[str], date: str, client) -> pd.D
     return df
 
 
+def fetch_polygon_aggregates_bulk(
+    tickers: list[str],
+    start: str = "2021-05-10",
+    end: str | None = None,
+    workers: int | None = None,
+) -> pd.DataFrame:
+    """Backfill daily OHLCV from Polygon Aggregates for `tickers`.
+
+    Replaces fetch_yfinance_bulk now that we're on Polygon Stocks Starter
+    (unlimited calls, 5y of history). Parallelized because each per-ticker
+    call returns the whole date range and they're independent.
+
+    Skips ticker frames where Polygon returns no aggregates (delisted,
+    invalid symbol, etc.) so the result df only contains real bars.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from polygon import RESTClient
+
+    if end is None:
+        end = datetime.now().strftime("%Y-%m-%d")
+    if workers is None:
+        workers = int(os.getenv("POLYGON_BACKFILL_WORKERS", "8"))
+
+    print(f"Polygon backfill: {len(tickers)} tickers, {start} -> {end}, {workers} workers")
+
+    client = RESTClient(api_key=settings.api_keys.polygon_api_key)
+
+    def _fetch_one(ticker: str) -> tuple[str, list[dict]]:
+        try:
+            aggs = client.list_aggs(ticker, 1, "day", start, end, limit=50000)
+            rows = []
+            for a in aggs:
+                # list_aggs yields PolygonAgg objects with .timestamp (ms epoch)
+                # Convert to date.
+                ts_ms = getattr(a, "timestamp", None)
+                if ts_ms is None or a.close is None:
+                    continue
+                d = datetime.utcfromtimestamp(ts_ms / 1000.0).date()
+                rows.append({
+                    "ticker": ticker,
+                    "date": d,
+                    "open": float(a.open) if a.open is not None else None,
+                    "high": float(a.high) if a.high is not None else None,
+                    "low": float(a.low) if a.low is not None else None,
+                    "close": float(a.close),
+                    "volume": int(a.volume) if a.volume else 0,
+                    "adj_close": float(a.close),  # Polygon close is unadjusted; OK for now
+                })
+            return ticker, rows
+        except Exception as e:
+            return ticker, []
+
+    all_rows: list[dict] = []
+    completed = 0
+    empty = 0
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_fetch_one, t): t for t in tickers}
+        for fut in as_completed(futures):
+            ticker, rows = fut.result()
+            completed += 1
+            if not rows:
+                empty += 1
+            else:
+                all_rows.extend(rows)
+            if completed % 200 == 0 or completed == len(tickers):
+                elapsed = time.time() - t0
+                rate = completed / elapsed if elapsed > 0 else 0
+                eta = (len(tickers) - completed) / rate if rate > 0 else 0
+                print(
+                    f"  Polygon backfill: {completed}/{len(tickers)} "
+                    f"({rate:.1f}/s, ETA {eta:.0f}s, {empty} empty, {len(all_rows):,} bars)"
+                )
+
+    if not all_rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(all_rows)
+    df["volume"] = df["volume"].fillna(0).astype("int64")
+    print(f"Polygon backfill complete: {len(df):,} rows for {df['ticker'].nunique()} tickers")
+    return df
+
+
 def backfill_historical() -> None:
-    """One-time historical backfill using yfinance (10 years)."""
+    """One-time historical backfill using Polygon Aggregates (5y default).
+
+    Polygon Stocks Starter offers 5 years of history; older data is paywalled
+    behind higher tiers. Set BACKFILL_START env var to override the default
+    start date (e.g. "2018-01-01" if you upgrade to Stocks Developer).
+    """
     init_db()
     tickers = load_universe()
 
-    # Add benchmarks
     benchmarks = [settings.primary_benchmark, settings.secondary_benchmark]
     all_tickers = tickers + [b for b in benchmarks if b not in tickers]
 
-    df = fetch_yfinance_bulk(all_tickers, start="2016-01-01")
+    start = os.getenv("BACKFILL_START", "2021-05-10")
+    df = fetch_polygon_aggregates_bulk(all_tickers, start=start)
+    if df.empty:
+        print("No price data fetched — aborting store.")
+        return
     store_prices(df)
 
 

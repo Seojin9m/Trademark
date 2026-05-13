@@ -17,6 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
+from src.db.state import load_universe_df
 from src.features.momentum import compute_momentum, coerce_scoring_date
 from src.features.quality import (
     compute_eps_growth,
@@ -24,7 +25,9 @@ from src.features.quality import (
     compute_gross_margin_trend,
 )
 from src.features.valuation import compute_relative_valuation, compute_per_filter
-from src.features.forward_estimates import compute_forward_estimate_factor
+# forward_estimate_revision was dropped (Polygon Starter doesn't include
+# analyst data; yfinance unreliable). The module still exists for future
+# revival behind a paid analyst-data source.
 
 
 FACTOR_COLUMNS = [
@@ -33,7 +36,6 @@ FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
-    "forward_estimate_revision",
 ]
 
 QUALITY_FACTOR_COLUMNS = [
@@ -41,7 +43,6 @@ QUALITY_FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
-    "forward_estimate_revision",
 ]
 
 
@@ -171,7 +172,9 @@ def compute_composite_scores(
     gm = compute_gross_margin_trend(as_of_date)
     val = compute_relative_valuation(as_of_date)
     per = compute_per_filter(as_of_date)
-    fwd = compute_forward_estimate_factor(as_of_date)
+    # forward_estimate_revision factor removed — Polygon Starter doesn't have
+    # analyst data and yfinance was too flaky. Weight redistributed in
+    # settings.strategy.factor_weights.
 
     if not mom.empty:
         as_of_date = mom["date"].iloc[0]
@@ -194,7 +197,6 @@ def compute_composite_scores(
         (rev, "revenue_growth_yoy"),
         (gm, "gross_margin_trend"),
         (val, "relative_valuation"),
-        (fwd, "forward_estimate_revision"),
     ]:
         if not df.empty:
             factors = factors.merge(df[["ticker", col]], on="ticker", how="outer")
@@ -221,7 +223,7 @@ def compute_composite_scores(
     factors = _apply_user_overrides(factors, overrides, str(as_of_date))
 
     # Merge in sub_sector
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
     factors = factors.merge(
         universe[["ticker", "sub_sector"]], on="ticker", how="left"
     )
@@ -245,11 +247,18 @@ def compute_composite_scores(
             z_cols[col] = pd.Series(np.nan, index=factors.index)
 
     # ---- STAGE 1: Quality-first assessment (BEFORE price) ----
-    # Quality score uses only fundamental factors, not momentum
+    # Quality score uses only fundamental factors, not momentum.
     quality_weights = {k: v for k, v in settings.strategy.factor_weights.items()
                        if k in QUALITY_FACTOR_COLUMNS}
     quality_sum = pd.Series(0.0, index=factors.index)
     quality_weight_total = pd.Series(0.0, index=factors.index)
+    # Count how many fundamentals factors actually contributed data per ticker.
+    # Used below to gate is_good_stock — a ticker with zero present factors
+    # mathematically lands at quality_score=0.0 after the NaN-fillna, which
+    # would otherwise pass the >= -0.5 threshold and let speculative
+    # no-fundamentals tickers (e.g. STTK, RLMD) ride pure momentum into the
+    # ranked-buy list. Require evidence, not absence of negative evidence.
+    factors_present_count = pd.Series(0, index=factors.index, dtype=int)
     for col in QUALITY_FACTOR_COLUMNS:
         w = quality_weights.get(col, 0.0)
         if w == 0.0 or col not in z_cols:
@@ -258,22 +267,29 @@ def compute_composite_scores(
         present = z.notna()
         quality_sum = quality_sum + (z.where(present, 0.0) * w)
         quality_weight_total = quality_weight_total + present.astype(float) * w
+        factors_present_count = factors_present_count + present.astype(int)
 
-    # Normalize quality score
+    # Normalize quality score. Tickers with zero present factors keep NaN
+    # (the .fillna(0.0) we used to apply hid the missing-data case).
     factors["quality_score"] = (
         quality_sum / quality_weight_total.replace(0.0, np.nan)
-    ).fillna(0.0)
+    )
+    factors["quality_factors_present"] = factors_present_count
 
-    # Apply PER penalty to quality score
+    # Apply PER penalty (NaN-safe: 0.0 if missing).
     factors["per_penalty"] = factors["per_penalty"].fillna(0.0)
-    factors["quality_score"] = factors["quality_score"] + factors["per_penalty"]
+    factors["quality_score"] = factors["quality_score"].fillna(0.0) + factors["per_penalty"]
 
-    # Determine "good stock" status from quality_score alone.
-    # PER is already factored in via per_penalty on quality_score, so a high-PER
-    # stock with strong growth can still qualify (penalty is offset by quality).
-    # No hard PER gate — avoids wrongly disqualifying high-growth stocks.
+    # Good-stock filter: needs BOTH a passing quality score AND a minimum
+    # amount of underlying fundamentals data. Threshold of 2 of 4 quality
+    # factors balances "evidence required" with bank/insurance tickers that
+    # legitimately lack gross_margin_trend (no COGS line).
     min_quality = settings.strategy.min_quality_zscore
-    factors["is_good_stock"] = factors["quality_score"] >= min_quality
+    min_factors_required = settings.strategy.min_quality_factors_present
+    factors["is_good_stock"] = (
+        (factors["quality_score"] >= min_quality)
+        & (factors["quality_factors_present"] >= min_factors_required)
+    )
 
     # Build quality reasons
     def _build_reasons(row):
@@ -361,16 +377,22 @@ def compute_composite_scores(
     return factors[output_cols].reset_index(drop=True)
 
 
+def _backend() -> str:
+    import os
+    return (os.getenv("DB_BACKEND") or "duckdb").lower()
+
+
 def store_quality_assessments(scores: pd.DataFrame) -> None:
-    """Persist quality assessments to the stock_quality_assessment table."""
+    """Persist quality assessments to stock_quality_assessment.
+
+    Routes to a bulk COPY path on Postgres because the per-row INSERT loop
+    used to be ~2,000 round-trips per scoring run (~minutes); COPY moves
+    that to a single network operation.
+    """
     if scores.empty or "is_good_stock" not in scores.columns:
         return
 
-    from src.db.schema import get_connection
-    con = get_connection()
     date_val = str(scores["date"].iloc[0])
-
-    con.execute("DELETE FROM stock_quality_assessment WHERE date = $1", [date_val])
 
     def _safe_bool(val, default: bool) -> bool:
         return bool(val) if pd.notna(val) else default
@@ -378,7 +400,33 @@ def store_quality_assessments(scores: pd.DataFrame) -> None:
     def _safe_float(val, default: float = 0.0):
         return float(val) if pd.notna(val) else default
 
+    # Build the rows once; both backends consume the same payload.
+    rows = []
     for _, row in scores.iterrows():
+        rows.append({
+            "ticker": row["ticker"],
+            "date": date_val,
+            "is_good_stock": _safe_bool(row.get("is_good_stock"), False),
+            "quality_score": _safe_float(row.get("quality_score")),
+            "quality_reasons": json.dumps(row.get("quality_reasons", [])),
+            "per_ratio": float(row["per_ratio"]) if pd.notna(row.get("per_ratio")) else None,
+            "per_vs_peer": float(row["per_vs_peer"]) if pd.notna(row.get("per_vs_peer")) else None,
+            "per_absolute_pass": _safe_bool(row.get("per_absolute_pass"), True),
+            "per_relative_pass": _safe_bool(row.get("per_relative_pass"), True),
+            "price_opportunity_score": _safe_float(row.get("price_opportunity_score")),
+        })
+
+    if _backend() == "postgres":
+        _store_quality_assessments_postgres(rows, date_val)
+    else:
+        _store_quality_assessments_duckdb(rows, date_val)
+
+
+def _store_quality_assessments_duckdb(rows: list[dict], date_val: str) -> None:
+    from src.db.schema import get_connection
+    con = get_connection()
+    con.execute("DELETE FROM stock_quality_assessment WHERE date = $1", [date_val])
+    for r in rows:
         con.execute("""
             INSERT INTO stock_quality_assessment
             (ticker, date, is_good_stock, quality_score, quality_reasons,
@@ -386,47 +434,133 @@ def store_quality_assessments(scores: pd.DataFrame) -> None:
              price_opportunity_score)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """, [
-            row["ticker"], date_val,
-            _safe_bool(row.get("is_good_stock"), False),
-            _safe_float(row.get("quality_score")),
-            json.dumps(row.get("quality_reasons", [])),
-            float(row["per_ratio"]) if pd.notna(row.get("per_ratio")) else None,
-            float(row["per_vs_peer"]) if pd.notna(row.get("per_vs_peer")) else None,
-            _safe_bool(row.get("per_absolute_pass"), True),
-            _safe_bool(row.get("per_relative_pass"), True),
-            _safe_float(row.get("price_opportunity_score")),
+            r["ticker"], r["date"], r["is_good_stock"], r["quality_score"],
+            r["quality_reasons"], r["per_ratio"], r["per_vs_peer"],
+            r["per_absolute_pass"], r["per_relative_pass"],
+            r["price_opportunity_score"],
         ])
-
     con.close()
 
 
+def _store_quality_assessments_postgres(rows: list[dict], date_val: str) -> None:
+    """Bulk COPY into stock_quality_assessment for the current date."""
+    import io
+    from src.db.postgres import get_pg_connection
+
+    cols = ["ticker", "date", "is_good_stock", "quality_score", "quality_reasons",
+            "per_ratio", "per_vs_peer", "per_absolute_pass", "per_relative_pass",
+            "price_opportunity_score"]
+    df = pd.DataFrame(rows, columns=cols)
+
+    buf = io.StringIO()
+    df.to_csv(buf, index=False, header=False, na_rep="\\N")
+    buf.seek(0)
+
+    raw = get_pg_connection(role="pooled")
+    raw.autocommit = False
+    try:
+        with raw.cursor() as cur:
+            cur.execute("DELETE FROM stock_quality_assessment WHERE date = %s", [date_val])
+            cur.copy_expert(
+                f"COPY stock_quality_assessment ({', '.join(cols)}) "
+                "FROM STDIN WITH (FORMAT CSV, NULL '\\N')",
+                buf,
+            )
+        raw.commit()
+    except Exception:
+        raw.rollback()
+        raise
+    finally:
+        raw.close()
+
+
 def store_stock_metrics(scores: pd.DataFrame) -> None:
-    """Persist computed factor values to stock_metrics for user review/editing."""
+    """Persist computed factor values to stock_metrics for user review.
+
+    Same bulk-write motivation as store_quality_assessments — without COPY
+    this used to do ~19,500 individual INSERTs per scoring run.
+    """
     if scores.empty:
         return
 
     from datetime import datetime
-    from src.db.schema import get_connection
-    con = get_connection()
     date_val = str(scores["date"].iloc[0])
     now = datetime.now().isoformat()
-
-    con.execute("DELETE FROM stock_metrics WHERE as_of_date = $1 AND source = 'computed'", [date_val])
 
     metric_cols = FACTOR_COLUMNS + ["quality_score", "per_ratio", "per_vs_peer",
                                      "recent_price_change", "price_dip_score"]
 
+    # Build long-format rows (ticker, metric, raw_value) for batch load.
+    rows = []
     for _, row in scores.iterrows():
         ticker = row["ticker"]
         for metric in metric_cols:
             val = row.get(metric)
             if pd.notna(val):
-                con.execute("""
-                    INSERT INTO stock_metrics (ticker, metric_name, raw_value, source, as_of_date, updated_at)
-                    VALUES ($1, $2, $3, 'computed', $4, $5)
-                """, [ticker, metric, float(val), date_val, now])
+                rows.append({
+                    "ticker": ticker,
+                    "metric_name": metric,
+                    "raw_value": float(val),
+                    "source": "computed",
+                    "as_of_date": date_val,
+                    "updated_at": now,
+                })
 
+    if not rows:
+        return
+
+    if _backend() == "postgres":
+        _store_stock_metrics_postgres(rows, date_val)
+    else:
+        _store_stock_metrics_duckdb(rows, date_val)
+
+
+def _store_stock_metrics_duckdb(rows: list[dict], date_val: str) -> None:
+    from src.db.schema import get_connection
+    con = get_connection()
+    con.execute(
+        "DELETE FROM stock_metrics WHERE as_of_date = $1 AND source = 'computed'",
+        [date_val],
+    )
+    for r in rows:
+        con.execute("""
+            INSERT INTO stock_metrics (ticker, metric_name, raw_value, source, as_of_date, updated_at)
+            VALUES ($1, $2, $3, 'computed', $4, $5)
+        """, [r["ticker"], r["metric_name"], r["raw_value"], r["as_of_date"], r["updated_at"]])
     con.close()
+
+
+def _store_stock_metrics_postgres(rows: list[dict], date_val: str) -> None:
+    """Bulk COPY into stock_metrics — replaces the per-row INSERT loop."""
+    import io
+    from src.db.postgres import get_pg_connection
+
+    cols = ["ticker", "metric_name", "raw_value", "source", "as_of_date", "updated_at"]
+    df = pd.DataFrame(rows, columns=cols)
+
+    buf = io.StringIO()
+    df.to_csv(buf, index=False, header=False, na_rep="\\N")
+    buf.seek(0)
+
+    raw = get_pg_connection(role="pooled")
+    raw.autocommit = False
+    try:
+        with raw.cursor() as cur:
+            cur.execute(
+                "DELETE FROM stock_metrics WHERE as_of_date = %s AND source = 'computed'",
+                [date_val],
+            )
+            cur.copy_expert(
+                f"COPY stock_metrics ({', '.join(cols)}) "
+                "FROM STDIN WITH (FORMAT CSV, NULL '\\N')",
+                buf,
+            )
+        raw.commit()
+    except Exception:
+        raw.rollback()
+        raise
+    finally:
+        raw.close()
 
 
 def compute_composite_historical(

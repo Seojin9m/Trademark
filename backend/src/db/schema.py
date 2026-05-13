@@ -1,9 +1,26 @@
-"""DuckDB schema initialization for Trademark."""
+"""Schema initialization for Trademark — dual-mode (DuckDB or Postgres).
 
+Backend is selected via the DB_BACKEND environment variable:
+    DB_BACKEND=duckdb  -> legacy local DuckDB at settings.paths.duckdb_path
+    DB_BACKEND=postgres -> Supabase Postgres via src/db/postgres.py
+
+Defaults to DuckDB for safe rollback during the Phase 2 migration.
+
+The Postgres DDL lives in supabase/migrations/*.sql and is applied via
+postgres.run_migrations(). DuckDB DDL lives in SCHEMA_SQL below and is
+applied via init_db() as before. The same callsites (get_connection,
+init_db) keep working unchanged for both backends.
+"""
+
+import os
 import time
 import duckdb
 
 from config.settings import settings
+
+
+def _backend() -> str:
+    return (os.getenv("DB_BACKEND") or "duckdb").lower()
 
 SCHEMA_SQL = """
 -- Prices (adjusted daily OHLCV)
@@ -307,8 +324,24 @@ CREATE TABLE IF NOT EXISTS signal_quality_log (
 """
 
 
-def get_connection(max_retries: int = 8, retry_delay: float = 0.3) -> duckdb.DuckDBPyConnection:
-    """Get a DuckDB connection, retrying on transient lock contention."""
+def get_connection(max_retries: int = 8, retry_delay: float = 0.3):
+    """Return a DB connection routed by DB_BACKEND.
+
+    DuckDB: returns a duckdb.DuckDBPyConnection.
+    Postgres: returns a psycopg2 connection wrapped in PgConnectionAdapter.
+
+    Both connection types support `con.execute(sql).fetchdf()`-style usage
+    so the ~281 DuckDB-style callsites keep working unchanged. Bulk-write
+    paths (store_prices, store_fundamentals) branch on _backend() and use
+    raw psycopg2 for transaction control.
+    """
+    backend = _backend()
+    if backend == "postgres":
+        # Lazy import keeps DuckDB-only envs from requiring psycopg2.
+        from src.db.postgres import get_pg_connection, PgConnectionAdapter
+        return PgConnectionAdapter(get_pg_connection(role="pooled"))
+
+    # Default: DuckDB
     settings.paths.data_dir.mkdir(parents=True, exist_ok=True)
     db_path = str(settings.paths.duckdb_path)
     last_exc: Exception | None = None
@@ -326,11 +359,27 @@ def get_connection(max_retries: int = 8, retry_delay: float = 0.3) -> duckdb.Duc
 
 
 def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist.
+
+    DuckDB: runs SCHEMA_SQL + the legacy ALTER TABLE column-add migrations.
+    Postgres: applies supabase/migrations/*.sql via run_migrations().
+    """
+    if _backend() == "postgres":
+        from pathlib import Path
+        from src.db.postgres import run_migrations
+        migrations_dir = Path(__file__).resolve().parent.parent.parent / "supabase" / "migrations"
+        if not migrations_dir.exists():
+            raise RuntimeError(f"Postgres migrations dir not found: {migrations_dir}")
+        run_migrations(str(migrations_dir))
+        print(f"Postgres schema initialized via {migrations_dir}")
+        return
+
+    # Default: DuckDB
     con = get_connection()
     con.execute(SCHEMA_SQL)
 
-    # Migrations: add columns that may not exist on older databases
+    # Migrations: add columns that may not exist on older DuckDB databases.
+    # Postgres handles this through proper migration files in supabase/migrations/.
     migrations = [
         ("decision_outcomes", "execution_id", "VARCHAR"),
         ("decision_outcomes", "proposal_status", "VARCHAR"),

@@ -304,29 +304,32 @@ def sync_portfolio(account_id: str | None = None) -> dict:
     backdated_iso = (datetime.now() - timedelta(days=365)).isoformat()
     existing_first_seen: dict[str, str] = {}
     try:
-        if settings.paths.portfolio_state_path.exists():
-            with open(settings.paths.portfolio_state_path) as _f:
-                _existing = json.load(_f)
-                _existing_positions = _existing.get("positions", [])
-                # Count timestamp occurrences to detect batch-write artifacts.
-                _ts_counts: dict[str, int] = {}
-                for _p in _existing_positions:
-                    _fs = _p.get("first_seen_at")
-                    if _fs:
-                        _ts_counts[_fs] = _ts_counts.get(_fs, 0) + 1
-                _suspect_batch_ts = {ts for ts, n in _ts_counts.items() if n >= 3}
+        # NB: aliased as _load_portfolio (not _load_state) because this file
+        # already has a module-level _load_state() for SnapTrade credentials.
+        # A local rebinding to _load_state inside this function would shadow
+        # the module-level one and break the earlier credential lookup.
+        from src.db.state import load_portfolio_state as _load_portfolio
+        _existing = _load_portfolio()
+        _existing_positions = _existing.get("positions", [])
+        # Count timestamp occurrences to detect batch-write artifacts.
+        _ts_counts: dict[str, int] = {}
+        for _p in _existing_positions:
+            _fs = _p.get("first_seen_at")
+            if _fs:
+                _ts_counts[_fs] = _ts_counts.get(_fs, 0) + 1
+        _suspect_batch_ts = {ts for ts, n in _ts_counts.items() if n >= 3}
 
-                for _p in _existing_positions:
-                    _t = _p.get("ticker")
-                    if not _t:
-                        continue
-                    _fs = _p.get("first_seen_at")
-                    if not _fs:
-                        existing_first_seen[_t] = backdated_iso
-                    elif _fs in _suspect_batch_ts:
-                        existing_first_seen[_t] = backdated_iso
-                    else:
-                        existing_first_seen[_t] = _fs
+        for _p in _existing_positions:
+            _t = _p.get("ticker")
+            if not _t:
+                continue
+            _fs = _p.get("first_seen_at")
+            if not _fs:
+                existing_first_seen[_t] = backdated_iso
+            elif _fs in _suspect_batch_ts:
+                existing_first_seen[_t] = backdated_iso
+            else:
+                existing_first_seen[_t] = _fs
     except Exception:
         pass
 
@@ -394,9 +397,9 @@ def sync_portfolio(account_id: str | None = None) -> dict:
         "account_id": account_id,
     }
 
-    # Save to portfolio_state.json
-    with open(settings.paths.portfolio_state_path, "w") as f:
-        json.dump(portfolio, f, indent=2)
+    # Persist via state helper (writes Postgres + file in postgres mode, file-only in duckdb mode)
+    from src.db.state import save_portfolio_state as _save_state
+    _save_state(portfolio)
 
     return {
         "status": "synced",

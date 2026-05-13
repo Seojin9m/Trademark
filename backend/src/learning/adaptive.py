@@ -29,7 +29,8 @@ FACTOR_COLUMNS = [
     "revenue_growth_yoy",
     "gross_margin_trend",
     "relative_valuation",
-    "forward_estimate_revision",
+    # forward_estimate_revision removed — see settings.strategy.factor_weights
+    # and src/features/composite.py for the full context.
 ]
 
 # Bayesian shrinkage: blend IC-optimal weights with equal weight prior

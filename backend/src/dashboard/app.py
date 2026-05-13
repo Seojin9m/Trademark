@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
 from src.db.schema import get_connection, init_db
+from src.db.state import load_universe_df
 from src.signals.portfolio_engine import (
     load_portfolio_state,
     get_current_prices,
@@ -291,7 +292,7 @@ elif page == "Risk Monitor":
     prices = get_current_prices(tickers)
     pnl = compute_pnl(portfolio, prices)
     weights = compute_portfolio_weights(portfolio, prices)
-    universe = pd.read_csv(settings.paths.universe_path)
+    universe = load_universe_df()
 
     # Drawdown gauge
     drawdown = pnl["total_return_pct"] if pnl["total_return_pct"] < 0 else 0

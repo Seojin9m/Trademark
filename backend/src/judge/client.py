@@ -13,6 +13,7 @@ import anthropic
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
+from src.db.state import load_universe_df
 from src.judge.schema import (
     JudgeInput,
     JudgeOutput,
@@ -94,11 +95,22 @@ def _build_user_notes_image_blocks() -> list[dict]:
     return blocks
 
 
+def _backend() -> str:
+    import os
+    return (os.getenv("DB_BACKEND") or "duckdb").lower()
+
+
 def _init_judge_log_db() -> None:
-    """Create the judge log SQLite database and table."""
+    """Create the judge log table.
+
+    Postgres: table is provisioned by supabase/migrations/0003_judge_log.sql,
+    so this is a no-op. SQLite: legacy DB at logs/judge_log.db.
+    """
+    if _backend() == "postgres":
+        return  # provisioned by migration 0003
+
     db_path = settings.paths.judge_log_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
-
     con = sqlite3.connect(str(db_path))
     con.execute("""
         CREATE TABLE IF NOT EXISTS judge_log (
@@ -130,8 +142,43 @@ def _log_judge_call(
     model_used: str,
     input_hash: str,
 ) -> None:
-    """Persist a judge call to the SQLite audit log."""
+    """Persist a judge call to the audit log (Postgres or SQLite based on DB_BACKEND)."""
     _init_judge_log_db()
+
+    log_id = str(uuid.uuid4())[:8]
+    created_at = datetime.now().isoformat()
+
+    if _backend() == "postgres":
+        from src.db.postgres import get_pg_connection
+        # Postgres JSONB requires valid JSON. Some payloads (portfolio-review)
+        # are plain text — wrap them as JSON strings so the column accepts them
+        # while keeping the data round-trippable.
+        def _to_jsonb(text):
+            if text is None:
+                return None
+            try:
+                json.loads(text)
+                return text
+            except (json.JSONDecodeError, TypeError):
+                return json.dumps(text)
+
+        conn = get_pg_connection(role="pooled")
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO judge_log
+                    (log_id, created_at, proposal_id, ticker, action,
+                     input_payload, output_payload, verdict, confidence, model_used, input_hash)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                """, (
+                    log_id, created_at, proposal_id, ticker, action,
+                    _to_jsonb(input_payload), _to_jsonb(output_payload),
+                    verdict, confidence, model_used, input_hash,
+                ))
+            conn.commit()
+        finally:
+            conn.close()
+        return
 
     con = sqlite3.connect(str(settings.paths.judge_log_path))
     con.execute("""
@@ -140,17 +187,8 @@ def _log_judge_call(
          input_payload, output_payload, verdict, confidence, model_used, input_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
-        str(uuid.uuid4())[:8],
-        datetime.now().isoformat(),
-        proposal_id,
-        ticker,
-        action,
-        input_payload,
-        output_payload,
-        verdict,
-        confidence,
-        model_used,
-        input_hash,
+        log_id, created_at, proposal_id, ticker, action,
+        input_payload, output_payload, verdict, confidence, model_used, input_hash,
     ])
     con.commit()
     con.close()
@@ -209,7 +247,7 @@ def _build_historical_section(proposal: dict) -> str:
 
         # Load universe for sub_sector lookup
         import pandas as pd
-        universe = pd.read_csv(settings.paths.universe_path)
+        universe = load_universe_df()
         sub_sector_row = universe.loc[universe["ticker"] == ticker, "sub_sector"]
         sub_sector = sub_sector_row.iloc[0] if not sub_sector_row.empty else None
 
@@ -772,8 +810,36 @@ def evaluate_portfolio_review(
 
 
 def get_judge_log(limit: int = 50) -> list[dict]:
-    """Retrieve recent judge log entries."""
+    """Retrieve recent judge log entries from Postgres or SQLite."""
     _init_judge_log_db()
+
+    if _backend() == "postgres":
+        from src.db.postgres import get_pg_connection
+        conn = get_pg_connection(role="pooled")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT log_id, created_at, proposal_id, ticker, action, "
+                    "input_payload, output_payload, verdict, confidence, model_used, input_hash "
+                    "FROM judge_log ORDER BY created_at DESC LIMIT %s",
+                    [limit],
+                )
+                rows = cur.fetchall()
+                cols = [d[0] for d in cur.description]
+                return [
+                    {
+                        col: (
+                            v.isoformat() if hasattr(v, "isoformat") else
+                            json.dumps(v) if col in ("input_payload", "output_payload") and isinstance(v, dict) else
+                            v
+                        )
+                        for col, v in zip(cols, row)
+                    }
+                    for row in rows
+                ]
+        finally:
+            conn.close()
+
     con = sqlite3.connect(str(settings.paths.judge_log_path))
     con.row_factory = sqlite3.Row
     rows = con.execute(

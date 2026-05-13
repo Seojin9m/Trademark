@@ -285,11 +285,7 @@ def snapshot_portfolio(
 
 
 def save_portfolio_state(portfolio: dict) -> None:
-    """Save updated portfolio state to JSON."""
-    # Remove internal comment field if present
-    portfolio.pop("_comment", None)
-
-    with open(settings.paths.portfolio_state_path, "w") as f:
-        json.dump(portfolio, f, indent=2)
-
+    """Save updated portfolio state (routes to Postgres or JSON via state helper)."""
+    from src.db.state import save_portfolio_state as _save
+    _save(portfolio)
     print(f"Portfolio state saved ({len(portfolio['positions'])} positions, ${portfolio['cash']:,.2f} cash)")

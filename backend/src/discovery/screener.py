@@ -461,48 +461,67 @@ def flag_weak_universe_tickers() -> list[dict]:
 
     Returns list of {ticker, avg_decile, days_below, recommendation}.
     Does NOT auto-delete — flags for user review only.
+
+    Single bulk SELECT instead of one-per-ticker (2,166 round-trips to
+    Supabase used to take ~2 min; this completes in seconds).
     """
-    flagged = []
+    flagged: list[dict] = []
     try:
         con = get_connection()
-
         cutoff_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-        universe = pd.read_csv(settings.paths.universe_path)
-        universe_tickers = universe["ticker"].tolist()
 
-        for ticker in universe_tickers:
-            scores = con.execute("""
-                SELECT date, score_decile FROM factor_scores
-                WHERE ticker = $1 AND date >= CAST($2 AS DATE)
-                ORDER BY date ASC
-            """, [ticker, cutoff_date]).fetchdf()
-
-            if len(scores) < 3:
-                continue
-
-            if (scores["score_decile"] <= 3).all():
-                avg_d = float(scores["score_decile"].mean())
-                entry = {
-                    "ticker": ticker,
-                    "avg_decile": round(avg_d, 1),
-                    "days_below": len(scores),
-                    "recommendation": "review_for_removal",
-                }
-                flagged.append(entry)
-
-                today = datetime.now().date().strftime("%Y-%m-%d")
-                con.execute("""
-                    DELETE FROM discovery_candidates
-                    WHERE ticker = $1 AND discovery_source = 'auto_demote'
-                """, [ticker])
-                con.execute("""
-                    INSERT INTO discovery_candidates
-                    (ticker, company_name, sector, industry, market_cap,
-                     discovery_source, discovery_date, discovery_reason, metrics, status)
-                    VALUES ($1, '', '', '', '', 'auto_demote', $2, $3, '{}', 'flagged_weak')
-                """, [ticker, today, f"Below decile 3 for 90+ days (avg {avg_d:.1f})"])
-
+        # Pull all post-cutoff scores in one query, group locally.
+        all_scores = con.execute(
+            "SELECT ticker, date, score_decile FROM factor_scores "
+            "WHERE date >= CAST($1 AS DATE) ORDER BY ticker, date ASC",
+            [cutoff_date],
+        ).fetchdf()
         con.close()
+
+        if all_scores.empty:
+            return []
+
+        from src.db.state import load_universe_df
+        universe_tickers = set(load_universe_df()["ticker"].astype(str).tolist())
+
+        today = datetime.now().date().strftime("%Y-%m-%d")
+        new_demotes: list[tuple[str, str, str]] = []
+
+        for ticker, grp in all_scores.groupby("ticker"):
+            if ticker not in universe_tickers or len(grp) < 3:
+                continue
+            if (grp["score_decile"] <= 3).all():
+                avg_d = float(grp["score_decile"].mean())
+                flagged.append({
+                    "ticker": str(ticker),
+                    "avg_decile": round(avg_d, 1),
+                    "days_below": int(len(grp)),
+                    "recommendation": "review_for_removal",
+                })
+                new_demotes.append((str(ticker), today,
+                                    f"Below decile 3 for 90+ days (avg {avg_d:.1f})"))
+
+        if new_demotes:
+            # Bulk replace prior auto_demote rows for these tickers, then
+            # insert the fresh ones. Two statements instead of 2N.
+            con = get_connection()
+            tickers = [t for t, _, _ in new_demotes]
+            placeholders = ",".join(["$" + str(i + 1) for i in range(len(tickers))])
+            con.execute(
+                f"DELETE FROM discovery_candidates "
+                f"WHERE discovery_source = 'auto_demote' AND ticker IN ({placeholders})",
+                tickers,
+            )
+            for ticker, day, reason in new_demotes:
+                con.execute(
+                    "INSERT INTO discovery_candidates "
+                    "(ticker, company_name, sector, industry, market_cap, "
+                    " discovery_source, discovery_date, discovery_reason, metrics, status) "
+                    "VALUES ($1, '', '', '', '', 'auto_demote', $2, $3, '{}', 'flagged_weak')",
+                    [ticker, day, reason],
+                )
+            con.close()
+
     except Exception as e:
         print(f"  Flag weak tickers failed: {e}")
 

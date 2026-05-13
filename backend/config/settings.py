@@ -38,14 +38,17 @@ class PathSettings(BaseSettings):
 
 
 class StrategySettings(BaseSettings):
-    # Factor weights (equal weight default)
+    # Factor weights. forward_estimate_revision (formerly 0.25) was removed
+    # when Polygon Starter turned out not to carry analyst estimates and
+    # yfinance proved too unreliable to depend on. Its weight was
+    # redistributed proportionally across the remaining 5 factors so the
+    # composite still sums to 1.0 — relative importance preserved.
     factor_weights: dict[str, float] = {
-        "momentum_12m1m": 0.15,
-        "eps_growth_yoy": 0.15,
-        "revenue_growth_yoy": 0.15,
-        "gross_margin_trend": 0.10,
-        "relative_valuation": 0.20,
-        "forward_estimate_revision": 0.25,
+        "momentum_12m1m": 0.20,
+        "eps_growth_yoy": 0.20,
+        "revenue_growth_yoy": 0.20,
+        "gross_margin_trend": 0.15,
+        "relative_valuation": 0.25,
     }
 
     # Position sizing
@@ -131,6 +134,17 @@ class StrategySettings(BaseSettings):
 
     # Quality gate: minimum quality z-score to be considered a "good stock"
     min_quality_zscore: float = -0.5
+
+    # Quality gate (data coverage): minimum number of fundamentals factors
+    # that must have a non-NaN value before a ticker can qualify as a good
+    # stock. Without this, tickers with ALL-NaN fundamentals (recent IPOs,
+    # foreign ADRs, micro-caps Polygon doesn't carry) get quality_score=0.0
+    # after the divide-by-zero fillna and ride pure momentum into the
+    # ranked-buy list. There are 4 quality factors (eps_growth_yoy,
+    # revenue_growth_yoy, gross_margin_trend, relative_valuation); banks/
+    # insurance legitimately miss gross_margin_trend, so 2-of-4 is the
+    # tightest setting that doesn't unfairly exclude them.
+    min_quality_factors_present: int = 2
 
     # Recent quarters for quality/growth computation (2-4)
     quality_recent_quarters: int = 4

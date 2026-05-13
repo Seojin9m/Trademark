@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
 from src.db.schema import get_connection, init_db
+from src.db.state import load_universe_df
 from src.signals.portfolio_engine import (
     load_portfolio_state,
     get_current_prices,
@@ -105,10 +106,74 @@ logging.basicConfig(
 
 from contextlib import asynccontextmanager
 
+def _scheduled_fundamentals_check() -> None:
+    """Weekly job: re-ingest fundamentals if the cooldown has elapsed.
+
+    Runs inside the FastAPI process via APScheduler. Honors the existing
+    `fundamentals_cooldown_days` setting, so this fires harmlessly if data
+    is fresh. The same `ingest_fundamentals` path the manual button used
+    to call is reused — only the trigger has moved from "user click" to
+    "scheduler". On the first deployment after Phase 4, the universe
+    rebuild job will live next to this one.
+    """
+    try:
+        from src.ingest.fundamentals import should_ingest_fundamentals, ingest_fundamentals
+        should_ingest, reason = should_ingest_fundamentals()
+        if should_ingest:
+            logger.info(f"[cron] fundamentals refresh: {reason}")
+            ingest_fundamentals()
+            logger.info("[cron] fundamentals refresh complete")
+        else:
+            logger.info(f"[cron] fundamentals up-to-date: {reason}")
+    except Exception as e:
+        logger.error(f"[cron] fundamentals refresh failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    yield
+
+    # Embedded scheduler — fires when the backend is running (always, for
+    # this app). Wrapped in try/except because:
+    #   1. APScheduler's BackgroundScheduler can interact poorly with uvicorn's
+    #      --reload watcher (threads sometimes survive reload and conflict).
+    #   2. A scheduler-startup failure should NEVER block the HTTP server.
+    # If start fails, we log and continue — the manual CLI fallback
+    # `python -m src.ingest.fundamentals` still works.
+    scheduler = None
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        scheduler = BackgroundScheduler(
+            timezone=settings.schedule.timezone,
+            daemon=True,  # die with the process; survives reload churn cleanly
+        )
+        # Weekly Monday 06:00 ET. The cooldown gate inside the job makes
+        # ingestion a no-op when data is fresh — weekly heartbeat is the
+        # right cadence since SimFin pushes data ~weekly.
+        scheduler.add_job(
+            _scheduled_fundamentals_check,
+            CronTrigger(day_of_week="mon", hour=6, minute=0,
+                        timezone=settings.schedule.timezone),
+            id="fundamentals_check",
+            replace_existing=True,
+        )
+        scheduler.start()
+        logger.info("[cron] scheduler started: fundamentals_check (weekly Mon 06:00 ET)")
+    except Exception as e:
+        logger.warning(f"[cron] scheduler failed to start ({e}); continuing without it")
+        scheduler = None
+
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            try:
+                scheduler.shutdown(wait=False)
+                logger.info("[cron] scheduler stopped")
+            except Exception:
+                pass
 
 app = FastAPI(title="Trademark API", version="2.0.0", lifespan=lifespan)
 
@@ -292,22 +357,28 @@ def reset_trading_data(keep_prices: bool = True):
 
     con.close()
 
-    # Clear SQLite judge log
-    judge_log_path = settings.paths.judge_log_path
+    # Clear judge log — Postgres in postgres mode, SQLite in legacy mode
+    import os
     judge_cleared = 0
-    if judge_log_path.exists():
-        try:
-            jcon = sqlite3.connect(str(judge_log_path))
+    try:
+        if (os.getenv("DB_BACKEND") or "duckdb").lower() == "postgres":
+            jcon = get_connection()
             judge_cleared = jcon.execute("SELECT COUNT(*) FROM judge_log").fetchone()[0]
             jcon.execute("DELETE FROM judge_log")
-            jcon.commit()
             jcon.close()
-            cleared.append(f"judge_log ({judge_cleared} rows)")
-        except Exception:
-            pass
+        else:
+            judge_log_path = settings.paths.judge_log_path
+            if judge_log_path.exists():
+                jcon = sqlite3.connect(str(judge_log_path))
+                judge_cleared = jcon.execute("SELECT COUNT(*) FROM judge_log").fetchone()[0]
+                jcon.execute("DELETE FROM judge_log")
+                jcon.commit()
+                jcon.close()
+        cleared.append(f"judge_log ({judge_cleared} rows)")
+    except Exception:
+        pass
 
     # Reset portfolio state — prefer re-syncing from Wealthsimple if connected
-    import json
     portfolio_reset_msg = "portfolio_state.json (reset to $100k cash)"
     try:
         from src.ingest.brokerage import sync_portfolio, get_connection_status
@@ -318,13 +389,12 @@ def reset_trading_data(keep_prices: bool = True):
         else:
             raise RuntimeError("not connected")
     except Exception:
-        default_portfolio = {
+        from src.db.state import save_portfolio_state as _save_state
+        _save_state({
             "as_of_date": datetime.now().strftime("%Y-%m-%d"),
             "cash": 100000.00,
             "positions": [],
-        }
-        with open(settings.paths.portfolio_state_path, "w") as f:
-            json.dump(default_portfolio, f, indent=2)
+        })
     cleared.append(portfolio_reset_msg)
 
     logger.warning(f"RESET: Cleared {len(cleared)} data stores: {', '.join(cleared)}")
@@ -910,7 +980,7 @@ def get_risk_metrics():
         weights = compute_portfolio_weights(portfolio, prices)
         pnl = compute_pnl(portfolio, prices)
 
-        universe = pd.read_csv(settings.paths.universe_path)
+        universe = load_universe_df()
 
         sector_weights = {}
         for ticker, weight in weights.items():
@@ -937,7 +1007,7 @@ def get_risk_metrics():
 @app.get("/api/universe")
 def get_universe():
     """Universe with sub-sector tags."""
-    df = pd.read_csv(settings.paths.universe_path)
+    df = load_universe_df()
     return df.to_dict(orient="records")
 
 
@@ -1437,18 +1507,10 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
     except Exception as e:
         _emit(run_id, "fundamentals", "done", f"Fundamentals ingestion skipped: {e}")
 
-    # Step 1c: Forward analyst estimates ingestion (weekly cooldown)
-    try:
-        from src.ingest.forward_estimates import should_refresh_estimates, ingest_forward_estimates
-        should_fwd, fwd_reason = should_refresh_estimates()
-        if should_fwd:
-            _emit(run_id, "forward_estimates", "running", f"Refreshing analyst estimates: {fwd_reason}")
-            ingest_forward_estimates()
-            _emit(run_id, "forward_estimates", "done", "Analyst estimates refreshed")
-        else:
-            _emit(run_id, "forward_estimates", "skipped", f"Estimates up-to-date: {fwd_reason}")
-    except Exception as e:
-        _emit(run_id, "forward_estimates", "done", f"Forward estimates ingestion skipped: {e}")
+    # Step 1c was forward_estimates ingestion. Removed when the
+    # forward_estimate_revision factor was dropped (Polygon Starter lacks
+    # analyst data, yfinance unreliable). Re-introduce here if you ever
+    # wire in Polygon Advanced or FMP Premium for analyst estimates.
 
     # Step 2: Scoring (uses prior run's learned factor weights if available)
     _emit(run_id, "scoring", "running", "Computing factor scores...")
@@ -1614,7 +1676,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
     _emit(run_id, "proposals", "running", "Building trade proposals...")
     try:
         from src.signals.portfolio_engine import build_trade_proposals, store_proposals
-        universe = pd.read_csv(settings.paths.universe_path)
+        universe = load_universe_df()
         proposals = build_trade_proposals(actionable, portfolio, prices, universe, adaptive_params=adaptive_params)
         for p in proposals:
             p["run_id"] = run_id

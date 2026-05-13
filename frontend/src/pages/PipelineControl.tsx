@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { GateReviewPanel } from "@/components/pipeline/GateReviewPanel"
 import {
-  Play, Loader2, CheckCircle, XCircle, Clock, ArrowRight,
+  Play, Loader2, Check, CheckCircle, X as XIcon, XCircle, Clock, ArrowRight,
   Trash2, RotateCcw, StickyNote, X, Save, ImagePlus,
   Hand, Eye, ChevronDown, ChevronUp, Database, ExternalLink,
   Search, Zap, Target, TrendingUp,
