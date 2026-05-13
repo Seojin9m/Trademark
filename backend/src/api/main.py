@@ -2557,10 +2557,12 @@ async def add_to_watchlist(request: Request):
             pass
 
     con = get_connection()
+    # ON CONFLICT uses EXCLUDED.column rather than re-binding $4/$5 —
+    # see the same note on portfolio_snapshots in src/simulation/executor.py.
     con.execute("""
         INSERT INTO watchlist (ticker, company_name, sub_sector, notes, priority)
         VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (ticker) DO UPDATE SET notes = $4, priority = $5
+        ON CONFLICT (ticker) DO UPDATE SET notes = EXCLUDED.notes, priority = EXCLUDED.priority
     """, [ticker, company_name, sub_sector, notes, priority])
     con.close()
 

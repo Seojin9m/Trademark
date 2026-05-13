@@ -720,10 +720,13 @@ def _store_adaptive_state(constraints: dict) -> None:
 
     state_json = json.dumps(constraints, default=str)
     now = datetime.now().isoformat()
+    # ON CONFLICT uses EXCLUDED.column rather than re-binding $1/$2: the
+    # PgConnectionAdapter regex-translates each $N to %s, so reused names
+    # would over-count expected parameters and trip psycopg2 IndexError.
     con.execute("""
         INSERT INTO adaptive_state (key, value, updated_at)
         VALUES ('latest', $1, $2)
-        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = $2
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
     """, [state_json, now])
     con.close()
 

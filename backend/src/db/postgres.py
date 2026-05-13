@@ -49,9 +49,55 @@ except ImportError:
 
 # DuckDB uses both ? and $1/$2 placeholders. Postgres uses %s. Translate.
 _PLACEHOLDER_RE = re.compile(r"\?|\$\d+")
+_DOLLAR_N_RE = re.compile(r"\$(\d+)")
+_HAS_DOLLAR_RE = re.compile(r"\$\d+")
+
+
+def _translate_sql_and_params(sql: str, params):
+    """Translate DuckDB-style placeholders to psycopg2 %s, reordering params.
+
+    DuckDB / Postgres `$N` placeholders are POSITIONAL by INDEX: `$2` always
+    means "the 2nd parameter" regardless of where it appears in the SQL,
+    and the same `$N` can appear multiple times. psycopg2's `%s` is
+    POSITIONAL BY OCCURRENCE: each `%s` consumes the next param in order.
+    We bridge the two semantics by walking each `$N` occurrence and
+    rewriting the params list so they appear in the same order as the
+    `%s` placeholders in the translated SQL.
+
+    `?` placeholders behave like `%s` (one param per occurrence in order),
+    so when the SQL uses only `?` we just swap the syntax and leave params
+    alone. Mixed `?` and `$N` in the same query is not used in this
+    codebase and is intentionally unsupported here.
+    """
+    if not params:
+        return _PLACEHOLDER_RE.sub("%s", sql), params
+
+    if not _HAS_DOLLAR_RE.search(sql):
+        # Pure `?` style — positional, no reordering needed.
+        return sql.replace("?", "%s"), list(params)
+
+    reordered: list = []
+
+    def _sub(m: re.Match) -> str:
+        n = int(m.group(1))
+        try:
+            reordered.append(params[n - 1])
+        except IndexError:
+            raise IndexError(
+                f"SQL references $${n} but only {len(params)} params provided: {sql[:120]}"
+            )
+        return "%s"
+
+    translated = _DOLLAR_N_RE.sub(_sub, sql)
+    return translated, reordered
 
 
 def _translate_placeholders(sql: str) -> str:
+    """Legacy helper kept for callers that don't need param reordering.
+
+    Use _translate_sql_and_params for any execute() path that passes
+    parameters — it preserves $N positional semantics.
+    """
     return _PLACEHOLDER_RE.sub("%s", sql)
 
 
@@ -109,12 +155,12 @@ class PgConnectionAdapter:
 
     def execute(self, sql: str, params=None) -> _PgResult:
         cursor = self._conn.cursor()
-        sql_pg = _translate_placeholders(sql)
         try:
             if params is None:
-                cursor.execute(sql_pg)
+                cursor.execute(_translate_placeholders(sql))
             else:
-                cursor.execute(sql_pg, list(params))
+                sql_pg, params_pg = _translate_sql_and_params(sql, params)
+                cursor.execute(sql_pg, params_pg)
         except Exception:
             cursor.close()
             raise
