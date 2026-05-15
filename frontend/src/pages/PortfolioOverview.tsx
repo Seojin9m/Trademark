@@ -534,11 +534,22 @@ export default function PortfolioOverview() {
   const syncMutation = useMutation({
     mutationFn: () => api.syncPortfolio(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio"] }),
+    onError: (err) => {
+      // Sync failures should surface in the console so we notice when
+      // SnapTrade is unreachable. Don't toast — happens too often during
+      // weekend hours to be useful.
+      console.warn("Portfolio sync failed:", err)
+    },
   })
 
   const { data, isLoading, error } = useQuery<PortfolioData>({
     queryKey: ["portfolio"],
     queryFn: api.getPortfolio,
+    // Refetch every 10s independently of the sync mutation. The /api/portfolio
+    // endpoint itself triggers a brokerage refresh now, so each poll returns
+    // truly live data instead of stale React-Query cache.
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   })
 
   const { data: rateData } = useQuery({
@@ -567,21 +578,11 @@ export default function PortfolioOverview() {
   const brokerageConnected = brokerageStatus?.connected ?? false
   const holdMap = new Map((holdingTimes ?? []).map((h) => [h.ticker, h]))
 
-  // Auto-sync the portfolio every 10s while the page is open and a brokerage
-  // is connected. Skips firing while a previous sync is still in flight to
-  // prevent stacking when the brokerage call runs slow.
-  const syncMutate = syncMutation.mutate
-  const isPending = syncMutation.isPending
-  useEffect(() => {
-    if (!brokerageConnected) return
-    const tick = () => {
-      if (!isPending) syncMutate()
-    }
-    tick() // fire once immediately
-    const id = setInterval(tick, 10_000)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brokerageConnected])
+  // No explicit auto-sync useEffect any more: the `["portfolio"]` query's
+  // refetchInterval polls /api/portfolio every 10s, and the backend
+  // endpoint now refreshes from SnapTrade as part of that call. The
+  // syncMutation above stays available for the manual "Sync now" button
+  // and any other explicit triggers.
 
   const rate = currency === "CAD" ? (rateData?.rate ?? 1.38) : 1
 

@@ -134,19 +134,29 @@ Fundamental positioning:
 
     try:
         client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
+        # max_tokens raised 1024 -> 4096. The summarizer's structured JSON
+        # (ai_summary + binary_events + risk_factors + opportunities +
+        # data_sources) easily exceeds 1024 tokens of reasoning, and a cut-off
+        # mid-string was producing the same "Unterminated string" parse error
+        # we hit on the judge.
         response = client.messages.create(
             model=settings.judge.model,
-            max_tokens=1024,
+            max_tokens=4096,
             temperature=0.0,
             system=SUMMARIZER_SYSTEM,
             messages=[{"role": "user", "content": user_prompt}],
         )
 
+        from src.judge.client import _extract_json_from_llm
         raw_text = response.content[0].text.strip()
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-        data = json.loads(raw_text)
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "max_tokens":
+            import json as _json
+            raise _json.JSONDecodeError(
+                f"Summarizer truncated at max_tokens=4096 (stop_reason=max_tokens) for {ticker}.",
+                raw_text, len(raw_text),
+            )
+        data = _extract_json_from_llm(raw_text)
 
         binary_events = [
             BinaryEvent(**e) for e in data.get("binary_events", [])

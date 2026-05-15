@@ -50,12 +50,27 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params ?? {}),
       })
-      if (!res.ok) throw new Error(`Failed to start pipeline: ${res.status}`)
-      const data = await res.json()
-      setRunId(data.run_id)
-      runIdRef.current = data.run_id
 
-      const es = new EventSource(`/api/pipeline/status?run_id=${data.run_id}`)
+      let activeRunId: string | null = null
+      if (res.status === 409) {
+        // Backend says a pipeline is already running. Resubscribe to it
+        // instead of failing — this is the recovery path when the SSE
+        // dropped (uvicorn --reload, network blip) but the pipeline is
+        // still alive on the server.
+        const body = await res.json()
+        activeRunId = body?.detail?.run_id ?? null
+        if (!activeRunId) throw new Error("Pipeline already running but no run_id returned")
+      } else if (!res.ok) {
+        throw new Error(`Failed to start pipeline: ${res.status}`)
+      } else {
+        const data = await res.json()
+        activeRunId = data.run_id
+      }
+
+      setRunId(activeRunId)
+      runIdRef.current = activeRunId
+
+      const es = new EventSource(`/api/pipeline/status?run_id=${activeRunId}`)
       esRef.current = es
 
       es.onmessage = (event) => {

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import sqlite3
 import sys
 import uuid
@@ -39,6 +40,85 @@ def _get_user_notes_data() -> dict:
         return _user_notes
     except Exception:
         return {}
+
+
+def _extract_json_from_llm(text: str):
+    """Best-effort JSON extractor for LLM responses.
+
+    The judge prompts explicitly request raw JSON, but Claude occasionally
+    decorates the output with prose, markdown fences, or trailing commentary.
+    We try progressively more aggressive recovery strategies before giving up:
+
+    1. Direct parse of the stripped text (the happy path).
+    2. Strip ``` fences (with or without language hint) regardless of
+       whether they bracket the full message or just a portion of it.
+    3. Locate the first ``{`` and find its bracket-balanced closing ``}``;
+       parse just that slice. Handles "Here's my analysis: {...}" and
+       trailing remarks. Also tries the first ``[`` for array-shaped
+       responses.
+
+    Raises ``json.JSONDecodeError`` from the last failed attempt so callers
+    keep their existing exception handlers intact.
+    """
+    if text is None:
+        raise json.JSONDecodeError("LLM returned None", "", 0)
+
+    s = text.strip()
+    if not s:
+        raise json.JSONDecodeError("LLM returned empty string", "", 0)
+
+    # Strategy 1: parse as-is.
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 2: strip ``` fences if present anywhere.
+    fence_match = re.search(r"```(?:json|JSON)?\s*\n?(.*?)\n?```", s, re.DOTALL)
+    if fence_match:
+        try:
+            return json.loads(fence_match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Strategy 3: find first balanced { ... } or [ ... ] block.
+    for open_ch, close_ch in (("{", "}"), ("[", "]")):
+        start = s.find(open_ch)
+        if start < 0:
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(s)):
+            c = s[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\":
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == open_ch:
+                depth += 1
+            elif c == close_ch:
+                depth -= 1
+                if depth == 0:
+                    candidate = s[start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break  # try the other bracket type
+                    break
+
+    # Nothing worked — raise so the caller's except handler runs.
+    raise json.JSONDecodeError(
+        f"Could not extract JSON from LLM response (first 200 chars: {s[:200]!r})",
+        s, 0,
+    )
 
 
 def _build_user_notes_section() -> str:
@@ -492,21 +572,33 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
     client = anthropic.Anthropic(api_key=settings.api_keys.anthropic_api_key)
 
     try:
+        # max_tokens raised from 1024 to 4096 because the JudgeOutput schema
+        # (verdict + reasons + violated_rules + risk_flags + follow_up_checks
+        # + data_quality_concerns) routinely needs >1500 tokens of natural-
+        # language reasoning. At 1024 Claude was getting cut off mid-string
+        # and the response failed JSON parsing with "Unterminated string".
         response = client.messages.create(
             model=model,
-            max_tokens=1024,
+            max_tokens=4096,
             temperature=settings.judge.temperature,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": message_content}],
         )
 
         raw_text = response.content[0].text.strip()
+        # If Claude hit the token ceiling, surface that as the parse error
+        # instead of letting the JSON decoder complain about a truncated
+        # string — far easier to act on.
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "max_tokens":
+            raise json.JSONDecodeError(
+                f"Judge response truncated at max_tokens=4096 (stop_reason=max_tokens). "
+                f"Bump max_tokens or shorten prompts.",
+                raw_text, len(raw_text),
+            )
 
-        # Parse JSON — handle possible markdown fences
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        result = _extract_json_from_llm(raw_text)
 
-        result = json.loads(raw_text)
         output = JudgeOutput(
             verdict=result.get("verdict", "needs_review"),
             confidence=result.get("confidence", 0.5),
@@ -522,12 +614,17 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
         )
 
     except (json.JSONDecodeError, KeyError, Exception) as e:
-        # If parsing fails, return needs_review with the error
+        # Capture a snippet of the raw response so recurring parse failures
+        # are debuggable instead of opaque.
+        try:
+            raw_snippet = raw_text[:300] if "raw_text" in locals() else "<no response captured>"
+        except Exception:
+            raw_snippet = "<no response captured>"
         output = JudgeOutput(
             verdict=Verdict.NEEDS_REVIEW,
             confidence=0.0,
             reasons=[f"Judge parse error: {str(e)}"],
-            risk_flags=["LLM response was not valid JSON"],
+            risk_flags=[f"LLM response was not valid JSON. First 300 chars: {raw_snippet}"],
             judge_model=model,
             evaluation_timestamp=datetime.now().isoformat(),
             input_hash=input_hash,
@@ -777,19 +874,29 @@ def evaluate_portfolio_review(
         )
 
         raw_text = response.content[0].text.strip()
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-        result = json.loads(raw_text)
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "max_tokens":
+            raise json.JSONDecodeError(
+                f"Portfolio review truncated at max_tokens=4096 (stop_reason=max_tokens). "
+                f"Consider bumping max_tokens for portfolios with many positions.",
+                raw_text, len(raw_text),
+            )
+        result = _extract_json_from_llm(raw_text)
 
     except (json.JSONDecodeError, Exception) as e:
+        # Log the raw response so we can debug recurring parse failures
+        # rather than just losing the data behind a generic error message.
+        try:
+            raw_snippet = (raw_text[:300] if "raw_text" in locals() else "<no response captured>")
+        except Exception:
+            raw_snippet = "<no response captured>"
         result = {
             "overall_verdict": "agree",
             "confidence": 0.0,
             "market_assessment": f"Judge parse error: {e}",
             "holdings_review": [],
             "missed_opportunities": [],
-            "risk_flags": ["LLM response parsing failed"],
+            "risk_flags": [f"LLM response parsing failed. First 300 chars: {raw_snippet}"],
             "recommendations": [],
         }
 

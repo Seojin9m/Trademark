@@ -94,14 +94,21 @@ def check_constraints(
     prices: dict,
     universe: pd.DataFrame,
     adaptive_params: dict | None = None,
+    projected_cash: float | None = None,
 ) -> dict:
     """Check if a proposed trade violates any risk constraints.
 
-    Returns dict with: passed (bool), violations (list of strings)
+    `projected_cash` overrides `portfolio["cash"]` for the cash check. The
+    caller passes a projected balance that accounts for pending TRIM/SELL
+    proceeds so that BUY proposals can fund themselves out of the cash a
+    same-run trim is about to release.
+
+    Returns dict with: passed (bool), violations (list of strings).
     """
     violations = []
     ticker = signal["ticker"]
     target_weight = signal["target_weight"]
+    available_cash = projected_cash if projected_cash is not None else portfolio.get("cash", 0)
 
     # Max single position weight
     if target_weight > settings.strategy.max_single_position_weight:
@@ -141,13 +148,14 @@ def check_constraints(
     if signal["action"] == "BUY" and n_positions >= settings.strategy.max_positions:
         violations.append(f"Already at max positions ({settings.strategy.max_positions})")
 
-    # Cash check for buys
+    # Cash check for buys. Uses projected_cash if the caller supplied one
+    # (i.e. cash + pending trim proceeds), otherwise raw portfolio cash.
     if signal["action"] in ("BUY", "ADD"):
         portfolio_value = compute_portfolio_value(portfolio, prices)
         required_cash = target_weight * portfolio_value - current_weights.get(ticker, 0) * portfolio_value
-        if required_cash > portfolio["cash"]:
+        if required_cash > available_cash:
             violations.append(
-                f"Insufficient cash: need ${required_cash:,.0f}, have ${portfolio['cash']:,.0f}"
+                f"Insufficient cash: need ${required_cash:,.0f}, have ${available_cash:,.0f}"
             )
 
     return {
@@ -170,6 +178,23 @@ def build_trade_proposals(
     current_weights = compute_portfolio_weights(portfolio, prices)
     portfolio_value = compute_portfolio_value(portfolio, prices)
 
+    # Pre-compute net cash projected after pending trims/sells (their
+    # proceeds become available for BUYs in the same run). If the user
+    # rejects a trim later, those un-executed proceeds simply don't
+    # materialize and the corresponding BUY stays un-funded — that's
+    # acceptable because the human reviews each trade individually.
+    cash_freed_by_trims = 0.0
+    for s in signals:
+        if s.get("action") not in ("SELL", "TRIM"):
+            continue
+        t = s["ticker"]
+        current_value = current_weights.get(t, 0) * portfolio_value
+        target_value = s.get("target_weight", 0) * portfolio_value
+        # delta is negative for trims/sells; absolute value = proceeds
+        cash_freed_by_trims += max(0.0, current_value - target_value)
+
+    projected_cash = portfolio.get("cash", 0) + cash_freed_by_trims
+
     proposals = []
     for signal in signals:
         if signal["action"] == "HOLD":
@@ -179,6 +204,7 @@ def build_trade_proposals(
         constraint_result = check_constraints(
             signal, current_weights, portfolio, prices, universe,
             adaptive_params=adaptive_params,
+            projected_cash=projected_cash,
         )
 
         # Compute shares to trade
@@ -213,38 +239,12 @@ def build_trade_proposals(
         }
         proposals.append(proposal)
 
-    # Allocate available cash across BUY proposals in score order. Previously
-    # any BUY that didn't fit was silently dropped, which made it look like
-    # the pipeline produced no signals when in fact it had several it
-    # couldn't fund. We now keep the unfunded proposals in the return list
-    # but mark them constraint-failed so the dashboard surfaces them and
-    # the judge step skips them naturally.
-    cash = portfolio.get("cash", 0)
-    buys = [p for p in proposals if p["action"] == "BUY"]
-    non_buys = [p for p in proposals if p["action"] != "BUY"]
-
-    buys.sort(
-        key=lambda p: p.get("signal_data", {}).get("composite_score", 0),
-        reverse=True,
-    )
-
-    capped_buys = []
-    remaining_cash = cash
-    for p in buys:
-        if p["estimated_value"] <= remaining_cash:
-            capped_buys.append(p)
-            remaining_cash -= p["estimated_value"]
-        else:
-            cc = p.get("constraint_check") or {"passed": True, "violations": []}
-            cc["passed"] = False
-            cc["violations"] = list(cc.get("violations", [])) + [
-                f"Insufficient cash: need ${p['estimated_value']:,.0f}, "
-                f"have ${remaining_cash:,.0f} (after higher-priority buys)"
-            ]
-            p["constraint_check"] = cc
-            capped_buys.append(p)
-
-    return non_buys + capped_buys
+    # All proposals stay PENDING and approvable. Constraint warnings are
+    # surfaced via constraint_check.violations for the user to see in the
+    # proposal detail panel, but they don't block manual approval. The user
+    # explicitly wants the freedom to approve/reject every proposal rather
+    # than have the system auto-block on insufficient projected cash.
+    return proposals
 
 
 def _sanitize_for_json(obj):

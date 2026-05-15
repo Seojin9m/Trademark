@@ -535,7 +535,23 @@ def _get_usdcad_rate() -> float:
 
 @app.get("/api/portfolio")
 def get_portfolio():
-    """Current portfolio state with P&L."""
+    """Current portfolio state with P&L.
+
+    Always refreshes from the brokerage when a SnapTrade connection exists so
+    the dashboard reflects live positions/prices rather than the last cached
+    snapshot. Falls back to cached portfolio_state if the brokerage is
+    unreachable (sync errors are non-fatal — we'd rather show slightly stale
+    data than break the page when SnapTrade is slow).
+    """
+    # Live brokerage refresh. Skipped silently when SnapTrade isn't connected
+    # or returns an error so the page still works in disconnected dev mode.
+    try:
+        from src.ingest.brokerage import sync_portfolio, get_connection_status
+        if get_connection_status().get("connected"):
+            sync_portfolio()
+    except Exception as sync_err:
+        logger.debug(f"Brokerage sync skipped on portfolio fetch: {sync_err}")
+
     try:
         portfolio = load_portfolio_state()
 
@@ -2326,7 +2342,26 @@ async def trigger_pipeline(request: Request):
         mode: "full" | "sector" | default "full"
         sub_sector: required when mode="sector"
         risk_level: 1-5, default 3
+
+    Concurrency guard: if any pipeline thread is still running (lock not
+    set), returns 409 Conflict with the existing run_id so the caller can
+    re-subscribe instead of starting a duplicate. Prevents the dual-run
+    we hit when uvicorn --reload severs the SSE mid-pipeline and the user
+    re-clicks Run because the UI looks idle.
     """
+    in_flight = [rid for rid, lock in _pipeline_locks.items() if not lock.is_set()]
+    if in_flight:
+        existing = in_flight[0]
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "pipeline_already_running",
+                "run_id": existing,
+                "message": f"Pipeline run {existing} is already in progress. "
+                           "Re-subscribe to its SSE stream instead of starting a new one.",
+            },
+        )
+
     body = {}
     try:
         body = await request.json()
