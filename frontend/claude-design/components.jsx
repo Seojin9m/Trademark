@@ -43,6 +43,7 @@ function Icon({ name, size = 16, className = '', style }) {
   };
   switch (name) {
     case 'portfolio':   return <svg {...props}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>;
+    case 'rankings':    return <svg {...props}><path d="M6 9H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2"/><path d="M8 22h8"/><path d="M12 16v6"/><path d="M6 4v8a6 6 0 0 0 12 0V4Z"/><path d="M6 4h12"/></svg>;
     case 'analyst':     return <svg {...props}><path d="M12 2a4 4 0 0 0-4 4 4 4 0 0 0 .5 2 4 4 0 0 0-.5 2 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-.5-2 4 4 0 0 0 .5-2 4 4 0 0 0-4-4Z"/><path d="M12 14v8"/><path d="M9 22h6"/></svg>;
     case 'signals':     return <svg {...props}><path d="M3 17l6-6 4 4 8-9"/><path d="M14 6h7v7"/></svg>;
     case 'trades':      return <svg {...props}><path d="M7 10l-4-4 4-4"/><path d="M3 6h14"/><path d="M17 14l4 4-4 4"/><path d="M21 18H7"/></svg>;
@@ -94,6 +95,7 @@ function Icon({ name, size = 16, className = '', style }) {
 // Sidebar
 // ============================================================
 const NAV_ITEMS = [
+  { id: 'rankings',  label: 'Rankings',  icon: 'rankings' },
   { id: 'portfolio', label: 'Portfolio', icon: 'portfolio' },
   { id: 'analyst',   label: 'Analyst',   icon: 'analyst', pulse: false },
   { id: 'signals',   label: 'Signals',   icon: 'signals' },
@@ -104,11 +106,10 @@ const NAV_ITEMS = [
   { id: 'research',  label: 'Research',  icon: 'research' },
   { id: 'learning',  label: 'Learning',  icon: 'learning' },
   { id: 'backtest',  label: 'Backtest',  icon: 'backtest' },
-  { id: 'brokerage', label: 'Brokerage', icon: 'brokerage' },
   { id: 'pipeline',  label: 'Pipeline',  icon: 'pipeline', pulse: true },
 ];
 
-function Sidebar({ active, onNav, collapsed, onToggleCollapse }) {
+function Sidebar({ active, onNav, collapsed, onToggleCollapse, user }) {
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sb-header">
@@ -129,6 +130,19 @@ function Sidebar({ active, onNav, collapsed, onToggleCollapse }) {
           </a>
         ))}
       </nav>
+      <a className={`sb-user ${active === 'account' ? 'active' : ''} ${collapsed ? 'collapsed' : ''}`}
+         href="#account"
+         onClick={(e) => { e.preventDefault(); onNav('account'); }}
+         title={collapsed ? 'My Account' : ''}>
+        <span className="sb-user-avatar">{user ? user.name.split(' ').map(p => p[0]).join('').slice(0,2).toUpperCase() : 'SH'}</span>
+        {!collapsed && (
+          <div className="sb-user-meta">
+            <div className="sb-user-name">{user ? user.name : 'My Account'}</div>
+            <div className="sb-user-mail">{user ? user.email : ''}</div>
+          </div>
+        )}
+        {!collapsed && <Icon name="settings" size={14} className="sb-user-icon"/>}
+      </a>
       <div className="sb-footer">
         {!collapsed && <span className="sb-version">v4.0 · PHASE 8</span>}
         <button className="sb-collapse-btn" onClick={onToggleCollapse} title="Toggle sidebar">

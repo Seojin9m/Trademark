@@ -2,6 +2,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { BrowserRouter } from "react-router-dom"
 import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query"
+import { AuthProvider } from "./contexts/auth-context"
 import { PipelineProvider } from "./contexts/pipeline-context"
 import { AnalystProvider } from "./contexts/analyst-context"
 import { ToastProvider } from "./contexts/toast-context"
@@ -40,13 +41,15 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <ToastProvider>
-          <PipelineProvider>
-            <AnalystProvider>
-              <App />
-            </AnalystProvider>
-          </PipelineProvider>
-        </ToastProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <PipelineProvider>
+              <AnalystProvider>
+                <App />
+              </AnalystProvider>
+            </PipelineProvider>
+          </ToastProvider>
+        </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

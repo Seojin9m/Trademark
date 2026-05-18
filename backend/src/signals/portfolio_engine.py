@@ -33,16 +33,10 @@ def _extract_ticker(ticker_val) -> str:
     return _TICKER_MAP.get(t, t)
 
 
-def load_portfolio_state() -> dict:
-    """Load the current portfolio state, normalizing ticker values.
-
-    Routes via src.db.state.load_portfolio_state which knows about
-    DB_BACKEND — Postgres path reads the singleton JSONB row, DuckDB path
-    reads data/portfolio_state.json. The state helper also bootstraps a
-    default $100k portfolio when neither source exists yet.
-    """
+def load_portfolio_state(user_id: str) -> dict:
+    """Load the user's portfolio state, normalizing ticker values."""
     from src.db.state import load_portfolio_state as _load
-    portfolio = _load()
+    portfolio = _load(user_id=user_id)
     for pos in portfolio.get("positions", []):
         pos["ticker"] = _extract_ticker(pos.get("ticker", ""))
     return portfolio
@@ -272,20 +266,23 @@ def _json_or_passthrough(value):
     return value
 
 
-def store_proposals(proposals: list[dict]) -> None:
-    """Persist trade proposals (DuckDB or Postgres)."""
+def store_proposals(proposals: list[dict], user_id: str) -> None:
+    """Persist trade proposals for the given user. trade_proposals is per-user."""
     if not proposals:
         return
+    if not user_id:
+        raise ValueError("user_id is required for store_proposals")
 
     con = get_connection()
     for p in proposals:
         con.execute("""
             INSERT INTO trade_proposals
-            (proposal_id, run_id, created_at, ticker, action, shares,
+            (proposal_id, user_id, run_id, created_at, ticker, action, shares,
              signal_data, constraint_check, status, human_decision, human_notes, reason)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, CAST($2 AS UUID), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         """, [
             p["proposal_id"],
+            user_id,
             p.get("run_id"),
             p["created_at"],
             p["ticker"],

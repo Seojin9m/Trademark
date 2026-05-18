@@ -44,6 +44,9 @@ ddgs>=6.0.0
 # Brokerage integration
 snaptrade-python-sdk>=11.0.0
 
+# Auth (Supabase JWT verification)
+pyjwt[crypto]>=2.8.0
+
 # Scheduling
 apscheduler>=3.10.0
 

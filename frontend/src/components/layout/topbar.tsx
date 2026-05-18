@@ -1,8 +1,12 @@
 import { useLocation } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { LogOut, ChevronDown } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
+import { cn } from "@/lib/utils"
 
 const PAGE_LABELS: Record<string, string> = {
-  "/": "PORTFOLIO",
+  "/": "RANKINGS",
+  "/portfolio": "PORTFOLIO",
   "/analyst": "ANALYST",
   "/signals": "SIGNALS",
   "/trades": "TRADES",
@@ -14,11 +18,12 @@ const PAGE_LABELS: Record<string, string> = {
   "/backtest": "BACKTEST",
   "/brokerage": "BROKERAGE",
   "/pipeline": "PIPELINE",
+  "/watchlist": "WATCHLIST",
 }
 
 export function Topbar() {
   const { pathname } = useLocation()
-  const pageLabel = PAGE_LABELS[pathname] ?? "PORTFOLIO"
+  const pageLabel = PAGE_LABELS[pathname] ?? "TRADEMARK"
 
   const [now, setNow] = useState(new Date())
   useEffect(() => {
@@ -63,7 +68,66 @@ export function Topbar() {
           </span>
         </span>
         <span>{time} ET</span>
+        <UserMenu />
       </div>
+    </div>
+  )
+}
+
+function UserMenu() {
+  const { user, signOut } = useAuth()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener("mousedown", onClick)
+    return () => window.removeEventListener("mousedown", onClick)
+  }, [open])
+
+  if (!user) return null
+  const initials = (user.email || "?").slice(0, 2).toUpperCase()
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-[4px] border border-line-2 px-1.5 py-1 transition-colors hover:bg-surface",
+          open && "bg-surface",
+        )}
+      >
+        <span className="flex h-5 w-5 items-center justify-center rounded-[3px] bg-primary/15 font-mono text-[9.5px] font-bold uppercase text-primary">
+          {initials}
+        </span>
+        <ChevronDown className="h-3 w-3 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-1.5 w-[220px] overflow-hidden rounded-[6px] border border-line-2 bg-surface shadow-lg">
+          <div className="border-b border-line px-3 py-2.5">
+            <div className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-muted-2">
+              SIGNED IN AS
+            </div>
+            <div className="truncate font-mono text-[11.5px] text-foreground">{user.email}</div>
+          </div>
+          <button
+            onClick={async () => {
+              setOpen(false)
+              await signOut()
+              // signOut clears the session; AuthProvider's onAuthStateChange will
+              // notify the App and re-render into the AuthFlow.
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-[12px] text-loss transition-colors hover:bg-loss/8"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign out
+          </button>
+        </div>
+      )}
     </div>
   )
 }

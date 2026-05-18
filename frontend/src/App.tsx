@@ -1,9 +1,13 @@
 import { useState } from "react"
-import { Routes, Route, Outlet } from "react-router-dom"
+import { Routes, Route, Outlet, useLocation } from "react-router-dom"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Topbar } from "@/components/layout/topbar"
 import { ChatWidget } from "@/components/chat/ChatWidget"
+import { AuthFlow } from "@/components/auth/AuthFlow"
+import { useAuth } from "@/contexts/auth-context"
 import { cn } from "@/lib/utils"
+import BrokerageCallback from "@/pages/BrokerageCallback"
+import Rankings from "@/pages/Rankings"
 import PortfolioOverview from "@/pages/PortfolioOverview"
 import SignalDashboard from "@/pages/SignalDashboard"
 import PendingTrades from "@/pages/PendingTrades"
@@ -41,10 +45,35 @@ function Layout() {
 }
 
 export default function App() {
+  const { user, brokerageConnected, loading } = useAuth()
+  const { pathname } = useLocation()
+
+  // SnapTrade's OAuth popup lands at /brokerage/callback. It must short-circuit
+  // BEFORE the auth gate, otherwise the popup re-renders the AuthFlow brokerage
+  // step (the popup has the same localStorage session but no brokerage yet) and
+  // the user appears stuck in an infinite "connect" loop. The callback page
+  // just calls window.close() and the parent window picks up the connection.
+  if (pathname === "/brokerage/callback") {
+    return <BrokerageCallback />
+  }
+
+  // While auth state hydrates from localStorage, render nothing rather than
+  // flashing the login screen. The AuthProvider's `loading` flips once
+  // getSession() resolves.
+  if (loading) return null
+
+  // Anyone who hasn't signed up OR hasn't connected a brokerage yet stays on
+  // the AuthFlow. We rely on the user_metadata.has_brokerage flag rather than
+  // an extra round-trip to /api/brokerage/status.
+  if (!user || !brokerageConnected) {
+    return <AuthFlow onComplete={() => { /* hooks/state will re-render */ }} />
+  }
+
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<PortfolioOverview />} />
+        <Route index element={<Rankings />} />
+        <Route path="portfolio" element={<PortfolioOverview />} />
         <Route path="signals" element={<SignalDashboard />} />
         <Route path="trades" element={<PendingTrades />} />
         <Route path="decisions" element={<DecisionLog />} />

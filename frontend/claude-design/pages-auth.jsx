@@ -2,11 +2,153 @@
 const { useState: uSA, useEffect: uEA } = React;
 
 // ============================================================
-// LOGIN / SIGN UP
+// AUTH FLOW ORCHESTRATOR
+// Manages the multi-step onboarding journey:
+//   sign-in   → connect brokerage → app
+//   sign-up   → verify email      → connect brokerage → app
 // ============================================================
-function AuthPage({ onLogin }) {
-  const [mode, setMode] = uSA('login'); // 'login' | 'signup'
-  const [email, setEmail] = uSA('');
+function AuthFlow({ onLogin }) {
+  const [step, setStep]   = uSA('auth');           // 'auth' | 'verify' | 'brokerage'
+  const [draft, setDraft] = uSA(null);             // { mode, name, email }
+
+  const handleAuthSubmit = (data) => {
+    setDraft(data);
+    setStep(data.mode === 'signup' ? 'verify' : 'brokerage');
+  };
+
+  const handleVerifyDone   = () => setStep('brokerage');
+  const handleChangeEmail  = () => setStep('auth');
+  const handleBack         = () => setStep('auth');
+
+  const handleBrokerageDone = (acct) => {
+    onLogin && onLogin({
+      name: draft.name || 'Seojin Han',
+      email: draft.email || 'sj.han@trademark.app',
+      brokerage: acct,
+    });
+  };
+
+  if (step === 'verify') {
+    return <AuthVerifyEmail
+              email={draft.email}
+              mode={draft.mode}
+              onDone={handleVerifyDone}
+              onBack={handleBack}
+              onChangeEmail={handleChangeEmail}/>;
+  }
+  if (step === 'brokerage') {
+    return <AuthConnectBrokerage
+              mode={draft ? draft.mode : 'login'}
+              onConnect={handleBrokerageDone}
+              onBack={() => setStep(draft && draft.mode === 'signup' ? 'verify' : 'auth')}/>;
+  }
+  return <AuthPage onSubmit={handleAuthSubmit} initialMode={draft ? draft.mode : 'login'} initialEmail={draft ? draft.email : ''}/>;
+}
+
+// ============================================================
+// SHARED: Left brand panel — used across all auth steps
+// ============================================================
+function AuthBrandPanel({ variant }) {
+  const isBrokerage = variant === 'brokerage';
+  return (
+    <div className="auth-brand">
+      <div className="auth-brand-inner">
+        <div className="auth-logo">
+          <TrademarkLogo size={28}/>
+        </div>
+
+        <div className="auth-brand-tag">QUANTITATIVE TRADING · v4.0 PHASE 8</div>
+        <h1 className="auth-brand-h1">
+          {isBrokerage
+            ? <>Wire it<br/><span className="accent-text">to your book.</span></>
+            : <>Discipline,<br/><span className="accent-text">automated.</span></>}
+        </h1>
+        <p className="auth-brand-sub">
+          {isBrokerage
+            ? 'Read-only OAuth by default. Every order requires your explicit approval. Tokens are encrypted at rest and you can disconnect any time.'
+            : 'Factor-driven signals, LLM-judged trades, and a portfolio that learns from every decision. Trademark runs the playbook so you don\'t have to.'}
+        </p>
+
+        {/* Faux ticker tape */}
+        <div className="auth-ticker">
+          {[
+            ['NVDA', '+1.84%', true],
+            ['AAPL', '+0.42%', true],
+            ['MSFT', '+0.18%', true],
+            ['AMZN', '−0.62%', false],
+            ['GOOGL', '+0.91%', true],
+            ['META', '+2.14%', true],
+            ['TSLA', '−1.28%', false],
+            ['AVGO', '+0.74%', true],
+          ].map(([t, d, up]) => (
+            <span key={t} className="auth-ticker-item">
+              <span className="auth-ticker-sym">{t}</span>
+              <span className={up ? 'profit-text' : 'loss-text'}>{d}</span>
+            </span>
+          ))}
+        </div>
+
+        <div className="auth-stats">
+          <div className="auth-stat">
+            <div className="auth-stat-v">+24.6<span className="auth-stat-u">%</span></div>
+            <div className="auth-stat-l">YTD ALPHA</div>
+          </div>
+          <div className="auth-stat">
+            <div className="auth-stat-v">1.84</div>
+            <div className="auth-stat-l">SHARPE</div>
+          </div>
+          <div className="auth-stat">
+            <div className="auth-stat-v">68<span className="auth-stat-u">%</span></div>
+            <div className="auth-stat-l">HIT RATE</div>
+          </div>
+        </div>
+
+        <div className="auth-foot">© 2026 Trademark · SOC 2 · Brokerage-agnostic</div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SHARED: Multi-step progress indicator
+// mode='login'  → [Sign in] → [Connect]            (2 steps)
+// mode='signup' → [Account] → [Verify] → [Connect] (3 steps)
+// current is 0-indexed → the step CURRENTLY being completed
+// ============================================================
+function AuthStepper({ current, mode }) {
+  // Login flow is short (2 steps) — skip the stepper to keep the form clean
+  if (mode !== 'signup') return null;
+
+  const steps = ['Account', 'Verify email', 'Connect brokerage'];
+
+  return (
+    <div className="auth-stepper">
+      {steps.map((label, i) => {
+        const state = i < current ? 'done' : i === current ? 'active' : 'todo';
+        return (
+          <React.Fragment key={label}>
+            <div className={`auth-step ${state}`}>
+              <span className="auth-step-num">
+                {state === 'done'
+                  ? <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  : i + 1}
+              </span>
+              <span className="auth-step-label">{label}</span>
+            </div>
+            {i < steps.length - 1 && <span className={`auth-step-conn ${i < current ? 'done' : ''}`}/>}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// LOGIN / SIGN UP form (step 1)
+// ============================================================
+function AuthPage({ onSubmit, onLogin, initialMode = 'login', initialEmail = '' }) {
+  const [mode, setMode] = uSA(initialMode); // 'login' | 'signup'
+  const [email, setEmail] = uSA(initialEmail);
   const [password, setPassword] = uSA('');
   const [name, setName] = uSA('');
   const [confirm, setConfirm] = uSA('');
@@ -15,76 +157,24 @@ function AuthPage({ onLogin }) {
 
   const submit = (e) => {
     e && e.preventDefault();
-    if (onLogin) onLogin({ email: email || 'sj.han@trademark.app', name: name || 'Seojin Han' });
+    const payload = {
+      mode,
+      email: email || 'sj.han@trademark.app',
+      name:  name  || 'Seojin Han',
+    };
+    if (onSubmit) onSubmit(payload);
+    else if (onLogin) onLogin(payload);
   };
 
   return (
     <div className="auth-shell">
-      {/* Left: branding */}
-      <div className="auth-brand">
-        <div className="auth-brand-inner">
-          <div className="auth-logo">
-            <TrademarkLogo size={28}/>
-          </div>
-
-          <div className="auth-brand-tag">QUANTITATIVE TRADING · v4.0 PHASE 8</div>
-          <h1 className="auth-brand-h1">
-            Discipline,<br/>
-            <span className="accent-text">automated.</span>
-          </h1>
-          <p className="auth-brand-sub">
-            Factor-driven signals, LLM-judged trades, and a portfolio that learns from every decision.
-            Trademark runs the playbook so you don't have to.
-          </p>
-
-          {/* Faux ticker tape */}
-          <div className="auth-ticker">
-            {[
-              ['NVDA', '+1.84%', true],
-              ['AAPL', '+0.42%', true],
-              ['MSFT', '+0.18%', true],
-              ['AMZN', '−0.62%', false],
-              ['GOOGL', '+0.91%', true],
-              ['META', '+2.14%', true],
-              ['TSLA', '−1.28%', false],
-              ['AVGO', '+0.74%', true],
-            ].map(([t, d, up]) => (
-              <span key={t} className="auth-ticker-item">
-                <span className="auth-ticker-sym">{t}</span>
-                <span className={up ? 'profit-text' : 'loss-text'}>{d}</span>
-              </span>
-            ))}
-          </div>
-
-          <div className="auth-stats">
-            <div className="auth-stat">
-              <div className="auth-stat-v">+24.6<span className="auth-stat-u">%</span></div>
-              <div className="auth-stat-l">YTD ALPHA</div>
-            </div>
-            <div className="auth-stat">
-              <div className="auth-stat-v">1.84</div>
-              <div className="auth-stat-l">SHARPE</div>
-            </div>
-            <div className="auth-stat">
-              <div className="auth-stat-v">68<span className="auth-stat-u">%</span></div>
-              <div className="auth-stat-l">HIT RATE</div>
-            </div>
-          </div>
-
-          <div className="auth-foot">© 2026 Trademark · SOC 2 · Brokerage-agnostic</div>
-        </div>
-      </div>
+      <AuthBrandPanel/>
 
       {/* Right: form */}
       <div className="auth-form-wrap">
-        <div className="auth-form-top">
-          <span className="muted-mono">{mode === 'login' ? 'NEW HERE?' : 'ALREADY A USER?'}</span>
-          <button className="btn ghost sm" onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>
-            {mode === 'login' ? 'Create account' : 'Sign in'} →
-          </button>
-        </div>
-
         <div className="auth-form">
+          <AuthStepper current={0} mode={mode}/>
+
           <div className="auth-form-head">
             <div className="muted-mono">{mode === 'login' ? '◆ AUTHENTICATE' : '◆ NEW ACCOUNT'}</div>
             <h2 className="auth-form-h">
@@ -92,8 +182,8 @@ function AuthPage({ onLogin }) {
             </h2>
             <p className="auth-form-sub">
               {mode === 'login'
-                ? 'Pick up where the pipeline left off.'
-                : 'Two minutes. No credit card. Connect a brokerage when you\'re ready.'}
+                ? 'Welcome back.'
+                : 'Two minutes: verify your email, then connect a brokerage.'}
             </p>
           </div>
 
@@ -180,8 +270,18 @@ function AuthPage({ onLogin }) {
             </div>
 
             <button type="submit" className="btn primary auth-submit">
-              {mode === 'login' ? 'Sign in →' : 'Create account →'}
+              {mode === 'login' ? 'Continue →' : 'Create account →'}
             </button>
+
+            <div className="auth-toggle">
+              <span className="auth-toggle-text">
+                {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
+              </span>
+              <button type="button" className="auth-toggle-btn"
+                      onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>
+                {mode === 'login' ? 'Sign up' : 'Sign in'} →
+              </button>
+            </div>
 
             <div className="auth-secure">
               <span className="dot"/>
@@ -225,7 +325,7 @@ function AccountPage({ user, onLogout }) {
     <div className="page">
       <PageHead
         title="My Account"
-        description="Profile, security, billing, and integrations for your Trademark workspace."
+        desc="Profile, security, billing, and integrations for your Trademark workspace."
         actions={<>
           <button className="btn"><Icon name="sync" size={13}/>Export data</button>
           <button className="btn danger" onClick={onLogout}><Icon name="x" size={12}/>Sign out</button>
@@ -631,4 +731,4 @@ function AccountPage({ user, onLogout }) {
   );
 }
 
-Object.assign(window, { AuthPage, AccountPage });
+Object.assign(window, { AuthFlow, AuthPage, AuthBrandPanel, AuthStepper, AccountPage });

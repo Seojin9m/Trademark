@@ -1,0 +1,91 @@
+{
+  "user_id": "trademark-user",
+  "user_secret": "6df50dbd-fad0-4144-ab7e-03b40345c0d0",
+  "registered_at": "2026-05-13T20:52:10.988814",
+  "accounts": [
+    {
+      "id": "a89219a9-3f8e-400a-af96-aa2c035e373a",
+      "name": "Wealthsimple Trade RRSP",
+      "number": "rrsp-LH9xOo3ljQ",
+      "institution": "Wealthsimple Trade",
+      "account_type": "HISA_RRSP",
+      "status": "closed",
+      "sync_status": "synced",
+      "last_sync": "2026-05-14",
+      "balance": 0.0,
+      "currency": "CAD"
+    },
+    {
+      "id": "cc75a250-30c4-4617-9bde-b3924daa4d5b",
+      "name": "Wealthsimple Trade CRYPTO",
+      "number": "non-registered-crypto-v2R9ANuY_Q",
+      "institution": "Wealthsimple Trade",
+      "account_type": "SELF_DIRECTED_CRYPTO",
+      "status": "open",
+      "sync_status": "synced",
+      "last_sync": "2026-05-17",
+      "balance": 0.0,
+      "currency": "CAD"
+    },
+    {
+      "id": "ee97f77a-96fb-4f21-a281-615cb14b0104",
+      "name": "Wealthsimple Trade FHSA",
+      "number": "fhsa-xQ6rvzuVlA",
+      "institution": "Wealthsimple Trade",
+      "account_type": "SELF_DIRECTED_FHSA",
+      "status": "open",
+      "sync_status": "synced",
+      "last_sync": "2026-05-17",
+      "balance": 0.0,
+      "currency": "CAD"
+    },
+    {
+      "id": "4feec898-a867-48b3-92c9-8c61c0b1f977",
+      "name": "Wealthsimple Trade MSB",
+      "number": "ca-cash-msb-3E4TPqRFaA",
+      "institution": "Wealthsimple Trade",
+      "account_type": "CASH",
+      "status": "open",
+      "sync_status": "synced",
+      "last_sync": "2026-05-17",
+      "balance": 0.0,
+      "currency": "CAD"
+    },
+    {
+      "id": "e54fa116-8ea8-4e40-a1c3-583f01375ef2",
+      "name": "Wealthsimple Trade TFSA",
+      "number": "tfsa-CbSkZjhLrg",
+      "institution": "Wealthsimple Trade",
+      "account_type": "SELF_DIRECTED_TFSA",
+      "status": "open",
+      "sync_status": "synced",
+      "last_sync": "2026-05-17",
+      "balance": 0.0,
+      "currency": "CAD"
+    },
+    {
+      "id": "ca246b9c-e5d7-481e-a657-8426683d31a8",
+      "name": "Wealthsimple Trade MSB",
+      "number": "ca-cash-msb-Wkj4I1VmHw",
+      "institution": "Wealthsimple Trade",
+      "account_type": "CASH",
+      "status": "open",
+      "sync_status": "synced",
+      "last_sync": "2026-05-17",
+      "balance": 3.3,
+      "currency": "CAD"
+    },
+    {
+      "id": "7dd713ba-7b6a-46a1-9038-b8eac7d721a5",
+      "name": "Wealthsimple Trade TFSA",
+      "number": "tfsa-Yp3n2k4k7A",
+      "institution": "Wealthsimple Trade",
+      "account_type": "SELF_DIRECTED_TFSA",
+      "status": "open",
+      "sync_status": "synced",
+      "last_sync": "2026-05-17",
+      "balance": 25009.29506746,
+      "currency": "CAD"
+    }
+  ]
+}

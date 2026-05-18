@@ -27,22 +27,34 @@ window.MOCK = (() => {
     'INTU','LIN','UNH','JPM','V','MA','BAC','WFC','GS','MS',
     'JNJ','PFE','LLY','ABBV','MRK','KO','PEP','WMT','HD','LOW',
     'CAT','DE','BA','GE','LMT','RTX','XOM','CVX','COP','SLB',
+    // Utilities
+    'NEE','DUK','SO','AEP','D',
+    // Real Estate (REITs)
+    'PLD','AMT','EQIX','SPG','O',
+    // Basic Materials
+    'FCX','NEM','APD','SHW','DOW',
   ];
 
-  const SIGNALS = SIGNAL_UNIVERSE.map((t, i) => {
-    const seed = (t.charCodeAt(0) * 7 + t.charCodeAt(1) * 11 + i * 3) % 100;
-    const score = 5.5 - i * 0.18 + ((seed % 30) - 15) * 0.04;
-    return {
-      ticker: t,
-      composite: +score.toFixed(2),
-      decile: Math.max(1, Math.min(10, Math.ceil((10 - i / SIGNAL_UNIVERSE.length * 10)))),
-      momentum: +((seed * 0.04) - 2 + score * 0.3).toFixed(2),
-      eps: +(((seed * 0.06) % 4) - 1.8 + score * 0.25).toFixed(2),
-      revenue: +(((seed * 0.05) % 3.5) - 1.5 + score * 0.22).toFixed(2),
-      margin: +(((seed * 0.03) % 2.8) - 1.4 + score * 0.18).toFixed(2),
-      valuation: +(((seed * 0.02) % 3) - 1.6 - score * 0.15).toFixed(2),
-    };
-  }).sort((a, b) => b.composite - a.composite);
+  const SIGNALS = (() => {
+    const items = SIGNAL_UNIVERSE.map((t, i) => {
+      const seed = (t.charCodeAt(0) * 7 + t.charCodeAt(1) * 11 + i * 3) % 100;
+      const score = 5.5 - i * 0.18 + ((seed % 30) - 15) * 0.04;
+      return {
+        ticker: t,
+        composite: +score.toFixed(2),
+        momentum: +((seed * 0.04) - 2 + score * 0.3).toFixed(2),
+        eps: +(((seed * 0.06) % 4) - 1.8 + score * 0.25).toFixed(2),
+        revenue: +(((seed * 0.05) % 3.5) - 1.5 + score * 0.22).toFixed(2),
+        margin: +(((seed * 0.03) % 2.8) - 1.4 + score * 0.18).toFixed(2),
+        valuation: +(((seed * 0.02) % 3) - 1.6 - score * 0.15).toFixed(2),
+      };
+    }).sort((a, b) => b.composite - a.composite);
+    // Assign decile based on rank: rank 0 → decile 1 (best), last → decile 10
+    return items.map((item, rank) => ({
+      ...item,
+      decile: Math.max(1, Math.min(10, Math.ceil((rank + 1) / items.length * 10))),
+    }));
+  })();
 
   const PROPOSALS = [
     {
@@ -137,38 +149,137 @@ window.MOCK = (() => {
 
   return {
     HOLDINGS, SIGNALS, PROPOSALS, HISTORY, FACTORS, RESEARCH,
-    PIPELINE_STEPS: [
-      { id: 'ingest', name: 'Data Ingestion', dur: 12 },
-      { id: 'fund',   name: 'Fundamentals', dur: 28 },
-      { id: 'factor', name: 'Factor Scoring', dur: 14 },
-      { id: 'adapt',  name: 'Adaptive Analysis', dur: 9 },
-      { id: 'sig',    name: 'Signal Generation', dur: 6 },
-      { id: 'prop',   name: 'Trade Proposals', dur: 4 },
-      { id: 'news',   name: 'News Research', dur: 41 },
-      { id: 'judge',  name: 'LLM Judge', dur: 22 },
-      { id: 'exec',   name: 'Auto Execution', dur: 8 },
-      { id: 'pnl',    name: 'P&L Update', dur: 3 },
-      { id: 'learn',  name: 'Self-Learning', dur: 11 },
-      { id: 'done',   name: 'Complete', dur: 1 },
+
+    // Sector-relative stock selection alpha (90d) — shown after factor scoring
+    SECTOR_ALPHAS: [
+      { sector: 'Information Technology', alpha:  1.42 },
+      { sector: 'Consumer Staples',       alpha:  1.32 },
+      { sector: 'Communication Services', alpha:  1.28 },
+      { sector: 'Financials',             alpha:  0.87 },
+      { sector: 'Health Care',            alpha:  0.66 },
+      { sector: 'Energy',                 alpha:  0.60 },
+      { sector: 'Utilities',              alpha:  0.32 },
+      { sector: 'Consumer Discretionary', alpha: -0.16 },
+      { sector: 'Real Estate',            alpha: -0.36 },
+      { sector: 'Materials',              alpha: -0.51 },
+      { sector: 'Industrials',            alpha: -1.55 },
     ],
+
+    // Cross-sector / macro inputs — affect the whole industry
+    MACRO_DRIVERS: [
+      { label: 'VIX',                value: '14.32',   tag: 'LOW VOL',     trend: 'down', note: 'Term structure mildly backwardated; realized vol muted.' },
+      { label: '10Y Treasury',       value: '4.21%',   tag: 'STABLE',      trend: 'flat', note: 'Curve still inverted at the front end.' },
+      { label: 'DXY (USD)',          value: '105.4',   tag: 'STRONG',      trend: 'up',   note: 'Dollar firmness pressures multinational EPS.' },
+      { label: 'Fed Funds',          value: '4.75%',   tag: 'PAUSE',       trend: 'flat', note: 'Market pricing 2 cuts by year-end.' },
+      { label: 'Brent Crude',        value: '$82.40',  tag: 'RANGE',       trend: 'flat', note: 'OPEC+ discipline holding; demand muted.' },
+      { label: 'ISM Manufacturing',  value: '50.8',    tag: 'EXPANSION',   trend: 'up',   note: 'First print above 50 in 18 months.' },
+      { label: 'CPI YoY',            value: '2.6%',    tag: 'DISINFLATING',trend: 'down', note: 'Core services stickier than goods.' },
+      { label: 'Earnings Dispersion',value: 'WIDE',    tag: 'CONSTRUCTIVE',trend: 'up',   note: 'Stock-picking environment favorable.' },
+    ],
+
+    // Per-sector drivers — affect individual stocks within each sector
+    SECTOR_DRIVERS: [
+      { sector: 'Information Technology', alpha:  1.42, items: [
+        'Hyperscaler capex +18% YoY into FY26',
+        'GPU supply constraints easing through Q2',
+        'AI inference monetization accelerating (NVDA, AVGO)',
+        'Software net retention re-accelerating (CRM, NOW)',
+      ]},
+      { sector: 'Consumer Staples', alpha: 1.32, items: [
+        'Pricing power intact; input costs moderating',
+        'Volume growth returning in food & beverage',
+        'EM exposure benefiting from softer USD inflows',
+      ]},
+      { sector: 'Communication Services', alpha: 1.28, items: [
+        'Digital ad pricing strength (META, GOOGL)',
+        'Streaming consolidation curbing content spend',
+        'Wireless ARPU trends positive',
+      ]},
+      { sector: 'Financials', alpha: 0.87, items: [
+        'Net interest margins stabilizing',
+        'Credit costs normalizing, not deteriorating',
+        'Capital-markets pickup lifts investment banks',
+      ]},
+      { sector: 'Health Care', alpha: 0.66, items: [
+        'GLP-1 demand visibility extended (LLY, NVO)',
+        'FDA approval velocity above 5-yr average',
+        'PBM regulatory overhang dissipating',
+      ]},
+      { sector: 'Energy', alpha: 0.60, items: [
+        'Capex discipline holding; FCF yields elevated',
+        'Refining cracks strong on summer driving',
+        'LNG export capacity ramping into FY27',
+      ]},
+      { sector: 'Utilities', alpha: 0.32, items: [
+        'Datacenter power demand re-rating sector',
+        'Allowed ROE constructive across regulators',
+      ]},
+      { sector: 'Consumer Discretionary', alpha: -0.16, items: [
+        'Low-end consumer weakness persistent',
+        'China demand softness in autos & apparel',
+        'EV demand elasticity weaker than modeled (TSLA, F)',
+      ]},
+      { sector: 'Real Estate', alpha: -0.36, items: [
+        'Office vacancy elevated; lease re-pricing risk',
+        'REIT cost-of-capital pressured by rates',
+        'Industrial sub-sector resilient (PLD)',
+      ]},
+      { sector: 'Materials', alpha: -0.51, items: [
+        'China industrial demand uncertainty',
+        'Metals price compression on stronger USD',
+        'Inventory destocking lingering',
+      ]},
+      { sector: 'Industrials', alpha: -1.55, items: [
+        'Freight & trucking demand soft',
+        'Short-cycle capex deferred into H2',
+        'Defense capex strong but not offsetting (LMT, RTX)',
+      ]},
+    ],
+
+    PIPELINE_STEPS: [
+      // Factor scoring runs FIRST and produces the sector-alpha review.
+      // The pipeline pauses here for human approval, then continues with the rest.
+      { id: 'factor', name: 'Factor Scoring',     dur: 14, gate: 'review' },
+      { id: 'ingest', name: 'Data Ingestion',    dur: 12 },
+      { id: 'fund',   name: 'Fundamentals',      dur: 28 },
+      { id: 'adapt',  name: 'Adaptive Analysis', dur: 9  },
+      { id: 'sig',    name: 'Signal Generation', dur: 6  },
+      { id: 'prop',   name: 'Trade Proposals',   dur: 4  },
+      { id: 'news',   name: 'News Research',     dur: 41 },
+      { id: 'judge',  name: 'LLM Judge',         dur: 22 },
+      { id: 'exec',   name: 'Auto Execution',    dur: 8  },
+      { id: 'pnl',    name: 'P&L Update',        dur: 3  },
+      { id: 'learn',  name: 'Self-Learning',     dur: 11 },
+      { id: 'done',   name: 'Complete',          dur: 1  },
+    ],
+
+    // Log for PHASE 1 — factor scoring only. Phase 2 entries are appended after Continue.
     PIPELINE_LOG: [
-      { step: 'ingest', t: '16:00:01', msg: 'Connecting to market data feed (CBOE primary)…', status: 'ok' },
-      { step: 'ingest', t: '16:00:03', msg: '8,412 tickers refreshed from EOD prints', status: 'ok' },
-      { step: 'fund',   t: '16:00:13', msg: 'Loading quarterly fundamentals (8Q rolling)…', status: 'ok' },
-      { step: 'fund',   t: '16:00:41', msg: 'Coverage: 7,891 / 8,412 (93.8%)', status: 'ok' },
-      { step: 'factor', t: '16:00:42', msg: 'Computing z-scores: momentum, eps, rev, margin, value', status: 'ok' },
-      { step: 'factor', t: '16:00:56', msg: 'Cross-sectional ranking → deciles assigned', status: 'ok' },
-      { step: 'adapt',  t: '16:00:57', msg: 'Regime detection: VOL=ELEVATED  TREND=NEUTRAL', status: 'ok' },
-      { step: 'adapt',  t: '16:01:06', msg: 'Constraint scalar applied: 0.85x position size', status: 'ok' },
-      { step: 'sig',    t: '16:01:07', msg: 'Signal threshold: composite ≥ 7.5 OR decile ≤ 2', status: 'ok' },
-      { step: 'sig',    t: '16:01:13', msg: '14 candidates passed signal gate', status: 'ok' },
-      { step: 'prop',   t: '16:01:14', msg: 'Generating buy/sell proposals with sizing…', status: 'ok' },
-      { step: 'prop',   t: '16:01:18', msg: '3 proposals: 2 BUY, 1 SELL', status: 'ok' },
-      { step: 'news',   t: '16:01:19', msg: 'Querying news context for {NVDA, PLTR, TSLA}…', status: 'run' },
-      { step: 'news',   t: '16:01:42', msg: 'NVDA: 12 articles, sentiment=BULLISH (0.87)', status: 'ok' },
-      { step: 'news',   t: '16:01:55', msg: 'PLTR: 8 articles, sentiment=BULLISH (0.71)', status: 'ok' },
-      { step: 'news',   t: '16:02:00', msg: 'TSLA: 18 articles, sentiment=BEARISH (0.71)', status: 'ok' },
-      { step: 'judge',  t: '16:02:01', msg: 'LLM Judge evaluating proposals…', status: 'run' },
+      { step: 'factor', t: '16:00:01', msg: 'Pulling rolling factor panel (last 90 sessions)…', status: 'ok' },
+      { step: 'factor', t: '16:00:04', msg: 'Universe: 6,124 tradeable tickers across 11 GICS sectors', status: 'ok' },
+      { step: 'factor', t: '16:00:07', msg: 'Computing z-scores: momentum, eps, rev, margin, valuation', status: 'ok' },
+      { step: 'factor', t: '16:00:11', msg: 'Cross-sectional ranking → deciles assigned', status: 'ok' },
+      { step: 'factor', t: '16:00:13', msg: 'Sector-relative attribution: 11 sectors decomposed', status: 'ok' },
+      { step: 'factor', t: '16:00:14', msg: 'Stock-selection alpha computed → awaiting human review', status: 'run' },
+    ],
+
+    // Log entries appended once the user clicks Continue (phase 2).
+    PIPELINE_LOG_PHASE2: [
+      { step: 'ingest', t: '16:01:32', msg: 'Connecting to market data feed (CBOE primary)…', status: 'ok' },
+      { step: 'ingest', t: '16:01:34', msg: '8,412 tickers refreshed from EOD prints', status: 'ok' },
+      { step: 'fund',   t: '16:01:44', msg: 'Loading quarterly fundamentals (8Q rolling)…', status: 'ok' },
+      { step: 'fund',   t: '16:02:12', msg: 'Coverage: 7,891 / 8,412 (93.8%)', status: 'ok' },
+      { step: 'adapt',  t: '16:02:13', msg: 'Regime detection: VOL=ELEVATED  TREND=NEUTRAL', status: 'ok' },
+      { step: 'adapt',  t: '16:02:22', msg: 'Constraint scalar applied: 0.85x position size', status: 'ok' },
+      { step: 'sig',    t: '16:02:23', msg: 'Signal threshold: composite ≥ 7.5 OR decile ≤ 2', status: 'ok' },
+      { step: 'sig',    t: '16:02:29', msg: '14 candidates passed signal gate', status: 'ok' },
+      { step: 'prop',   t: '16:02:30', msg: 'Generating buy/sell proposals with sizing…', status: 'ok' },
+      { step: 'prop',   t: '16:02:34', msg: '3 proposals: 2 BUY, 1 SELL', status: 'ok' },
+      { step: 'news',   t: '16:02:35', msg: 'Querying news context for {NVDA, PLTR, TSLA}…', status: 'run' },
+      { step: 'news',   t: '16:02:58', msg: 'NVDA: 12 articles, sentiment=BULLISH (0.87)', status: 'ok' },
+      { step: 'news',   t: '16:03:11', msg: 'PLTR: 8 articles, sentiment=BULLISH (0.71)', status: 'ok' },
+      { step: 'news',   t: '16:03:16', msg: 'TSLA: 18 articles, sentiment=BEARISH (0.71)', status: 'ok' },
+      { step: 'judge',  t: '16:03:17', msg: 'LLM Judge evaluating proposals…', status: 'run' },
     ],
   };
 })();

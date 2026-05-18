@@ -495,10 +495,12 @@ export function ChatWidget() {
     setHasOpened(true)
   }
 
-  const handleClear = () => {
+  const handleClear = async () => {
     const sid = sessionIdRef.current
     if (sid) {
-      fetch(`/api/chat/${sid}`, { method: "DELETE" }).catch(() => {})
+      const { buildAuthHeaders, apiUrl } = await import("@/lib/utils")
+      const headers = await buildAuthHeaders()
+      fetch(apiUrl(`/chat/${sid}`), { method: "DELETE", headers }).catch(() => {})
     }
     sessionIdRef.current = null
     setResetKey((k) => k + 1)

@@ -464,59 +464,225 @@ function BacktestPage() {
 // ============================================================
 // 11. PIPELINE CONTROL
 // ============================================================
+
+// Diverging horizontal bar chart — sector-relative stock selection alpha
+function DivergingBarChart({ data, w = 880, h = 420, formatV = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%' }) {
+  const padL = 200;
+  const padR = 60;
+  const padT = 14;
+  const padB = 52;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const rowH = innerH / data.length;
+  const barH = Math.min(22, rowH * 0.62);
+
+  const absMax = Math.max(...data.map(d => Math.abs(d.alpha)));
+  const xMax = Math.ceil(absMax * 2) / 2 + 0.0; // round up to next 0.5
+  const totalRange = xMax * 2;
+  const scale = innerW / totalRange;
+  const cx = padL + xMax * scale;
+
+  // Tick values from −xMax … +xMax in 0.5 steps
+  const ticks = [];
+  for (let t = -xMax; t <= xMax + 0.001; t += 0.5) ticks.push(+t.toFixed(2));
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
+      {/* Grid lines */}
+      {ticks.map(t => (
+        <line key={t}
+          x1={cx + t * scale} x2={cx + t * scale}
+          y1={padT} y2={padT + innerH}
+          stroke={t === 0 ? 'var(--line-2)' : 'var(--line)'}
+          strokeWidth={t === 0 ? 1 : 0.5}
+          strokeDasharray={t === 0 ? 'none' : '2 4'}
+        />
+      ))}
+
+      {/* Bars + labels */}
+      {data.map((d, i) => {
+        const y = padT + i * rowH + (rowH - barH) / 2;
+        const isPos = d.alpha >= 0;
+        const barW = Math.max(2, Math.abs(d.alpha) * scale);
+        const x = isPos ? cx : cx - barW;
+        const fill = isPos ? 'var(--profit)' : 'var(--loss)';
+        return (
+          <g key={d.sector}>
+            <text x={padL - 14} y={y + barH / 2 + 4.5} textAnchor="end"
+              fontFamily="var(--sans)" fontSize="13" fill="var(--fg)" fontWeight="500">
+              {d.sector}
+            </text>
+            <rect x={x} y={y} width={barW} height={barH} fill={fill} rx="1" />
+            {isPos ? (
+              <text x={x + barW + 6} y={y + barH / 2 + 4.5}
+                fontFamily="var(--mono)" fontSize="12" fontWeight="600" fill="var(--fg)">
+                {formatV(d.alpha)}
+              </text>
+            ) : (
+              <text x={x + barW - 6} y={y + barH / 2 + 4.5} textAnchor="end"
+                fontFamily="var(--mono)" fontSize="12" fontWeight="600"
+                fill={barW > 50 ? 'var(--bg)' : 'var(--fg)'}>
+                {formatV(d.alpha)}
+              </text>
+            )}
+          </g>
+        );
+      })}
+
+      {/* X-axis ticks */}
+      {ticks.map(t => (
+        <text key={t} x={cx + t * scale} y={padT + innerH + 18} textAnchor="middle"
+          fontFamily="var(--mono)" fontSize="11" fill="var(--muted)">
+          {t === 0 ? '0' : t}
+        </text>
+      ))}
+
+      {/* X-axis label */}
+      <text x={padL + innerW / 2} y={h - 10} textAnchor="middle"
+        fontFamily="var(--sans)" fontSize="12" fill="var(--fg-dim)">
+        Contribution to book stock-selection alpha (%)
+      </text>
+    </svg>
+  );
+}
+
+// Trend glyph for macro-driver rows
+function TrendArrow({ dir }) {
+  const color = dir === 'up' ? 'var(--profit)' : dir === 'down' ? 'var(--loss)' : 'var(--muted)';
+  const path = dir === 'up'   ? 'M3 11l4-5 4 5'
+             : dir === 'down' ? 'M3 5l4 5 4-5'
+             :                  'M3 8h8';
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={path}/>
+    </svg>
+  );
+}
+
 function PipelinePage() {
   const M = window.MOCK;
-  const [running, setRunning] = uS2(true);
-  const [stepIdx, setStepIdx] = uS2(7);
-  const [logCount, setLogCount] = uS2(M.PIPELINE_LOG.length);
-  const [reviewMode, setReviewMode] = uS2(false);
+  // Phase machine:
+  //   'phase1-run'   factor scoring is running
+  //   'review'       factor scoring finished, awaiting Continue
+  //   'phase2-run'   rest of pipeline is running
+  //   'done'         all steps complete
+  //   'idle'         nothing running (initial / re-runs land here briefly)
+  const [phase, setPhase] = uS2('phase1-run');
+  const [stepIdx, setStepIdx] = uS2(0);  // index into PIPELINE_STEPS
+  const [logEntries, setLogEntries] = uS2(M.PIPELINE_LOG);
+  const [reviewMode, setReviewMode] = uS2(true);
   const [notesOpen, setNotesOpen] = uS2(true);
+  const [expandedSector, setExpandedSector] = uS2(null);
   const logRef = uR2(null);
+  const reviewRef = uR2(null);
 
+  // Auto-advance through the steps. Pauses at any step flagged gate:'review'.
   uE2(() => {
-    if (!running) return;
-    if (stepIdx >= M.PIPELINE_STEPS.length - 1) { setRunning(false); return; }
-    const t = setTimeout(() => setStepIdx(i => i + 1), 1500);
-    return () => clearTimeout(t);
-  }, [running, stepIdx]);
+    if (phase !== 'phase1-run' && phase !== 'phase2-run') return;
+    const cur = M.PIPELINE_STEPS[stepIdx];
+    if (!cur) return;
 
+    // If current step has a review gate, finish it and switch to 'review'.
+    if (cur.gate === 'review' && phase === 'phase1-run') {
+      const t = setTimeout(() => {
+        setPhase('review');
+        // mark the running log entry as ok
+        setLogEntries(L => L.map((e, i) => i === L.length - 1 ? { ...e, status: 'ok' } : e));
+      }, 1800);
+      return () => clearTimeout(t);
+    }
+
+    // Last step — mark done
+    if (stepIdx >= M.PIPELINE_STEPS.length - 1) {
+      const t = setTimeout(() => setPhase('done'), 800);
+      return () => clearTimeout(t);
+    }
+
+    const t = setTimeout(() => setStepIdx(i => i + 1), 1100);
+    return () => clearTimeout(t);
+  }, [phase, stepIdx]);
+
+  // Auto-scroll log
   uE2(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logCount]);
+  }, [logEntries.length]);
 
+  // Scroll the review panel into view when it appears
+  uE2(() => {
+    if (phase === 'review' && reviewRef.current) {
+      reviewRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [phase]);
+
+  const onContinue = () => {
+    setLogEntries(L => [
+      ...L,
+      { step: 'factor', t: '16:01:31', msg: 'Human review: APPROVED → proceeding to phase 2', status: 'ok' },
+      ...M.PIPELINE_LOG_PHASE2,
+    ]);
+    setStepIdx(1);
+    setPhase('phase2-run');
+  };
+
+  const onRerunFactor = () => {
+    setLogEntries(M.PIPELINE_LOG);
+    setStepIdx(0);
+    setPhase('phase1-run');
+  };
+
+  const onStartOver = () => {
+    setLogEntries(M.PIPELINE_LOG);
+    setStepIdx(0);
+    setPhase('phase1-run');
+  };
+
+  // Step status helper. A step is 'ok' if we're past it OR we're in 'review' and it's the gate step.
   const stepStatus = (i) => {
+    if (phase === 'done') return 'ok';
+    if (phase === 'review') {
+      if (i === 0) return 'ok';     // factor finished
+      return 'idle';                 // everything else is still pending the gate
+    }
     if (i < stepIdx) return 'ok';
-    if (i === stepIdx) return running ? 'run' : 'ok';
+    if (i === stepIdx) return (phase === 'phase1-run' || phase === 'phase2-run') ? 'run' : 'ok';
     return 'idle';
   };
   const stepIcon = (st) => {
-    if (st === 'ok') return <Icon name="check" size={11}/>;
+    if (st === 'ok')  return <Icon name="check" size={11}/>;
     if (st === 'run') return <Icon name="spinner" size={11}/>;
     if (st === 'err') return <Icon name="x" size={11}/>;
     return <Icon name="circle" size={9}/>;
   };
 
+  const running = phase === 'phase1-run' || phase === 'phase2-run';
+  const phaseBadge = phase === 'done'        ? <Badge variant="profit">COMPLETE</Badge>
+                  : phase === 'review'       ? <Badge variant="warn">AWAITING REVIEW</Badge>
+                  : phase === 'phase2-run'   ? <Badge variant="accent">RUNNING · PHASE 2</Badge>
+                                             : <Badge variant="accent">RUNNING · PHASE 1</Badge>;
+  const progress = phase === 'done' ? 1 : (stepIdx + 1) / M.PIPELINE_STEPS.length;
+
   return (
     <div className="page">
-      <PageHead title="Pipeline Control" desc="Manually trigger the EOD pipeline and watch progress in real-time"
-        prefix={<Badge variant={running?'accent':'profit'}>{running ? 'RUNNING' : 'IDLE'}</Badge>}
+      <PageHead title="Pipeline Control" desc="Factor scoring runs first — review the alpha attribution, then continue."
+        prefix={phaseBadge}
         actions={<>
-          <button className="btn" disabled={running} onClick={() => { setStepIdx(0); }}>Start Over</button>
-          <button className="btn primary" onClick={() => setRunning(true)} disabled={running}>
+          <button className="btn" disabled={running} onClick={onStartOver}>Start Over</button>
+          <button className="btn primary" onClick={onStartOver} disabled={running || phase === 'review'}>
             <Icon name="play" size={13}/>{running ? 'Running…' : 'Run Pipeline'}
           </button>
         </>}
       />
 
       {/* Progress */}
-      <Card flush className="" >
+      <Card flush>
         <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <span className="card-title">Progress</span>
-          <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{stepIdx + 1} / {M.PIPELINE_STEPS.length}</span>
+          <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{Math.min(stepIdx + 1, M.PIPELINE_STEPS.length)} / {M.PIPELINE_STEPS.length}</span>
           <div className="bar-track" style={{ flex: 1, height: 6 }}>
-            <div className="bar-fill" style={{ width: ((stepIdx+1)/M.PIPELINE_STEPS.length*100)+'%', background: running?'var(--accent)':'var(--profit)' }}/>
+            <div className="bar-fill" style={{ width: (progress * 100) + '%', background: phase === 'done' ? 'var(--profit)' : 'var(--accent)' }}/>
           </div>
-          <span className="mono muted-text" style={{ fontSize: 11, minWidth: 60, textAlign: 'right' }}>{((stepIdx+1)/M.PIPELINE_STEPS.length*100).toFixed(0)}%</span>
+          <span className="mono muted-text" style={{ fontSize: 11, minWidth: 60, textAlign: 'right' }}>{(progress * 100).toFixed(0)}%</span>
         </div>
       </Card>
 
@@ -528,7 +694,7 @@ function PipelinePage() {
               </button>}>
           {notesOpen && (
             <div style={{ background: '#fff8c4', borderRadius: 4, padding: 14, position: 'relative', boxShadow: '2px 4px 10px rgba(0,0,0,0.3)' }}>
-              <textarea className="textarea mono" defaultValue="• Bias against EV / consumer cyclical entries this week — sentiment skew elevated&#10;• If TSLA reaches decile 7 on composite, force EXIT regardless of conviction floor&#10;• Cap new positions at 2 (volatility regime)" 
+              <textarea className="textarea mono" defaultValue="• Bias against EV / consumer cyclical entries this week — sentiment skew elevated&#10;• If TSLA reaches decile 7 on composite, force EXIT regardless of conviction floor&#10;• Cap new positions at 2 (volatility regime)"
                 style={{ background: 'transparent', border: 'none', padding: 0, color: '#3d3d10', fontSize: 12.5, minHeight: 90 }}/>
               <div style={{ marginTop: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
                 <button className="btn sm" style={{ background: '#fef3a8', color: '#3d3d10', borderColor: '#d4c460' }}><Icon name="image" size={12}/>Attach</button>
@@ -550,7 +716,7 @@ function PipelinePage() {
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>{reviewMode ? 'Enabled' : 'Disabled'}</div>
               <div className="muted-text" style={{ fontSize: 11.5 }}>
-                {reviewMode ? 'Pipeline will pause at gates for approval/override' : 'Pipeline runs end-to-end without interruption'}
+                {reviewMode ? 'Pipeline pauses after factor scoring for approval' : 'Pipeline runs end-to-end without interruption'}
               </div>
             </div>
             <span className="spacer"/>
@@ -559,15 +725,142 @@ function PipelinePage() {
         </Card>
       </div>
 
-      {/* Main grid */}
-      <div className="grid" style={{ gridTemplateColumns: '1fr 2fr', marginTop: 14, alignItems: 'start' }}>
+      {/* FACTOR REVIEW PANEL — appears once factor scoring completes */}
+      {(phase === 'review' || phase === 'phase2-run' || phase === 'done') && (
+        <div ref={reviewRef} style={{ marginTop: 18 }}>
+          <SectionTitle meta={phase === 'review' ? 'AWAITING APPROVAL' : 'APPROVED · 16:01:31 ET'}>
+            <Badge variant="solid-accent" style={{ marginRight: 8 }}>01</Badge>
+            Factor Scoring — Stock Selection Alpha
+          </SectionTitle>
+
+          <Card title="Sector-relative performance — stock selection alpha (90d)"
+                meta="11 GICS sectors · 6,124 tickers">
+            <div style={{ overflowX: 'auto' }}>
+              <DivergingBarChart data={M.SECTOR_ALPHAS} h={420} />
+            </div>
+            <div style={{ display: 'flex', gap: 18, justifyContent: 'flex-end', marginTop: 6,
+                          fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--muted)', letterSpacing: '0.08em' }}>
+              <span><span style={{ display:'inline-block', width: 9, height: 9, background: 'var(--profit)', marginRight: 6, verticalAlign: 'middle' }}/>POSITIVE ALPHA</span>
+              <span><span style={{ display:'inline-block', width: 9, height: 9, background: 'var(--loss)', marginRight: 6, verticalAlign: 'middle' }}/>NEGATIVE ALPHA</span>
+            </div>
+          </Card>
+
+          {/* Data collected — split into Macro (overall industry) vs Per-Sector */}
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1.25fr', gap: 14, marginTop: 14, alignItems: 'start' }}>
+            <Card title="Overall Industry · Macro Drivers" meta={`${M.MACRO_DRIVERS.length} CROSS-SECTOR INPUTS`} flush>
+              <div>
+                {M.MACRO_DRIVERS.map((d, i) => (
+                  <div key={d.label} style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.1fr 90px 100px 1.4fr',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '11px 16px',
+                    borderBottom: i < M.MACRO_DRIVERS.length - 1 ? '1px solid var(--line)' : 'none',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)' }}>{d.label}</div>
+                    </div>
+                    <div className="mono" style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', textAlign: 'right' }}>{d.value}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <TrendArrow dir={d.trend} />
+                      <span className="mono" style={{
+                        fontSize: 9.5, letterSpacing: '0.1em', fontWeight: 600,
+                        color: d.trend === 'up' ? 'var(--profit)' : d.trend === 'down' ? 'var(--loss)' : 'var(--muted)',
+                      }}>{d.tag}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.4 }}>{d.note}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card title="Sector Drivers · Per-Stock Impact" meta={`${M.SECTOR_DRIVERS.length} SECTORS · CLICK TO EXPAND`} flush>
+              <div>
+                {M.SECTOR_DRIVERS.map((s, i) => {
+                  const expanded = expandedSector === s.sector;
+                  const isPos = s.alpha >= 0;
+                  return (
+                    <div key={s.sector} style={{ borderBottom: i < M.SECTOR_DRIVERS.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                      <div onClick={() => setExpandedSector(expanded ? null : s.sector)}
+                           style={{ display: 'grid', gridTemplateColumns: '14px 1fr 80px 18px',
+                                    gap: 10, alignItems: 'center', padding: '10px 16px', cursor: 'pointer' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 1,
+                                       background: isPos ? 'var(--profit)' : 'var(--loss)' }}/>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)' }}>{s.sector}</span>
+                        <span className="mono" style={{ fontSize: 12, fontWeight: 600, textAlign: 'right',
+                                                        color: isPos ? 'var(--profit)' : 'var(--loss)' }}>
+                          {isPos ? '+' : ''}{s.alpha.toFixed(2)}%
+                        </span>
+                        <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={12} />
+                      </div>
+                      {expanded && (
+                        <div style={{ padding: '4px 16px 14px 38px', background: 'var(--bg-2)' }}>
+                          <ul style={{ margin: 0, padding: '0 0 0 14px', fontSize: 12, color: 'var(--fg-dim)', lineHeight: 1.65 }}>
+                            {s.items.map((it, j) => <li key={j}>{it}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+
+          {/* Approval action bar */}
+          {phase === 'review' && (
+            <div style={{
+              marginTop: 14,
+              padding: '14px 18px',
+              display: 'flex', alignItems: 'center', gap: 14,
+              background: 'var(--accent-bg)',
+              border: '1px solid var(--accent)',
+              borderRadius: 'var(--radius)',
+            }}>
+              <Icon name="shield" size={18} style={{ color: 'var(--accent)' }}/>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+                  Approve alpha attribution to proceed?
+                </div>
+                <div className="muted-text" style={{ fontSize: 11.5, marginTop: 2 }}>
+                  Confirming continues the pipeline through Data Ingestion → Fundamentals → Signal Generation → Proposals → Judge → Execution.
+                </div>
+              </div>
+              <button className="btn" onClick={onRerunFactor}>
+                <Icon name="sync" size={13}/>Re-run factor scoring
+              </button>
+              <button className="btn primary lg" onClick={onContinue}>
+                Continue<Icon name="chevron-right" size={13}/>
+              </button>
+            </div>
+          )}
+          {(phase === 'phase2-run' || phase === 'done') && (
+            <div style={{
+              marginTop: 14,
+              padding: '12px 18px',
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: 'var(--surface)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius)',
+            }}>
+              <Icon name="check" size={16} style={{ color: 'var(--profit)' }}/>
+              <span style={{ fontSize: 12.5, color: 'var(--fg)' }}>
+                Alpha attribution approved at <span className="mono">16:01:31 ET</span>. Pipeline continued.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main grid — steps + live log */}
+      <div className="grid" style={{ gridTemplateColumns: '1fr 2fr', marginTop: 18, alignItems: 'start' }}>
         <Card title="Steps" meta={`${M.PIPELINE_STEPS.length} stages`}>
           <div className="col" style={{ gap: 0 }}>
             {M.PIPELINE_STEPS.map((s, i) => {
               const st = stepStatus(i);
-              const colors = {
-                ok: 'var(--profit)', run: 'var(--accent)', err: 'var(--loss)', idle: 'var(--muted-2)',
-              };
+              const colors = { ok: 'var(--profit)', run: 'var(--accent)', err: 'var(--loss)', idle: 'var(--muted-2)' };
+              const isGate = s.gate === 'review';
               return (
                 <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative', padding: '8px 0' }}>
                   <div style={{
@@ -581,11 +874,15 @@ function PipelinePage() {
                     {stepIcon(st)}
                   </div>
                   {i < M.PIPELINE_STEPS.length - 1 && (
-                    <div style={{ position: 'absolute', left: 11, top: 30, bottom: -8, width: 1, background: i < stepIdx ? colors.ok : 'var(--line)' }}/>
+                    <div style={{ position: 'absolute', left: 11, top: 30, bottom: -8, width: 1,
+                                  background: stepStatus(i) === 'ok' && stepStatus(i+1) !== 'idle' ? colors.ok : 'var(--line)' }}/>
                   )}
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: st !== 'idle' ? 600 : 500, color: st === 'idle' ? 'var(--muted)' : 'var(--fg)' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: st !== 'idle' ? 600 : 500,
+                                  color: st === 'idle' ? 'var(--muted)' : 'var(--fg)',
+                                  display: 'flex', alignItems: 'center', gap: 8 }}>
                       {s.name}
+                      {isGate && <Badge variant="warn">GATE</Badge>}
                     </div>
                     {st !== 'idle' && (
                       <div className="mono" style={{ fontSize: 10.5, color: 'var(--muted-2)' }}>
@@ -599,15 +896,15 @@ function PipelinePage() {
           </div>
         </Card>
 
-        <Card title="Live Log" meta={`${M.PIPELINE_LOG.length} entries · auto-scroll`}>
+        <Card title="Live Log" meta={`${logEntries.length} entries · auto-scroll`}>
           <div className="terminal" ref={logRef} style={{ maxHeight: 460, minHeight: 460 }}>
-            {M.PIPELINE_LOG.map((l, i) => (
+            {logEntries.map((l, i) => (
               <div key={i} className={`ln ${l.status}`}>
                 <span className="gutter">{String(i+1).padStart(3,'0')}</span>
                 <span className="check">{l.status==='ok'?'✓':l.status==='run'?'▶':l.status==='err'?'✗':'·'}</span>
                 <span className="mono muted-text" style={{ minWidth: 52 }}>{l.t}</span>
                 <span className="tag">[{l.step}]</span>
-                <span style={{ flex: 1 }}>{l.msg}{i === M.PIPELINE_LOG.length - 1 && running && <span className="cursor"/>}</span>
+                <span style={{ flex: 1 }}>{l.msg}{i === logEntries.length - 1 && running && <span className="cursor"/>}</span>
               </div>
             ))}
           </div>
@@ -617,101 +914,5 @@ function PipelinePage() {
   );
 }
 
-// ============================================================
-// 12. BROKERAGE
-// ============================================================
-function BrokeragePage() {
-  const [connected, setConnected] = uS2(true);
-  const [selectedAcct, setSelectedAcct] = uS2('IRA');
 
-  const ACCOUNTS = [
-    { id: 'IRA',   name: 'Roth IRA',         type: 'Tax-advantaged', balance: 412300 },
-    { id: 'IND',   name: 'Individual',       type: 'Taxable',        balance: 1248720 },
-    { id: 'JTWS',  name: 'Joint w/ spouse',  type: 'Taxable',        balance: 86420 },
-  ];
-
-  const SOON = [
-    { name: 'Questrade',                tag: 'CA' },
-    { name: 'Interactive Brokers',      tag: 'IBKR' },
-    { name: 'TD Direct Investing',      tag: 'CA' },
-  ];
-
-  return (
-    <div className="page">
-      <PageHead title="Brokerage" desc="Connect a brokerage to enable real-money portfolio sync and execution"
-        actions={connected && <>
-          <button className="btn"><Icon name="sync" size={13}/>Sync Portfolio</button>
-          <button className="btn danger" onClick={() => setConnected(false)}>Disconnect</button>
-        </>}
-      />
-
-      <Card flush>
-        <div style={{ padding: 22, display: 'flex', alignItems: 'center', gap: 22 }}>
-          <div style={{ width: 64, height: 64, background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="var(--accent)" strokeWidth="2"/><path d="M11 22 L18 11 L25 22" fill="none" stroke="var(--accent)" strokeWidth="2"/></svg>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="row" style={{ marginBottom: 6, gap: 10 }}>
-              <span style={{ fontSize: 17, fontWeight: 600 }}>Charles Schwab</span>
-              <Badge variant={connected ? 'profit' : 'muted'} dot>{connected ? 'CONNECTED' : 'NOT CONNECTED'}</Badge>
-            </div>
-            <div className="muted-text" style={{ fontSize: 12.5 }}>
-              {connected ? `${ACCOUNTS.length} accounts available · last sync 2026-05-03 16:18 ET` : 'Connect to enable portfolio sync and trade execution'}
-            </div>
-          </div>
-          {!connected ? (
-            <button className="btn primary lg" onClick={() => setConnected(true)}>
-              <Icon name="plus" size={14}/>Connect
-            </button>
-          ) : (
-            <div className="mono" style={{ textAlign: 'right' }}>
-              <div className="metric-label">Total balance</div>
-              <div style={{ fontSize: 18, fontWeight: 500 }}>${ACCOUNTS.reduce((s,a)=>s+a.balance,0).toLocaleString()}</div>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {connected && (
-        <Card title="Account Selector" meta="Choose which account to sync">
-          <div className="col" style={{ gap: 6 }}>
-            {ACCOUNTS.map(a => (
-              <label key={a.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px',
-                         background: selectedAcct===a.id ? 'var(--accent-bg)' : 'var(--bg-2)',
-                         border: `1px solid ${selectedAcct===a.id ? 'var(--accent)' : 'var(--line)'}`,
-                         borderRadius: 6, cursor: 'pointer' }}>
-                <input type="radio" name="acct" checked={selectedAcct===a.id} onChange={() => setSelectedAcct(a.id)}
-                       style={{ accentColor: 'var(--accent)' }}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{a.name}</div>
-                  <div className="mono muted-text" style={{ fontSize: 11 }}>{a.type} · ····{a.id.padStart(4,'0')}</div>
-                </div>
-                <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>${a.balance.toLocaleString()}</div>
-              </label>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      <SectionTitle>Coming Soon</SectionTitle>
-      <div className="grid grid-3">
-        {SOON.map(b => (
-          <div key={b.name} className="card" style={{ padding: 20, opacity: 0.55 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
-              <div style={{ width: 36, height: 36, background: 'var(--bg-2)', border: '1px dashed var(--line-2)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="brokerage" size={18}/>
-              </div>
-              <span style={{ fontWeight: 600 }}>{b.name}</span>
-              <span className="spacer"/>
-              <Badge variant="muted">{b.tag}</Badge>
-            </div>
-            <div className="muted-text mono" style={{ fontSize: 11, letterSpacing: '0.08em' }}>COMING SOON</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-Object.assign(window, { DataGridPage, ResearchPage, LearningPage, BacktestPage, PipelinePage, BrokeragePage });
+Object.assign(window, { DataGridPage, ResearchPage, LearningPage, BacktestPage, PipelinePage });

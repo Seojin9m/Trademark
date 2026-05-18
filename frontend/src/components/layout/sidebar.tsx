@@ -9,22 +9,24 @@ import { TrademarkLogo } from "./trademark-logo"
 import {
   LayoutDashboard,
   BarChart3,
+  TrendingUp,
   ArrowLeftRight,
   // ClipboardList,  // unused: Decisions tab hidden
   // ShieldAlert,    // unused: Risk tab hidden
   // FlaskConical,   // unused: Backtest tab hidden
   Workflow,
-  Newspaper,
-  Brain,
+  // Newspaper, // unused: Research tab hidden
+  // Brain,     // unused: Learning tab hidden
   Wallet,
   BrainCircuit,
   Database,
-  Star,
+  // Star,      // unused: Watchlist tab hidden
   PanelLeft,
 } from "lucide-react"
 
 const navItems = [
-  { to: "/", icon: LayoutDashboard, label: "Portfolio" },
+  { to: "/", icon: TrendingUp, label: "Rankings" },
+  { to: "/portfolio", icon: LayoutDashboard, label: "Portfolio" },
   { to: "/analyst", icon: BrainCircuit, label: "Analyst" },
   { to: "/signals", icon: BarChart3, label: "Signals" },
   { to: "/trades", icon: ArrowLeftRight, label: "Trades" },
@@ -32,7 +34,7 @@ const navItems = [
   // { to: "/risk", icon: ShieldAlert, label: "Risk" },              // hidden
   { to: "/data", icon: Database, label: "Data Grid" },
   // { to: "/research", icon: Newspaper, label: "Research" },        // hidden
-  { to: "/watchlist", icon: Star, label: "Watchlist" },
+  // { to: "/watchlist", icon: Star, label: "Watchlist" },           // hidden
   // { to: "/learning", icon: Brain, label: "Learning" },            // hidden
   // { to: "/backtest", icon: FlaskConical, label: "Backtest" },     // hidden
   { to: "/brokerage", icon: Wallet, label: "Brokerage" },

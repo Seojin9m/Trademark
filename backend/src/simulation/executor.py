@@ -204,8 +204,15 @@ def snapshot_portfolio(
     pnl: dict,
     prices: dict[str, float],
     source: str = "pipeline",
+    user_id: str | None = None,
 ) -> None:
-    """Record a point-in-time snapshot of portfolio value to the DB."""
+    """Record a point-in-time snapshot of the user's portfolio value to the DB.
+
+    ``user_id`` is required because portfolio_snapshots is per-user; the unique
+    constraint is (user_id, snapshot_date, snapshot_source).
+    """
+    if not user_id:
+        raise ValueError("user_id is required for snapshot_portfolio")
     snapshot_id = f"snap-{uuid.uuid4().hex[:10]}"
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -256,11 +263,11 @@ def snapshot_portfolio(
     # appearing exactly once.
     con.execute("""
         INSERT INTO portfolio_snapshots
-        (snapshot_id, snapshot_date, total_value, cash, positions_value,
+        (snapshot_id, user_id, snapshot_date, total_value, cash, positions_value,
          n_positions, total_cost_basis, unrealized_pnl, total_return_pct,
          benchmark_value, snapshot_source, positions_detail, created_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        ON CONFLICT (snapshot_date, snapshot_source) DO UPDATE SET
+        VALUES ($1, CAST($2 AS UUID), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (user_id, snapshot_date, snapshot_source) DO UPDATE SET
             snapshot_id = EXCLUDED.snapshot_id,
             total_value = EXCLUDED.total_value,
             cash = EXCLUDED.cash,
@@ -274,6 +281,7 @@ def snapshot_portfolio(
             created_at = EXCLUDED.created_at
     """, [
         snapshot_id,
+        user_id,
         today,
         round(total_value, 2),
         round(portfolio.get("cash", 0), 2),

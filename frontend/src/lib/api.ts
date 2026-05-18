@@ -337,6 +337,59 @@ export interface TickerAnalysis {
   [key: string]: unknown
 }
 
+// Rankings page (Phase 9) — three global, read-only endpoints fed by the EOD job.
+export interface RankingsOverallRow {
+  ticker: string
+  name: string | null
+  sector: string | null
+  composite: number
+  decile: number
+  momentum: number | null
+  quality: number | null
+  price: number | null
+  change_pct: number
+}
+
+export interface RankingsSectorTopRow {
+  ticker: string
+  name: string | null
+  composite: number | null
+  decile: number | null
+}
+
+export interface RankingsSector {
+  sector: string
+  alpha_pct: number
+  // Count of names in the sector sitting in the top three deciles of the
+  // composite score (decile 10 is best in this codebase).
+  breadth_top: number
+  total_names: number
+  action: "BUY" | "SELL"
+  top: RankingsSectorTopRow[]
+}
+
+export interface RankingsSectorsResponse {
+  date: string | null
+  period: "monthly" | "daily"
+  sectors: RankingsSector[]
+}
+
+export interface MarketSummary {
+  date: string
+  stance: "CONSTRUCTIVE" | "NEUTRAL" | "DEFENSIVE"
+  spx_close: number | null
+  spx_change: number | null
+  vix: number | null
+  buy_sectors: number
+  sell_sectors: number
+  narrative: string
+}
+
+export interface RankingsMarketSummaryResponse {
+  summary: MarketSummary | null
+  spx_spark: number[]
+}
+
 export interface PipelineRunParams {
   // Reserved for future per-run knobs (date override, dry-run, etc).
   // Currently the backend just accepts an empty POST body.
@@ -372,6 +425,15 @@ export const api = {
     }),
 
   getScores: (limit = 100) => apiFetch<FactorScore[]>(`/scores?limit=${limit}`),
+
+  // Rankings page
+  getRankingsOverall: (limit = 8, factor: "composite" | "momentum" | "quality" = "composite") =>
+    apiFetch<RankingsOverallRow[]>(`/rankings/overall?limit=${limit}&factor=${factor}`),
+  getRankingsSectors: (period: "monthly" | "daily" = "monthly", perSector = 4) =>
+    apiFetch<RankingsSectorsResponse>(`/rankings/sectors?period=${period}&per_sector=${perSector}`),
+  getRankingsMarketSummary: () =>
+    apiFetch<RankingsMarketSummaryResponse>("/rankings/market-summary"),
+
   getProposals: (status?: string, limit = 50) => {
     const params = new URLSearchParams({ limit: String(limit) })
     if (status) params.set("status", status)

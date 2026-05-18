@@ -1,22 +1,36 @@
-"""SnapTrade brokerage integration: connect Wealthsimple, fetch positions/balances.
+"""SnapTrade brokerage integration — per-user.
+
+Every function takes the Supabase user UUID as the first argument and
+reads/writes credentials in the ``brokerage_connections`` table. The legacy
+single-user JSON-file storage (``backend/data/snaptrade_state.json``) is
+gone; users connect their own brokerage during onboarding.
 
 Flow:
-1. register_user() — one-time setup, creates a SnapTrade user
-2. get_connect_url() — returns URL to SnapTrade Connection Portal (user logs into Wealthsimple)
-3. sync_portfolio() — fetches positions + balances → updates portfolio_state.json
+1. ``register_user(user_id)`` — one-time SnapTrade-side registration. We
+   derive a stable per-user SnapTrade id from the Supabase UUID so that a
+   given user always lands on the same SnapTrade account.
+2. ``get_connect_url(user_id, broker)`` — returns the SnapTrade Connection
+   Portal URL the user opens in a popup to log into their brokerage.
+3. ``sync_portfolio(user_id, account_id=None)`` — fetches positions +
+   balances → writes per-user ``portfolio_state`` row.
+
+Notes on SnapTrade limits:
+  Personal / free SnapTrade API keys allow only ONE registered user per
+  Client ID. To support multi-user, the SnapTrade subscription must be
+  upgraded so multiple ``register_user`` calls don't collide.
 """
 
-import json
+from __future__ import annotations
+
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
-
-# Persistent file for SnapTrade user credentials (userId + userSecret)
-_SNAPTRADE_STATE_PATH = settings.paths.data_dir / "snaptrade_state.json"
+from src.db.schema import get_connection
 
 
 def _snaptrade_error_body(exc: BaseException) -> dict:
@@ -28,7 +42,6 @@ def _snaptrade_error_body(exc: BaseException) -> dict:
 
 
 def _get_client():
-    """Get a SnapTrade client instance."""
     from snaptrade_client import SnapTrade
 
     client_id = settings.api_keys.snaptrade_client_id
@@ -43,48 +56,193 @@ def _get_client():
     return SnapTrade(consumer_key=consumer_key, client_id=client_id)
 
 
-def _load_state() -> dict:
-    """Load persisted SnapTrade user state (user_id, user_secret, accounts).
+def _snaptrade_user_id_for(user_id: str) -> str:
+    """Build a stable SnapTrade-side user id from the Supabase UUID.
 
-    Also accepts camelCase userId / userSecret so a hand-edited JSON matches
-    SnapTrade's API field names without triggering a bogus re-register with the
-    default ``trademark-user`` id.
+    SnapTrade ids are opaque strings; we prefix to make them human-recognizable
+    in their dashboard.
     """
-    if not _SNAPTRADE_STATE_PATH.exists():
-        return {}
-    with open(_SNAPTRADE_STATE_PATH) as f:
-        state = json.load(f)
-    if not state.get("user_id") and state.get("userId"):
-        state["user_id"] = state["userId"]
-    if not state.get("user_secret") and state.get("userSecret"):
-        state["user_secret"] = state["userSecret"]
-    return state
+    return f"trademark-{user_id}"
 
 
-def _save_state(state: dict) -> None:
-    """Persist SnapTrade user state."""
-    with open(_SNAPTRADE_STATE_PATH, "w") as f:
-        json.dump(state, f, indent=2)
+# ============================================================================
+# Connection state — backed by brokerage_connections table
+# ============================================================================
 
 
-def get_connection_status() -> dict:
-    """Check current connection status."""
-    state = _load_state()
-    if not state.get("user_id") or not state.get("user_secret"):
+def _load_connection(user_id: str, broker: str | None = None) -> Optional[dict]:
+    """Return the user's active brokerage connection row (or None)."""
+    con = get_connection()
+    try:
+        if broker:
+            row = con.execute(
+                """
+                SELECT id, user_id, broker, snaptrade_user_id, snaptrade_user_secret,
+                       status, selected_account_ids, last_sync_at
+                FROM brokerage_connections
+                WHERE user_id = CAST($1 AS UUID) AND broker = $2
+                LIMIT 1
+                """,
+                [user_id, broker],
+            ).fetchone()
+        else:
+            row = con.execute(
+                """
+                SELECT id, user_id, broker, snaptrade_user_id, snaptrade_user_secret,
+                       status, selected_account_ids, last_sync_at
+                FROM brokerage_connections
+                WHERE user_id = CAST($1 AS UUID)
+                ORDER BY connected_at DESC
+                LIMIT 1
+                """,
+                [user_id],
+            ).fetchone()
+    finally:
+        con.close()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "user_id": row[1],
+        "broker": row[2],
+        "snaptrade_user_id": row[3],
+        "snaptrade_user_secret": row[4],
+        "status": row[5],
+        "selected_account_ids": row[6] or [],
+        "last_sync_at": row[7],
+    }
+
+
+def _upsert_connection(
+    user_id: str,
+    broker: str,
+    snaptrade_user_id: str,
+    snaptrade_user_secret: str,
+) -> None:
+    """Create or update a brokerage_connections row for this (user, broker)."""
+    con = get_connection()
+    try:
+        con.execute(
+            """
+            INSERT INTO brokerage_connections
+                (user_id, broker, snaptrade_user_id, snaptrade_user_secret, status)
+            VALUES (CAST($1 AS UUID), $2, $3, $4, 'active')
+            ON CONFLICT (user_id, broker) DO UPDATE
+                SET snaptrade_user_secret = EXCLUDED.snaptrade_user_secret,
+                    status = 'active'
+            """,
+            [user_id, broker, snaptrade_user_id, snaptrade_user_secret],
+        )
+    finally:
+        con.close()
+
+
+def _mark_synced(connection_id: str) -> None:
+    con = get_connection()
+    try:
+        con.execute(
+            "UPDATE brokerage_connections SET last_sync_at = now() WHERE id = CAST($1 AS UUID)",
+            [str(connection_id)],
+        )
+    finally:
+        con.close()
+
+
+# ============================================================================
+# Public API — every function takes user_id
+# ============================================================================
+
+
+def register_user(user_id: str, broker: str = "WEALTHSIMPLETRADE") -> dict:
+    """Register a SnapTrade user for the given Supabase user.
+
+    No-op (returns the existing record) if the user already has a connection
+    for this broker.
+    """
+    existing = _load_connection(user_id, broker)
+    if existing:
+        return {"status": "already_registered", "snaptrade_user_id": existing["snaptrade_user_id"]}
+
+    snaptrade_uid = _snaptrade_user_id_for(user_id)
+    client = _get_client()
+    try:
+        response = client.authentication.register_snap_trade_user(
+            body={"userId": snaptrade_uid}
+        )
+    except Exception as exc:
+        err = _snaptrade_error_body(exc)
+        code = str(err.get("code") or "")
+        detail = str(err.get("detail") or "")
+        if code == "1012" or "Personal keys can only register one user" in detail:
+            raise ValueError(
+                "SnapTrade rejected registration: your SnapTrade plan allows only one user. "
+                "Upgrade the SnapTrade subscription to enable multi-user, or delete the existing "
+                "SnapTrade user in their dashboard."
+            ) from exc
+        raise
+
+    secret = response.body.get("userSecret")
+    if not secret:
+        raise ValueError(f"Registration failed: {response.body}")
+
+    _upsert_connection(user_id, broker, snaptrade_uid, secret)
+    return {"status": "registered", "snaptrade_user_id": snaptrade_uid}
+
+
+def get_connect_url(user_id: str, broker: str = "WEALTHSIMPLETRADE") -> dict:
+    """Return the SnapTrade Connection Portal URL for the given user + broker."""
+    conn = _load_connection(user_id, broker)
+    if not conn:
+        register_user(user_id, broker)
+        conn = _load_connection(user_id, broker)
+        if not conn:
+            raise ValueError("Failed to create brokerage_connections row after registration")
+
+    client = _get_client()
+    body: dict = {
+        "darkMode": True,
+        "customRedirect": "http://localhost:5173/brokerage/callback",
+    }
+    if broker:
+        body["broker"] = broker
+
+    response = client.authentication.login_snap_trade_user(
+        query_params={
+            "userId": conn["snaptrade_user_id"],
+            "userSecret": conn["snaptrade_user_secret"],
+        },
+        body=body,
+    )
+
+    login_url = None
+    if hasattr(response, "body"):
+        login_url = response.body.get("redirectURI") or response.body.get("loginLink")
+
+    if not login_url:
+        raise ValueError(f"Failed to generate login URL: {response}")
+
+    return {"url": login_url, "broker": broker}
+
+
+def get_connection_status(user_id: str) -> dict:
+    """Inspect a user's brokerage connection: which accounts SnapTrade sees, sync status, balances."""
+    conn = _load_connection(user_id)
+    if not conn:
         return {"connected": False, "status": "not_registered", "accounts": []}
 
     try:
         client = _get_client()
         accounts = client.account_information.list_user_accounts(
-            user_id=state["user_id"],
-            user_secret=state["user_secret"],
+            user_id=conn["snaptrade_user_id"],
+            user_secret=conn["snaptrade_user_secret"],
         )
 
+        import json as _json
         account_list = []
         for acc in accounts.body:
-            # Convert to plain dict to avoid SnapTrade SDK object issues
             try:
-                import json as _json
                 acc_plain = _json.loads(_json.dumps(dict(acc), default=str))
             except Exception:
                 acc_plain = dict(acc)
@@ -109,151 +267,29 @@ def get_connection_status() -> dict:
                 "currency": str(balance_total.get("currency") or "CAD"),
             })
 
-        state["accounts"] = account_list
-        _save_state(state)
-
         return {
             "connected": len(account_list) > 0,
             "status": "connected" if account_list else "registered_no_accounts",
             "accounts": account_list,
-            "user_id": state["user_id"],
+            "user_id": conn["snaptrade_user_id"],
         }
     except Exception as e:
         return {"connected": False, "status": f"error: {e}", "accounts": []}
 
 
-def register_user(user_id: str = "trademark-user") -> dict:
-    """Register a SnapTrade user (one-time setup).
-
-    Returns the user state with userId and userSecret.
-    """
-    state = _load_state()
-
-    # Already registered?
-    if state.get("user_id") and state.get("user_secret"):
-        return {"status": "already_registered", "user_id": state["user_id"]}
+def sync_portfolio(user_id: str, account_id: str | None = None) -> dict:
+    """Fetch positions + balances from the user's brokerage and persist to portfolio_state."""
+    conn = _load_connection(user_id)
+    if not conn:
+        raise ValueError("No SnapTrade connection. Connect your brokerage first.")
 
     client = _get_client()
-    try:
-        response = client.authentication.register_snap_trade_user(
-            body={"userId": user_id}
-        )
-    except Exception as exc:
-        err = _snaptrade_error_body(exc)
-        code = str(err.get("code") or "")
-        detail = str(err.get("detail") or "")
-        if code == "1012" or "Personal keys can only register one user" in detail:
-            raise ValueError(
-                "SnapTrade rejected registration: personal/free API keys allow only one registered "
-                "user per Client ID — and that user already exists on SnapTrade. Trademark only skips "
-                "registration if backend/data/snaptrade_state.json contains matching user_id and "
-                "user_secret. Fix: put the correct pair in that file (snake_case keys), restore it from "
-                "a backup, or delete the user in the SnapTrade developer dashboard and connect again "
-                "so a fresh user + secret is issued."
-            ) from exc
-        raise
+    snap_user = conn["snaptrade_user_id"]
+    snap_secret = conn["snaptrade_user_secret"]
 
-    user_secret = response.body.get("userSecret")
-    if not user_secret:
-        raise ValueError(f"Registration failed: {response.body}")
-
-    state = {
-        "user_id": user_id,
-        "user_secret": user_secret,
-        "registered_at": datetime.now().isoformat(),
-        "accounts": [],
-    }
-    _save_state(state)
-
-    return {"status": "registered", "user_id": user_id}
-
-
-def get_connect_url(broker: str = "WEALTHSIMPLETRADE") -> dict:
-    """Generate a URL to the SnapTrade Connection Portal.
-
-    The user opens this URL to log into their brokerage. On success,
-    their accounts are automatically imported.
-
-    Args:
-        broker: Pre-select a broker slug. Use "WEALTHSIMPLETRADE" for Wealthsimple Trade.
-                Pass empty string to show all allowed brokers.
-    """
-    state = _load_state()
-    if not state.get("user_id") or not state.get("user_secret"):
-        # Auto-register if not done yet
-        register_user()
-        state = _load_state()
-
-    client = _get_client()
-    body: dict = {
-        "darkMode": True,
-        "customRedirect": "http://localhost:5173/brokerage",
-    }
-    if broker:
-        body["broker"] = broker
-
-    response = client.authentication.login_snap_trade_user(
-        query_params={
-            "userId": state["user_id"],
-            "userSecret": state["user_secret"],
-        },
-        body=body,
-    )
-
-    login_url = None
-    if hasattr(response, 'body'):
-        login_url = response.body.get("redirectURI") or response.body.get("loginLink")
-
-    if not login_url:
-        raise ValueError(f"Failed to generate login URL: {response}")
-
-    return {"url": login_url, "broker": broker}
-
-
-def get_reconnect_url(authorization_id: str) -> dict:
-    """Generate a reconnect URL for a broken/expired connection."""
-    state = _load_state()
-    if not state.get("user_id") or not state.get("user_secret"):
-        raise ValueError("No SnapTrade user registered")
-
-    client = _get_client()
-    response = client.authentication.login_snap_trade_user(
-        query_params={
-            "userId": state["user_id"],
-            "userSecret": state["user_secret"],
-        },
-        body={
-            "reconnect": authorization_id,
-            "darkMode": True,
-        },
-    )
-
-    login_url = None
-    if hasattr(response, 'body'):
-        login_url = response.body.get("redirectURI") or response.body.get("loginLink")
-
-    return {"url": login_url, "authorization_id": authorization_id}
-
-
-def sync_portfolio(account_id: str | None = None) -> dict:
-    """Fetch positions and balances from brokerage → update portfolio_state.json.
-
-    If account_id is None, uses the first connected account.
-
-    Returns the updated portfolio state.
-    """
-    state = _load_state()
-    if not state.get("user_id") or not state.get("user_secret"):
-        raise ValueError("No SnapTrade user registered. Connect your brokerage first.")
-
-    client = _get_client()
-    user_id = state["user_id"]
-    user_secret = state["user_secret"]
-
-    # Get accounts if no specific one requested — pick highest balance
     if not account_id:
         accounts = client.account_information.list_user_accounts(
-            user_id=user_id, user_secret=user_secret
+            user_id=snap_user, user_secret=snap_secret,
         )
         if not accounts.body:
             raise ValueError("No brokerage accounts found. Connect your brokerage first.")
@@ -263,13 +299,10 @@ def sync_portfolio(account_id: str | None = None) -> dict:
         )
         account_id = best.get("id")
 
-    # Fetch balances
+    # Balances
     balances_resp = client.account_information.get_user_account_balance(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id,
+        user_id=snap_user, user_secret=snap_secret, account_id=account_id,
     )
-
     cash = 0.0
     currency = "CAD"
     for bal in balances_resp.body:
@@ -281,37 +314,19 @@ def sync_portfolio(account_id: str | None = None) -> dict:
         cash += float(cash_val)
         currency = code
 
-    # Fetch positions
+    # Positions
     positions_resp = client.account_information.get_user_account_positions(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id,
+        user_id=snap_user, user_secret=snap_secret, account_id=account_id,
     )
 
-    # Load existing portfolio to preserve first_seen_at across syncs. New
-    # positions appearing in this sync get a fresh first_seen_at; existing
-    # positions keep theirs so we don't reset their hold-window protection
-    # on every refresh.
-    #
-    # Migrations applied here:
-    # 1. Positions with no first_seen_at field (predates this feature) are
-    #    backdated 1 year so they don't all flip to PROTECTED.
-    # 2. Positions sharing an identical first_seen_at timestamp with 3+ other
-    #    positions are treated as a sync-batch artifact (the early version of
-    #    this feature wrote `now` to every position simultaneously). Real
-    #    purchase events almost never share an exact-second timestamp across
-    #    multiple holdings, so we backdate the whole cluster.
+    # Preserve first_seen_at across syncs (hold-window protection). Pull
+    # existing per-user portfolio_state row first.
     backdated_iso = (datetime.now() - timedelta(days=365)).isoformat()
     existing_first_seen: dict[str, str] = {}
     try:
-        # NB: aliased as _load_portfolio (not _load_state) because this file
-        # already has a module-level _load_state() for SnapTrade credentials.
-        # A local rebinding to _load_state inside this function would shadow
-        # the module-level one and break the earlier credential lookup.
         from src.db.state import load_portfolio_state as _load_portfolio
-        _existing = _load_portfolio()
+        _existing = _load_portfolio(user_id=user_id)
         _existing_positions = _existing.get("positions", [])
-        # Count timestamp occurrences to detect batch-write artifacts.
         _ts_counts: dict[str, int] = {}
         for _p in _existing_positions:
             _fs = _p.get("first_seen_at")
@@ -333,45 +348,33 @@ def sync_portfolio(account_id: str | None = None) -> dict:
     except Exception:
         pass
 
+    import json as _json
     now_iso = datetime.now().isoformat()
-
     positions = []
     for pos in positions_resp.body:
-        # Convert to plain dict first to avoid SnapTrade SDK object issues
         try:
-            import json as _json
             pos_plain = _json.loads(_json.dumps(dict(pos), default=str))
         except Exception:
             pos_plain = dict(pos)
 
         symbol_info = pos_plain.get("symbol") or {}
-        # SnapTrade symbol object: {"id": "...", "symbol": "GOOG", "raw_symbol": "GOOG", ...}
         if isinstance(symbol_info, dict):
             ticker = symbol_info.get("symbol") or symbol_info.get("raw_symbol") or ""
-            # If symbol is still a dict (double-nested), go deeper
             if isinstance(ticker, dict):
                 ticker = ticker.get("symbol") or ticker.get("raw_symbol") or ""
         else:
             ticker = str(symbol_info)
         ticker = str(ticker).split(".")[0] if ticker else ""
-        # Map brokerage tickers to universe tickers (e.g., GOOG → GOOGL)
         _TICKER_MAP = {"GOOG": "GOOGL"}
         ticker = _TICKER_MAP.get(ticker, ticker)
 
         units = pos_plain.get("units") or 0
         avg_cost = pos_plain.get("average_purchase_price") or 0
         current_price = pos_plain.get("price") or 0
-
-        if isinstance(units, dict):
-            units = units.get("amount", 0)
-        if isinstance(avg_cost, dict):
-            avg_cost = avg_cost.get("amount", 0)
-        if isinstance(current_price, dict):
-            current_price = current_price.get("amount", 0)
-
-        units = float(units)
-        avg_cost = float(avg_cost)
-        current_price = float(current_price)
+        if isinstance(units, dict): units = units.get("amount", 0)
+        if isinstance(avg_cost, dict): avg_cost = avg_cost.get("amount", 0)
+        if isinstance(current_price, dict): current_price = current_price.get("amount", 0)
+        units, avg_cost, current_price = float(units), float(avg_cost), float(current_price)
 
         if units <= 0 or not ticker:
             continue
@@ -386,7 +389,6 @@ def sync_portfolio(account_id: str | None = None) -> dict:
             "first_seen_at": first_seen,
         })
 
-    # Build portfolio state
     portfolio = {
         "as_of_date": datetime.now().strftime("%Y-%m-%d"),
         "cash": round(cash, 2),
@@ -397,9 +399,9 @@ def sync_portfolio(account_id: str | None = None) -> dict:
         "account_id": account_id,
     }
 
-    # Persist via state helper (writes Postgres + file in postgres mode, file-only in duckdb mode)
-    from src.db.state import save_portfolio_state as _save_state
-    _save_state(portfolio)
+    from src.db.state import save_portfolio_state
+    save_portfolio_state(portfolio, user_id=user_id)
+    _mark_synced(conn["id"])
 
     return {
         "status": "synced",
@@ -410,12 +412,32 @@ def sync_portfolio(account_id: str | None = None) -> dict:
     }
 
 
-def get_partner_info() -> dict:
-    """Fetch SnapTrade partner/client info including allowed brokerages.
+def disconnect(user_id: str, broker: str | None = None) -> dict:
+    """Mark all (or one) of the user's brokerage connections as revoked.
 
-    Useful for diagnosing why a brokerage connection fails (1066 error means
-    the brokerage is not in your allowed_brokerages list).
+    We deliberately don't call SnapTrade's delete_snap_trade_user here because
+    other users on the same SnapTrade plan would lose access. Use the SnapTrade
+    dashboard to fully terminate the SnapTrade side.
     """
+    con = get_connection()
+    try:
+        if broker:
+            con.execute(
+                "UPDATE brokerage_connections SET status = 'revoked' WHERE user_id = CAST($1 AS UUID) AND broker = $2",
+                [user_id, broker],
+            )
+        else:
+            con.execute(
+                "UPDATE brokerage_connections SET status = 'revoked' WHERE user_id = CAST($1 AS UUID)",
+                [user_id],
+            )
+    finally:
+        con.close()
+    return {"status": "disconnected"}
+
+
+def get_partner_info() -> dict:
+    """Fetch SnapTrade partner info (allowed brokerages). Diagnostic only — not per-user."""
     client = _get_client()
     try:
         response = client.reference_data.get_partner_info()
@@ -431,26 +453,3 @@ def get_partner_info() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
-
-
-def delete_user() -> dict:
-    """Delete the SnapTrade user and clear local state. Use for full reset."""
-    state = _load_state()
-    if not state.get("user_id") or not state.get("user_secret"):
-        return {"status": "no_user"}
-
-    try:
-        client = _get_client()
-        client.authentication.delete_snap_trade_user(
-            query_params={
-                "userId": state["user_id"],
-            }
-        )
-    except Exception:
-        pass  # User may already be deleted on SnapTrade's side
-
-    # Clear local state
-    if _SNAPTRADE_STATE_PATH.exists():
-        _SNAPTRADE_STATE_PATH.unlink()
-
-    return {"status": "deleted", "user_id": state.get("user_id")}

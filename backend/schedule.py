@@ -75,6 +75,15 @@ def run_eod_pipeline() -> dict:
     print(f"    Top 5: {scores.head(5)['ticker'].tolist()}")
     print(f"    Bottom 5: {scores.tail(5)['ticker'].tolist()}")
 
+    # --- Step 2b: Rankings page snapshots (sector signals + market summary) ---
+    print("\n  [2b] Rankings page snapshots...")
+    try:
+        from src.signals.sector_signals import run_rankings_eod
+        rankings_out = run_rankings_eod(as_of_date=as_of_date)
+        print(f"    Stored {rankings_out['sector_signals']} sector signals")
+    except Exception as exc:
+        print(f"    WARNING: Rankings snapshots failed: {exc}")
+
     # --- Step 3: Signal generation ---
     print("\n  [3/5] Generating signals...")
 

@@ -1,5 +1,14 @@
 import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from "react"
 import type { PipelineRunParams } from "../lib/api"
+import { buildAuthHeaders, apiUrl, appTokenQuery } from "@/lib/utils"
+
+// The pipeline POSTs don't go through apiFetch because of the 409-recovery
+// path (apiFetch would throw before we could read the body), so we build the
+// same auth headers (X-App-Token + Supabase JWT) manually here.
+async function authHeaders(): Promise<HeadersInit> {
+  const h = await buildAuthHeaders({ "Content-Type": "application/json" })
+  return h
+}
 
 export interface PipelineEvent {
   step: string
@@ -45,9 +54,9 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     setActiveGate(null)
 
     try {
-      const res = await fetch("/api/pipeline/run", {
+      const res = await fetch(apiUrl("/pipeline/run"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify(params ?? {}),
       })
 
@@ -70,7 +79,11 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       setRunId(activeRunId)
       runIdRef.current = activeRunId
 
-      const es = new EventSource(`/api/pipeline/status?run_id=${activeRunId}`)
+      // EventSource can't set headers, so the app token rides in the query
+      // string. The backend middleware accepts either header or ?app_token.
+      const q = appTokenQuery()
+      const statusUrl = apiUrl(`/pipeline/status?run_id=${activeRunId}${q ? `&${q}` : ""}`)
+      const es = new EventSource(statusUrl)
       esRef.current = es
 
       es.onmessage = (event) => {
@@ -111,9 +124,9 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     if (!activeGate || !runIdRef.current) return
 
     try {
-      await fetch("/api/pipeline/gate/respond", {
+      await fetch(apiUrl("/pipeline/gate/respond"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify({
           run_id: runIdRef.current,
           gate_name: activeGate.gate_name,

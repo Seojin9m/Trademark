@@ -51,9 +51,14 @@ function buildAdapter(
       const images = imagesRef.current.slice()
       imagesRef.current = []
 
-      const res = await fetch("/api/chat", {
+      // X-App-Token + Supabase JWT for backend auth; both are added by
+      // buildAuthHeaders so this stays consistent with the rest of the app.
+      const { buildAuthHeaders, apiUrl } = await import("@/lib/utils")
+      const headers = await buildAuthHeaders({ "Content-Type": "application/json" })
+
+      const res = await fetch(apiUrl("/chat"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           message: userText,
           session_id: sessionIdRef.current,

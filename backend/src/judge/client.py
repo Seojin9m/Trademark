@@ -31,15 +31,14 @@ from src.judge.prompt import SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE, STRATEGY_RULE
 
 
 def _get_user_notes_data() -> dict:
-    """Get user notes data (text + images) from the API module.
+    """Get user notes data (text + images).
 
-    Returns dict with 'text' and 'images' keys, or empty dict.
+    After the multi-user migration, user_notes lives in a per-user Postgres
+    table. The judge runs in the EOD pipeline (currently global), so it has
+    no user_id to scope the lookup. Returns empty until the pipeline itself
+    is refactored to be per-user — see the Part B follow-ups.
     """
-    try:
-        from src.api.main import _user_notes
-        return _user_notes
-    except Exception:
-        return {}
+    return {}
 
 
 def _extract_json_from_llm(text: str):
@@ -221,14 +220,21 @@ def _log_judge_call(
     confidence: float,
     model_used: str,
     input_hash: str,
+    user_id: str | None = None,
 ) -> None:
-    """Persist a judge call to the audit log (Postgres or SQLite based on DB_BACKEND)."""
+    """Persist a judge call to the audit log.
+
+    Postgres path requires ``user_id`` because judge_log is per-user after the
+    multi-user migration. Legacy SQLite path ignores user_id (single-user file).
+    """
     _init_judge_log_db()
 
     log_id = str(uuid.uuid4())[:8]
     created_at = datetime.now().isoformat()
 
     if _backend() == "postgres":
+        if not user_id:
+            raise ValueError("user_id is required for judge_log inserts (per-user table)")
         from src.db.postgres import get_pg_connection
         # Postgres JSONB requires valid JSON. Some payloads (portfolio-review)
         # are plain text — wrap them as JSON strings so the column accepts them
@@ -247,11 +253,11 @@ def _log_judge_call(
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO judge_log
-                    (log_id, created_at, proposal_id, ticker, action,
+                    (log_id, user_id, created_at, proposal_id, ticker, action,
                      input_payload, output_payload, verdict, confidence, model_used, input_hash)
-                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                    VALUES (%s, %s::uuid, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
                 """, (
-                    log_id, created_at, proposal_id, ticker, action,
+                    log_id, user_id, created_at, proposal_id, ticker, action,
                     _to_jsonb(input_payload), _to_jsonb(output_payload),
                     verdict, confidence, model_used, input_hash,
                 ))
@@ -382,6 +388,7 @@ def evaluate_proposal(
     news=None,
     sector_intel: dict | None = None,
     risk_level: int = 3,
+    user_id: str | None = None,
 ) -> JudgeOutput:
     """Send a trade proposal to Claude for evaluation.
 
@@ -389,6 +396,8 @@ def evaluate_proposal(
         news: Optional NewsResearch object with recent news context.
         sector_intel: Optional competitive intelligence from competitive_intel.py.
         risk_level: Aggressiveness setting (1=conservative, 5=aggressive).
+        user_id: Supabase UUID — required when DB_BACKEND=postgres because
+                 judge_log is per-user.
 
     Returns a validated JudgeOutput.
     """
@@ -641,6 +650,7 @@ Consider this news context when evaluating. If a binary event (earnings, regulat
         confidence=output.confidence,
         model_used=model,
         input_hash=input_hash,
+        user_id=user_id,
     )
 
     return output
@@ -654,6 +664,7 @@ def evaluate_all_proposals(
     recent_trades: list[dict] | None = None,
     sector_intel_map: dict | None = None,
     risk_level: int = 3,
+    user_id: str | None = None,
 ) -> list[tuple[dict, JudgeOutput]]:
     """Evaluate all proposals through the LLM judge.
 
@@ -700,7 +711,7 @@ def evaluate_all_proposals(
         _log.info(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
         news = research_map.get(p["ticker"])
         intel = sector_intel_map.get(p["ticker"])
-        output = evaluate_proposal(p, portfolio_value, pnl, news=news, sector_intel=intel, risk_level=risk_level)
+        output = evaluate_proposal(p, portfolio_value, pnl, news=news, sector_intel=intel, risk_level=risk_level, user_id=user_id)
         _log.info(f"    {p['ticker']}: {output.verdict.value} ({output.confidence:.0%})")
 
         p["judge_verdict"] = output.verdict.value
@@ -733,6 +744,7 @@ def evaluate_portfolio_review(
     portfolio_value: float,
     research_map: dict | None = None,
     regime: dict | None = None,
+    user_id: str | None = None,
 ) -> dict:
     """Run a full portfolio review even when no trades are proposed.
 
@@ -911,6 +923,7 @@ def evaluate_portfolio_review(
         confidence=result.get("confidence", 0),
         model_used=model,
         input_hash=hashlib.sha256(prompt.encode()).hexdigest()[:16],
+        user_id=user_id,
     )
 
     return result

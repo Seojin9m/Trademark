@@ -24,6 +24,10 @@
 <script type="text/babel" src="components.jsx"></script>
 <script type="text/babel" src="pages-1.jsx"></script>
 <script type="text/babel" src="pages-2.jsx"></script>
+<script type="text/babel" src="pages-rankings.jsx"></script>
+<script type="text/babel" src="pages-auth.jsx"></script>
+<script type="text/babel" src="pages-auth-verify.jsx"></script>
+<script type="text/babel" src="pages-auth-brokerage.jsx"></script>
 <script type="text/babel" src="tweaks-panel.jsx"></script>
 
 <script type="text/babel">
@@ -36,8 +40,10 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [page, setPage] = useState(() => (window.location.hash || '#portfolio').slice(1));
+  const [page, setPage] = useState(() => (window.location.hash || '#rankings').slice(1));
   const [collapsed, setCollapsed] = useState(tweaks.sidebarCollapsed);
+  const [authed, setAuthed] = useState(false); // require auth flow
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', tweaks.theme);
@@ -46,7 +52,7 @@ function App() {
   useEffect(() => { setCollapsed(tweaks.sidebarCollapsed); }, [tweaks.sidebarCollapsed]);
 
   useEffect(() => {
-    const onHash = () => setPage((window.location.hash || '#portfolio').slice(1));
+    const onHash = () => setPage((window.location.hash || '#rankings').slice(1));
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -54,7 +60,16 @@ function App() {
   const nav = (id) => { window.location.hash = id; setPage(id); };
   const toggleCollapse = () => { const v = !collapsed; setCollapsed(v); setTweak('sidebarCollapsed', v); };
 
+  const handleLogin = (u) => { setUser(u); setAuthed(true); nav('rankings'); };
+  const handleLogout = () => { setAuthed(false); nav('login'); };
+
+  // Unauthed flow — full multi-step auth journey (sign-in/up → verify → brokerage)
+  if (!authed || page === 'login') {
+    return <AuthFlow onLogin={handleLogin}/>;
+  }
+
   const pages = {
+    rankings: RankingsPage,
     portfolio: PortfolioPage,
     analyst: AnalystPage,
     signals: SignalsPage,
@@ -65,17 +80,18 @@ function App() {
     research: ResearchPage,
     learning: LearningPage,
     backtest: BacktestPage,
-    brokerage: BrokeragePage,
     pipeline: PipelinePage,
   };
-  const PageComp = pages[page] || PortfolioPage;
+  const PageComp = pages[page];
 
   return (
     <div className="app">
-      <Sidebar active={page} onNav={nav} collapsed={collapsed} onToggleCollapse={toggleCollapse}/>
+      <Sidebar active={page} onNav={nav} collapsed={collapsed} onToggleCollapse={toggleCollapse} user={user}/>
       <div className={`main ${collapsed ? 'sb-collapsed' : ''}`} data-screen-label={page}>
         <Topbar pageId={page}/>
-        <PageComp/>
+        {page === 'account'
+          ? <AccountPage user={user} onLogout={handleLogout}/>
+          : (PageComp ? <PageComp/> : <RankingsPage/>)}
       </div>
       <ChatWidget/>
 
@@ -92,6 +108,9 @@ function App() {
             value={tweaks.sidebarCollapsed}
             onChange={(v) => setTweak('sidebarCollapsed', v)}
           />
+        </TweakSection>
+        <TweakSection title="Session">
+          <TweakButton label="Sign out" onClick={handleLogout}/>
         </TweakSection>
       </TweaksPanel>
     </div>

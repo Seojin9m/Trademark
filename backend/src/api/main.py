@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 import pandas as pd
@@ -19,6 +19,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import settings
+from src.auth import AuthUser, get_current_user
 from src.db.schema import get_connection, init_db
 from src.db.state import load_universe_df
 from src.signals.portfolio_engine import (
@@ -196,8 +197,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
-    allow_headers=["*"],
+    # Allow the static app-token header on cross-origin requests so deployed
+    # frontends on a different domain can still pass auth.
+    allow_headers=["*", "X-App-Token"],
 )
+
+# Static app-token guard. Runs before route handlers; rejects any /api/*
+# request that doesn't carry the shared secret in X-App-Token (header) or
+# app_token (query string fallback for SSE).
+from src.auth.app_token import AppTokenMiddleware
+app.add_middleware(AppTokenMiddleware)
 
 # Pipeline run state: run_id -> list of events
 _pipeline_runs: dict[str, list[dict]] = {}
@@ -212,9 +221,11 @@ _review_mode: dict = {"enabled": True}
 # Gate state: run_id -> {gate_name -> {"data": ..., "event": Event, "response": ...}}
 _pipeline_gates: dict[str, dict[str, dict]] = {}
 
-# User notes: context the user provides before pipeline runs
-# The judge uses this as extra context but remains objective
-_user_notes: dict = {"text": "", "images": [], "updated_at": None}
+# NB: user_notes was previously an in-memory module dict. It now lives in the
+# per-user `user_notes` table — see _load_user_notes / _save_user_notes below.
+# judge/client.py:_get_user_notes_data still imports the legacy name; once the
+# pipeline is per-user refactored, that helper should take a user_id and read
+# from the table directly.
 
 
 # ============================================================
@@ -222,25 +233,25 @@ _user_notes: dict = {"text": "", "images": [], "updated_at": None}
 # ============================================================
 
 @app.get("/api/brokerage/status")
-def brokerage_status():
-    """Check brokerage connection status."""
+def brokerage_status(user: AuthUser = Depends(get_current_user)):
+    """Brokerage connection status for the signed-in user."""
     try:
         from src.ingest.brokerage import get_connection_status
-        return get_connection_status()
+        return get_connection_status(user.id)
     except Exception as e:
         logger.error(f"Brokerage status check failed: {e}")
         return {"connected": False, "status": f"error: {e}", "accounts": []}
 
 
 @app.post("/api/brokerage/connect")
-def brokerage_connect(broker: str = "WEALTHSIMPLETRADE"):
-    """Generate a connection URL for the SnapTrade Connection Portal.
-
-    The user opens this URL in a new tab to log into their brokerage.
-    """
+def brokerage_connect(
+    broker: str = "WEALTHSIMPLETRADE",
+    user: AuthUser = Depends(get_current_user),
+):
+    """Generate a SnapTrade Connection Portal URL for the signed-in user."""
     try:
         from src.ingest.brokerage import get_connect_url
-        return get_connect_url(broker)
+        return get_connect_url(user.id, broker)
     except ValueError as e:
         logger.warning(f"Brokerage connect rejected: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -250,11 +261,14 @@ def brokerage_connect(broker: str = "WEALTHSIMPLETRADE"):
 
 
 @app.post("/api/brokerage/sync")
-def brokerage_sync(account_id: str | None = None):
-    """Fetch positions and balances from brokerage → update portfolio_state.json."""
+def brokerage_sync(
+    account_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
+):
+    """Fetch positions + balances from the user's brokerage and update portfolio_state."""
     try:
         from src.ingest.brokerage import sync_portfolio
-        return sync_portfolio(account_id)
+        return sync_portfolio(user.id, account_id)
     except Exception as e:
         logger.error(f"Brokerage sync failed: {e}", exc_info=True)
         err = str(e)
@@ -271,25 +285,9 @@ def brokerage_sync(account_id: str | None = None):
         raise HTTPException(status_code=status, detail=detail or err)
 
 
-@app.get("/api/brokerage/debug")
-def brokerage_debug():
-    """Raw SnapTrade account data for debugging."""
-    try:
-        from src.ingest.brokerage import _get_client, _load_state
-        state = _load_state()
-        client = _get_client()
-        accounts = client.account_information.list_user_accounts(
-            user_id=state["user_id"],
-            user_secret=state["user_secret"],
-        )
-        return {"raw_accounts": [dict(acc) for acc in accounts.body]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/brokerage/partner-info")
 def brokerage_partner_info():
-    """Check SnapTrade partner info — which brokerages are allowed for this Client ID."""
+    """SnapTrade partner-level info (allowed brokerages). Not per-user — diagnostic only."""
     try:
         from src.ingest.brokerage import get_partner_info
         return get_partner_info()
@@ -298,11 +296,11 @@ def brokerage_partner_info():
 
 
 @app.post("/api/brokerage/disconnect")
-def brokerage_disconnect():
-    """Disconnect brokerage and delete SnapTrade user."""
+def brokerage_disconnect(user: AuthUser = Depends(get_current_user)):
+    """Mark the user's brokerage connections as revoked."""
     try:
-        from src.ingest.brokerage import delete_user
-        return delete_user()
+        from src.ingest.brokerage import disconnect
+        return disconnect(user.id)
     except Exception as e:
         logger.error(f"Brokerage disconnect failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -478,36 +476,67 @@ async def respond_to_gate(request: Request):
 # User notes endpoints
 # ============================================================
 
+def _load_user_notes(user_id: str) -> dict:
+    con = get_connection()
+    try:
+        row = con.execute(
+            "SELECT text, images, updated_at FROM user_notes WHERE user_id = CAST($1 AS UUID)",
+            [user_id],
+        ).fetchone()
+    finally:
+        con.close()
+    if not row:
+        return {"text": "", "images": [], "updated_at": None}
+    return {
+        "text": row[0] or "",
+        "images": row[1] or [],
+        "updated_at": row[2].isoformat() if row[2] else None,
+    }
+
+
+def _save_user_notes(user_id: str, text: str, images: list) -> None:
+    con = get_connection()
+    try:
+        con.execute(
+            """
+            INSERT INTO user_notes (user_id, text, images, updated_at)
+            VALUES (CAST($1 AS UUID), $2, CAST($3 AS JSONB), now())
+            ON CONFLICT (user_id) DO UPDATE SET
+                text = EXCLUDED.text,
+                images = EXCLUDED.images,
+                updated_at = now()
+            """,
+            [user_id, text, json.dumps(images)],
+        )
+    finally:
+        con.close()
+
+
 @app.get("/api/user-notes")
-def get_user_notes():
-    """Get current user notes for pipeline context."""
-    return _user_notes
+def get_user_notes(user: AuthUser = Depends(get_current_user)):
+    """Read the signed-in user's pipeline context notes."""
+    return _load_user_notes(user.id)
 
 
 @app.post("/api/user-notes")
-async def set_user_notes(request: Request):
-    """Save user notes that will be injected into the next pipeline run.
-
-    Accepts JSON body with 'text' and optional 'images' array.
-    Each image: {name, data (base64), mime}.
-    """
+async def set_user_notes(request: Request, user: AuthUser = Depends(get_current_user)):
+    """Persist user notes (and optional images) for the next pipeline run."""
     body = await request.json()
-    text = body.get("text", "")
-    images = body.get("images", [])
-    _user_notes["text"] = text.strip()
-    _user_notes["images"] = images[:5]  # Cap at 5 images
-    has_content = text.strip() or len(images) > 0
-    _user_notes["updated_at"] = datetime.now().isoformat() if has_content else None
-    return _user_notes
+    text = (body.get("text") or "").strip()
+    images = (body.get("images") or [])[:5]
+    _save_user_notes(user.id, text, images)
+    return _load_user_notes(user.id)
 
 
 @app.delete("/api/user-notes")
-def clear_user_notes():
-    """Clear user notes."""
-    _user_notes["text"] = ""
-    _user_notes["images"] = []
-    _user_notes["updated_at"] = None
-    return _user_notes
+def clear_user_notes(user: AuthUser = Depends(get_current_user)):
+    """Clear the signed-in user's notes."""
+    con = get_connection()
+    try:
+        con.execute("DELETE FROM user_notes WHERE user_id = CAST($1 AS UUID)", [user.id])
+    finally:
+        con.close()
+    return {"text": "", "images": [], "updated_at": None}
 
 
 # ============================================================
@@ -534,28 +563,24 @@ def _get_usdcad_rate() -> float:
 
 
 @app.get("/api/portfolio")
-def get_portfolio():
-    """Current portfolio state with P&L.
+def get_portfolio(user: AuthUser = Depends(get_current_user)):
+    """Current portfolio state with P&L for the signed-in user.
 
-    Always refreshes from the brokerage when a SnapTrade connection exists so
-    the dashboard reflects live positions/prices rather than the last cached
-    snapshot. Falls back to cached portfolio_state if the brokerage is
-    unreachable (sync errors are non-fatal — we'd rather show slightly stale
-    data than break the page when SnapTrade is slow).
+    Refreshes from the user's connected brokerage on every call so the
+    dashboard reflects live positions/prices. SnapTrade errors are non-fatal:
+    we'd rather show slightly stale data than break the page when SnapTrade
+    is slow or under maintenance.
     """
-    # Live brokerage refresh. Skipped silently when SnapTrade isn't connected
-    # or returns an error so the page still works in disconnected dev mode.
     try:
         from src.ingest.brokerage import sync_portfolio, get_connection_status
-        if get_connection_status().get("connected"):
-            sync_portfolio()
+        if get_connection_status(user.id).get("connected"):
+            sync_portfolio(user.id)
     except Exception as sync_err:
         logger.debug(f"Brokerage sync skipped on portfolio fetch: {sync_err}")
 
     try:
-        portfolio = load_portfolio_state()
+        portfolio = load_portfolio_state(user.id)
 
-        # Cash from Wealthsimple TFSA is in CAD — convert to USD for P&L
         if portfolio.get("currency") == "CAD" and portfolio.get("cash", 0) > 0:
             rate = _get_usdcad_rate()
             portfolio = {**portfolio, "cash": round(portfolio["cash"] / rate, 2)}
@@ -593,6 +618,209 @@ def get_scores(limit: int = 100):
         return records
     except Exception as e:
         logger.error(f"Scores endpoint failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Rankings page endpoints (Phase 9)
+# ============================================================
+# The Rankings page is the new homepage — global, read-only, fed by the EOD
+# pipeline. Every endpoint here joins factor_scores (per-ticker signal),
+# universe (name + sector), and prices (1d change). Per-period scaling is
+# done on the API side rather than in SQL because the alpha_pct stored in
+# sector_signals is monthly-equivalent.
+
+
+@app.get("/api/rankings/overall")
+def get_rankings_overall(limit: int = 8, factor: str = "composite"):
+    """Top N tickers across the universe for the latest scoring date.
+
+    Joins factor_scores ← universe (name, sector) ← prices (latest two
+    closes for 1d change %). `factor` lets the UI tab between composite /
+    momentum / quality; momentum and quality sort by the underlying factor
+    instead of composite, but the same row shape is returned.
+    """
+    sort_col = {
+        "composite": "f.composite_score",
+        "momentum": "f.momentum_12m1m",
+        "quality": "q.quality_score",
+    }.get(factor, "f.composite_score")
+
+    try:
+        con = get_connection()
+        df = con.execute(
+            f"""
+            WITH latest AS (SELECT MAX(date) AS d FROM factor_scores),
+            latest_prices AS (
+                SELECT p.ticker, p.close,
+                    LAG(p.close) OVER (PARTITION BY p.ticker ORDER BY p.date) AS prev_close,
+                    ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) AS rn
+                FROM prices p
+                WHERE p.date >= (SELECT d FROM latest) - INTERVAL '7 days'
+            )
+            SELECT
+                f.ticker,
+                u.name,
+                u.sector,
+                f.composite_score AS composite,
+                f.score_decile   AS decile,
+                f.momentum_12m1m AS momentum,
+                q.quality_score  AS quality,
+                lp.close         AS price,
+                CASE WHEN lp.prev_close > 0
+                     THEN (lp.close - lp.prev_close) / lp.prev_close * 100.0
+                     ELSE 0 END  AS change_pct
+            FROM factor_scores f
+            JOIN universe u ON u.ticker = f.ticker
+            LEFT JOIN latest_prices lp ON lp.ticker = f.ticker AND lp.rn = 1
+            LEFT JOIN stock_quality_assessment q
+                ON q.ticker = f.ticker AND q.date = f.date
+            WHERE f.date = (SELECT d FROM latest)
+              AND u.sector IS NOT NULL
+            ORDER BY {sort_col} DESC NULLS LAST
+            LIMIT ?
+            """,
+            [limit],
+        ).fetchdf()
+        con.close()
+        return json.loads(df.to_json(orient="records", date_format="iso"))
+    except Exception as e:
+        logger.error(f"Rankings overall failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rankings/sectors")
+def get_rankings_sectors(period: str = "monthly", per_sector: int = 4):
+    """11-sector view: alpha + action for each sector, plus top-N names inside.
+
+    `period` scales the stored monthly alpha down for the 'daily' toggle on
+    the page; we don't recompute, we just present a daily-equivalent number.
+    """
+    period_factor = 0.22 if period == "daily" else 1.0
+    try:
+        con = get_connection()
+
+        # Latest date that has sector_signals — fall back to factor_scores' date
+        # if the EOD script hasn't run yet today.
+        date_row = con.execute("SELECT MAX(date) FROM sector_signals").fetchone()
+        if not date_row or date_row[0] is None:
+            con.close()
+            return {"date": None, "sectors": []}
+        as_of = str(date_row[0])
+
+        sectors_df = con.execute(
+            """
+            SELECT sector, date, alpha_pct, breadth_top, total_names, action
+            FROM sector_signals
+            WHERE date = CAST(? AS DATE)
+            ORDER BY alpha_pct DESC NULLS LAST
+            """,
+            [as_of],
+        ).fetchdf()
+
+        # Per-sector top-N names — single query, then bucket client-side.
+        top_df = con.execute(
+            """
+            WITH ranked AS (
+                SELECT
+                    u.sector, f.ticker, u.name, f.composite_score AS composite,
+                    f.score_decile AS decile,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY u.sector ORDER BY f.composite_score DESC
+                    ) AS rn
+                FROM factor_scores f
+                JOIN universe u ON u.ticker = f.ticker
+                WHERE f.date = CAST(? AS DATE)
+                  AND u.sector IS NOT NULL
+            )
+            SELECT sector, ticker, name, composite, decile
+            FROM ranked
+            WHERE rn <= ?
+            """,
+            [as_of, per_sector],
+        ).fetchdf()
+        con.close()
+
+        # Recompute action + alpha for the requested period.
+        sectors_df["alpha_pct"] = (sectors_df["alpha_pct"] * period_factor).round(2)
+        sectors_df["action"] = sectors_df["alpha_pct"].apply(
+            lambda a: "BUY" if a >= 0 else "SELL"
+        )
+
+        # Bucket top names under their sector
+        tops: dict[str, list[dict]] = {s: [] for s in sectors_df["sector"]}
+        for r in top_df.itertuples():
+            tops.setdefault(r.sector, []).append({
+                "ticker": r.ticker,
+                "name": r.name,
+                "composite": float(r.composite) if r.composite is not None else None,
+                "decile": int(r.decile) if r.decile is not None else None,
+            })
+
+        sectors_payload = []
+        for r in sectors_df.itertuples():
+            sectors_payload.append({
+                "sector": r.sector,
+                "alpha_pct": float(r.alpha_pct) if r.alpha_pct is not None else 0.0,
+                "breadth_top": int(r.breadth_top) if r.breadth_top is not None else 0,
+                "total_names": int(r.total_names) if r.total_names is not None else 0,
+                "action": r.action,
+                "top": tops.get(r.sector, []),
+            })
+
+        return {"date": as_of, "period": period, "sectors": sectors_payload}
+    except Exception as e:
+        logger.error(f"Rankings sectors failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rankings/market-summary")
+def get_rankings_market_summary():
+    """Latest stored market summary + a 30-day SPX spark series for the card."""
+    try:
+        con = get_connection()
+        summary_row = con.execute(
+            """
+            SELECT date, stance, spx_close, spx_change, vix,
+                   buy_sectors, sell_sectors, narrative
+            FROM market_summary
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+        ).fetchone()
+
+        spark_df = con.execute(
+            """
+            SELECT date, close
+            FROM prices
+            WHERE ticker = 'SPY'
+            ORDER BY date DESC
+            LIMIT 30
+            """,
+        ).fetchdf()
+        con.close()
+
+        if not summary_row:
+            return {"summary": None, "spx_spark": []}
+
+        return {
+            "summary": {
+                "date": str(summary_row[0]),
+                "stance": summary_row[1],
+                "spx_close": summary_row[2],
+                "spx_change": summary_row[3],
+                "vix": summary_row[4],
+                "buy_sectors": summary_row[5],
+                "sell_sectors": summary_row[6],
+                "narrative": summary_row[7] or "",
+            },
+            "spx_spark": (
+                [float(c) for c in reversed(spark_df["close"].tolist())]
+                if not spark_df.empty else []
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Rankings market summary failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -715,8 +943,8 @@ def get_executions(limit: int = 100):
 
 
 @app.get("/api/portfolio/history")
-def get_portfolio_history(days: int = 90):
-    """Portfolio value time series from snapshots."""
+def get_portfolio_history(days: int = 90, user: AuthUser = Depends(get_current_user)):
+    """Per-user portfolio value time series from portfolio_snapshots."""
     con = get_connection()
     try:
         df = con.execute("""
@@ -725,9 +953,10 @@ def get_portfolio_history(days: int = 90):
                    benchmark_value, positions_detail
             FROM portfolio_snapshots
             WHERE snapshot_source = 'pipeline'
+              AND user_id = CAST($1 AS UUID)
             ORDER BY snapshot_date DESC
-            LIMIT $1
-        """, [days]).fetchdf()
+            LIMIT $2
+        """, [user.id, days]).fetchdf()
         con.close()
         if df.empty:
             return []
@@ -738,17 +967,18 @@ def get_portfolio_history(days: int = 90):
 
 
 @app.get("/api/portfolio/holding-times")
-def get_holding_times():
-    """Per-position holding time data: buy date, days held, recommended hold, status."""
+def get_holding_times(user: AuthUser = Depends(get_current_user)):
+    """Per-position holding time data for the signed-in user: buy date, days held, status."""
     try:
-        portfolio = load_portfolio_state()
+        portfolio = load_portfolio_state(user.id)
         pos_tickers = [p["ticker"] for p in portfolio["positions"]]
         if not pos_tickers:
             return []
 
         con = get_connection()
 
-        # Get earliest active buy for each current position
+        # Get earliest active buy for each current position (scoped to the user
+        # so two users holding the same ticker don't see each other's history).
         executions = con.execute("""
             WITH ranked AS (
                 SELECT
@@ -761,11 +991,12 @@ def get_holding_times():
                 WHERE ticker = ANY($1)
                   AND action IN ('BUY', 'ADD')
                   AND success = TRUE
+                  AND user_id = CAST($2 AS UUID)
             )
             SELECT ticker, executed_at, shares
             FROM ranked
             WHERE rn = 1
-        """, [pos_tickers]).fetchdf()
+        """, [pos_tickers, user.id]).fetchdf()
 
         # Get quality from stock_quality_assessment and decile from factor_scores
         quality_df = con.execute("""
@@ -1479,8 +1710,8 @@ def _wait_for_gate(run_id: str, gate_name: str, step: str, message: str, data: d
     return response or {}
 
 
-def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk_level: int = 3) -> None:
-    """Execute the full pipeline in a background thread, emitting SSE events."""
+def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | None = None, risk_level: int = 3) -> None:
+    """Execute the full pipeline for ``user_id`` in a background thread, emitting SSE events."""
     from datetime import datetime
     import pytz
 
@@ -1635,7 +1866,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
     try:
         from src.signals.decision_rules import generate_signals, filter_actionable_signals, get_recent_trades
 
-        portfolio = load_portfolio_state()
+        portfolio = load_portfolio_state(user_id)
         pos_tickers = [pos["ticker"] for pos in portfolio["positions"]]
         all_t = list(set(pos_tickers + scores["ticker"].tolist()))
         prices = get_current_prices(all_t)
@@ -1696,7 +1927,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
         proposals = build_trade_proposals(actionable, portfolio, prices, universe, adaptive_params=adaptive_params)
         for p in proposals:
             p["run_id"] = run_id
-        store_proposals(proposals)
+        store_proposals(proposals, user_id)
 
         passed = [p for p in proposals if p["constraint_check"]["passed"]]
         blocked = [p for p in proposals if not p["constraint_check"]["passed"]]
@@ -1720,11 +1951,11 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
                 con = get_connection()
                 con.execute("""
                     INSERT INTO trade_proposals
-                    (proposal_id, run_id, created_at, ticker, action, shares,
+                    (proposal_id, user_id, run_id, created_at, ticker, action, shares,
                      signal_data, constraint_check, status, human_decision, human_notes, reason)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    VALUES ($1, CAST($2 AS UUID), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """, [
-                    stay_proposal["proposal_id"], stay_proposal["run_id"],
+                    stay_proposal["proposal_id"], user_id, stay_proposal["run_id"],
                     stay_proposal["created_at"], stay_proposal["ticker"],
                     stay_proposal["action"], stay_proposal["shares"],
                     stay_proposal["signal_data"], stay_proposal["constraint_check"],
@@ -1931,6 +2162,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
                 recent_trades=recent_trades,
                 sector_intel_map=sector_intel_map,
                 risk_level=risk_level,
+                user_id=user_id,
             )
 
             # Persist judge verdicts to DB
@@ -2013,6 +2245,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
             portfolio_review = evaluate_portfolio_review(
                 portfolio, scores, pnl, portfolio_value,
                 research_map=research_map, regime=regime_data or None,
+                user_id=user_id,
             )
             verdict = portfolio_review.get("overall_verdict", "?")
             confidence = portfolio_review.get("confidence", 0)
@@ -2065,7 +2298,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
             from src.simulation.executor import execute_trade, save_portfolio_state
             from src.signals.portfolio_engine import store_proposals
 
-            portfolio = load_portfolio_state()
+            portfolio = load_portfolio_state(user_id)
             all_tickers = list(set(
                 [pos["ticker"] for pos in portfolio["positions"]]
                 + [h["ticker"] for h in portfolio_review.get("holdings_review", []) if h.get("action") != "hold"]
@@ -2164,17 +2397,17 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
                     con = get_connection()
                     for t in judge_tickers:
                         con.execute(
-                            "DELETE FROM trade_proposals WHERE run_id = $1 AND ticker = $2",
-                            [run_id, t],
+                            "DELETE FROM trade_proposals WHERE run_id = $1 AND ticker = $2 AND user_id = CAST($3 AS UUID)",
+                            [run_id, t, user_id],
                         )
                     con.execute(
-                        "DELETE FROM trade_proposals WHERE run_id = $1 AND action = 'STAY'",
-                        [run_id],
+                        "DELETE FROM trade_proposals WHERE run_id = $1 AND action = 'STAY' AND user_id = CAST($2 AS UUID)",
+                        [run_id, user_id],
                     )
                     con.close()
                 except Exception:
                     pass
-                store_proposals(judge_proposals)
+                store_proposals(judge_proposals, user_id)
                 proposals_str = ", ".join(f"{p['action']} {p['shares']} {p['ticker']}" for p in judge_proposals)
 
             # Gate: Execution Review (only when auto-mode is on and there are trades)
@@ -2234,7 +2467,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
         from src.simulation.pnl import compute_pnl as pnl_compute
         from src.simulation.executor import snapshot_portfolio
 
-        snap_portfolio = load_portfolio_state()
+        snap_portfolio = load_portfolio_state(user_id)
         # Convert CAD cash → USD once, used for both P&L and snapshot
         if snap_portfolio.get("currency") == "CAD" and snap_portfolio.get("cash", 0) > 0:
             snap_rate = _get_usdcad_rate()
@@ -2271,7 +2504,7 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
             }
         )
 
-        snapshot_portfolio(snap_portfolio, pnl_data, snap_prices, source="pipeline")
+        snapshot_portfolio(snap_portfolio, pnl_data, snap_prices, source="pipeline", user_id=user_id)
     except Exception as e:
         _emit(run_id, "pnl", "done", f"P&L report skipped: {e}")
         logger.warning(f"P&L / snapshot failed: {e}")
@@ -2335,19 +2568,18 @@ def _run_pipeline_thread(run_id: str, sub_sector_filter: str | None = None, risk
 
 
 @app.post("/api/pipeline/run")
-async def trigger_pipeline(request: Request):
-    """Start a pipeline run in a background thread. Returns a run_id for SSE streaming.
+async def trigger_pipeline(request: Request, user: AuthUser = Depends(get_current_user)):
+    """Start a pipeline run for the signed-in user in a background thread.
 
-    Body (all optional):
+    Returns a run_id for SSE streaming. Body (all optional):
         mode: "full" | "sector" | default "full"
         sub_sector: required when mode="sector"
         risk_level: 1-5, default 3
 
-    Concurrency guard: if any pipeline thread is still running (lock not
-    set), returns 409 Conflict with the existing run_id so the caller can
-    re-subscribe instead of starting a duplicate. Prevents the dual-run
-    we hit when uvicorn --reload severs the SSE mid-pipeline and the user
-    re-clicks Run because the UI looks idle.
+    Concurrency guard: in-memory _pipeline_locks holds one entry per active
+    run regardless of user. We could scope by user_id to allow multiple users
+    to run concurrently, but for the single-machine local setup a global guard
+    is simpler and prevents two users from saturating SnapTrade rate limits.
     """
     in_flight = [rid for rid, lock in _pipeline_locks.items() if not lock.is_set()]
     if in_flight:
@@ -2377,7 +2609,7 @@ async def trigger_pipeline(request: Request):
     _pipeline_locks[run_id] = threading.Event()
     thread = threading.Thread(
         target=_run_pipeline_thread,
-        args=(run_id,),
+        args=(run_id, user.id),
         kwargs={"sub_sector_filter": sub_sector if mode == "sector" else None, "risk_level": risk_level},
         daemon=True,
     )
