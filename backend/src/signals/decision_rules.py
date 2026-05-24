@@ -129,6 +129,27 @@ def generate_signals(
     max_single_pos = risk["max_single_position"]
     allowed_risk_tiers = risk.get("allowed_risk_tiers", ["standard", "moderate_risk", "high_risk"])
 
+    # Deploy mode: when idle cash exceeds the target reserve (max_cash_pct),
+    # we have budget that needs to be put to work. The default min_decile_change
+    # gate ("must have moved 2+ deciles since yesterday") is designed for
+    # incremental rebalancing of an already-deployed portfolio — it makes no
+    # sense when cash is sitting idle. In that case we treat any top-decile
+    # stock as a buy candidate even without recent decile improvement.
+    held_weight = sum(current_holdings.values())
+    cash_pct = max(0.0, 1.0 - held_weight)
+    deploy_mode = cash_pct > settings.strategy.max_cash_pct
+    if deploy_mode:
+        # Cold-start / under-deployed posture: drop the decile-change gate
+        # entirely so the universe's current top tier is fair game.
+        min_decile_change = 0
+        # Cap new positions per risk profile, not by the default `max_new`
+        # of 3 (too tight) and not by `max_positions` of 25 (too wide). The
+        # per-profile values are tuned so aggressive = concentrated and
+        # conservative = diversified, even when cash is idle.
+        deploy_cap = risk.get("deploy_max_new", max_new)
+        max_new = deploy_cap
+        max_total_trades = max(max_total_trades, deploy_cap + 5)
+
     # Load universe risk tiers for filtering
     try:
         _universe_df = pd.read_csv(settings.paths.universe_path)

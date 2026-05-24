@@ -445,11 +445,35 @@ function TradeCard({
 
   const isBuy = proposal.action === "BUY" || proposal.action === "ADD"
 
+  // Detect budget-impacted proposals from the violations list (string match —
+  // the wording comes from build_trade_proposals._make_proposal).
+  const budgetExhausted = violations.some((v) =>
+    v.startsWith("Budget exhausted") || v.startsWith("Budget too small"),
+  )
+  const autoShrunk = violations.some((v) => v.startsWith("Auto-shrunk"))
+
+  // Pull the dollar cost off the typed payload — signal_data has it when the
+  // proposal came through build_trade_proposals (which it does for everything
+  // except direct judge overrides). Fall back to undefined so we render "—".
+  const estValue =
+    typeof (signal as { estimated_value?: number } | null)?.estimated_value === "number"
+      ? (signal as { estimated_value?: number }).estimated_value
+      : (proposal as unknown as { estimated_value?: number }).estimated_value
+  const costLabel =
+    typeof estValue === "number" && estValue > 0
+      ? `$${Math.round(estValue).toLocaleString()}`
+      : null
+
   return (
-    <div className="border-b border-line last:border-b-0">
+    <div
+      className={cn(
+        "border-b border-line last:border-b-0",
+        budgetExhausted && "opacity-50",
+      )}
+    >
       <div
         className="grid items-center gap-[14px] px-4 py-[14px]"
-        style={{ gridTemplateColumns: "70px 90px 1fr auto auto" }}
+        style={{ gridTemplateColumns: "70px 110px 1fr auto auto" }}
       >
         <Badge variant={isBuy ? "profit" : "loss"}>
           {isBuy ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />}
@@ -461,8 +485,24 @@ function TradeCard({
             {proposal.ticker}
           </div>
           <div className="font-mono text-[10px] text-muted-foreground">
-            {proposal.shares} shares
+            {proposal.shares} shares{costLabel && <> · {costLabel}</>}
           </div>
+          {autoShrunk && (
+            <div
+              className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-warn mt-0.5"
+              title={violations.find((v) => v.startsWith("Auto-shrunk"))}
+            >
+              ↘ AUTO-SHRUNK
+            </div>
+          )}
+          {budgetExhausted && (
+            <div
+              className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-loss mt-0.5"
+              title={violations.find((v) => v.startsWith("Budget")) ?? ""}
+            >
+              ⊘ BUDGET EXHAUSTED
+            </div>
+          )}
         </div>
 
         <div className="text-[12px] leading-[1.5] text-fg-dim min-w-0">
@@ -610,15 +650,58 @@ function StayCard({ proposal }: { proposal: Proposal }) {
   )
 }
 
+// Proposals we don't want cluttering the Trades page. They still live in the
+// DB (decision_outcomes uses them to evaluate model signal quality) but we
+// don't render their rows by default — only their count in the group header.
+const HIDDEN_STATUSES = new Set(["JUDGE_REJECTED", "REJECTED", "BLOCKED"])
+
+/**
+ * Tiny hover-tooltip used next to status badges. Pure CSS, no portal —
+ * pops out below the icon on hover. Keep ``text`` short (one or two lines).
+ *
+ * Styled as a small primary-tinted pill so it reads as "click/hover me for
+ * info" instead of disappearing into the surrounding chrome.
+ */
+function HelpHint({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex group">
+      <span
+        className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-[3px] border border-primary/30 bg-primary/10 text-primary cursor-help transition-colors group-hover:border-primary group-hover:bg-primary/20"
+        aria-label="More info"
+      >
+        {/* Geometric "i" glyph matching the TRADE/MARK logo style:
+            a small square dot above a straight stem. No curves, no serifs. */}
+        <svg width="10" height="12" viewBox="0 0 10 12" fill="none" aria-hidden="true">
+          <rect x="4" y="1" width="2" height="2" fill="currentColor" />
+          <line x1="5" y1="5" x2="5" y2="11" stroke="currentColor" strokeWidth="2" />
+        </svg>
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-[260px] -translate-x-1/2 rounded-[4px] border border-primary/40 bg-surface px-2.5 py-1.5 text-[11px] leading-snug text-foreground shadow-lg shadow-black/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  )
+}
+
 interface RunGroup {
   run_id: string
   timestamp: string
   proposals: Proposal[]
+  hiddenCount: number  // proposals filtered by HIDDEN_STATUSES, kept for header chip
+  hiddenProposals: Proposal[]  // the actual filtered rows so they can be re-expanded on demand
 }
 
-function buildRunSummary(proposals: Proposal[]): string {
+function buildRunSummary(proposals: Proposal[], hiddenCount: number = 0): string {
   const trades = proposals.filter((p) => p.action !== "STAY")
-  if (trades.length === 0) return "No trades proposed — holding all positions."
+  if (trades.length === 0) {
+    if (hiddenCount > 0) {
+      return `All ${hiddenCount} proposal${hiddenCount === 1 ? "" : "s"} were rejected by the judge — nothing actionable.`
+    }
+    return "No trades proposed — holding all positions."
+  }
 
   const counts: Record<string, number> = {}
   for (const t of trades) {
@@ -652,34 +735,51 @@ function groupByRun(proposals: Proposal[]): RunGroup[] {
   const now = Date.now()
 
   return Array.from(groups.entries())
-    .map(([run_id, proposals]) => {
-      // Once any real trade exists for a run, the early STAY is obsolete —
-      // drop it so the UI shows only the real trades.
-      const hasTrades = proposals.some((p) => p.action !== "STAY")
+    .map(([run_id, all]) => {
+      // Filter HIDDEN_STATUSES at the group level (not before grouping) so a
+      // run whose only proposals were JUDGE_REJECTED still appears with a
+      // "X hidden" header chip — the user wanted those rows hidden, but
+      // making the entire run disappear was confusing (it looked like the
+      // pipeline never produced anything).
+      const hiddenProposals = all.filter((p) => HIDDEN_STATUSES.has(p.status))
+      const hiddenCount = hiddenProposals.length
+      const surviving = all.filter((p) => !HIDDEN_STATUSES.has(p.status))
+
+      // Once any real trade exists for a run, the early STAY is obsolete.
+      const hasTrades = surviving.some((p) => p.action !== "STAY")
       const visible = hasTrades
-        ? proposals.filter((p) => p.action !== "STAY")
-        : proposals
-      const newest = proposals.reduce((max, p) => {
+        ? surviving.filter((p) => p.action !== "STAY")
+        : surviving
+
+      const newest = all.reduce((max, p) => {
         const t = p.created_at ? new Date(p.created_at).getTime() : 0
         return t > max ? t : max
       }, 0)
       return {
         run_id,
-        timestamp: visible[0]?.created_at || proposals[0]?.created_at || "",
+        timestamp: visible[0]?.created_at || all[0]?.created_at || "",
         proposals: visible,
         hasTrades,
         newest,
+        hiddenCount,
+        hiddenProposals,
+        hasAnyRaw: all.length > 0,
       }
     })
-    // Hide STAY-only runs that are still within the settle window — the
-    // pipeline may still be writing real trade proposals to this run. Once
-    // the window passes with no new proposals arriving, the run is treated
-    // as a confirmed HOLD and rendered.
+    // STAY-only runs are hidden during the settle window so a placeholder
+    // STAY doesn't flash before real trades arrive. After the window passes,
+    // they render as a confirmed HOLD.
+    // Runs where every proposal was filtered (hiddenCount > 0 but visible=0)
+    // still render — we want the user to see the run happened, just without
+    // the noisy rejected rows.
     .filter((g) => {
       if (g.hasTrades) return true
+      if (g.hiddenCount > 0) return true
       return now - g.newest > STAY_SETTLE_MS
     })
-    .map(({ run_id, timestamp, proposals }) => ({ run_id, timestamp, proposals }))
+    .map(({ run_id, timestamp, proposals, hiddenCount, hiddenProposals }) => ({
+      run_id, timestamp, proposals, hiddenCount, hiddenProposals,
+    }))
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 }
 
@@ -729,6 +829,18 @@ export default function PendingTrades() {
 
   const [menuOpenRunId, setMenuOpenRunId] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  // Per-group toggle for "show judge-rejected proposals". Default hidden;
+  // user can click the count chip in the header to reveal them inline.
+  const [expandedRejectedRuns, setExpandedRejectedRuns] = useState<Set<string>>(new Set())
+  const toggleRejected = (runId: string) => {
+    setExpandedRejectedRuns((prev) => {
+      const next = new Set(prev)
+      if (next.has(runId)) next.delete(runId)
+      else next.add(runId)
+      return next
+    })
+  }
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -842,9 +954,64 @@ export default function PendingTrades() {
                   <span className="font-mono text-[10.5px] text-muted-2 tracking-[0.04em]">
                     {formatTimestamp(group.timestamp)}
                   </span>
-                  <Badge variant="muted">
-                    {tradeCount === 0 ? "HOLD" : `${tradeCount} TRADE${tradeCount === 1 ? "" : "S"}`}
-                  </Badge>
+                  {(() => {
+                    // Three states with distinct visual weight:
+                    //   trades > 0     → muted count badge (the normal case)
+                    //   all rejected   → amber "REJECTED BY JUDGE" (judge killed everything; worth attention)
+                    //   nothing fired  → blue "HOLD" (calm market, pipeline genuinely had no signals)
+                    if (tradeCount > 0) {
+                      return (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Badge variant="muted">
+                            {`${tradeCount} TRADE${tradeCount === 1 ? "" : "S"}`}
+                          </Badge>
+                          <HelpHint text="The pipeline produced trade proposals that survived the LLM judge. Each row below shows a BUY, SELL, or TRIM you can approve or reject." />
+                        </span>
+                      )
+                    }
+                    if (group.hiddenCount > 0) {
+                      const isExpanded = expandedRejectedRuns.has(group.run_id)
+                      return (
+                        <span className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => toggleRejected(group.run_id)}
+                            className="inline-flex items-center gap-1.5 rounded-[3px] border border-warn bg-warn/10 px-[7px] py-[2px] font-mono text-[10px] font-semibold uppercase leading-snug tracking-[0.06em] text-warn whitespace-nowrap cursor-pointer transition-colors hover:bg-warn/20 hover:border-warn"
+                            title={isExpanded ? "Hide rejected proposals" : "Click to show the rejected proposals"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-3 w-3" strokeWidth={2.4} />
+                            ) : (
+                              <ChevronRight className="h-3 w-3" strokeWidth={2.4} />
+                            )}
+                            REJECTED BY JUDGE
+                          </button>
+                          <HelpHint text="The pipeline produced trade ideas, but the LLM judge rejected all of them after reviewing news, fundamentals, and risk. The signals didn't meet the quality bar. Click the badge to inspect the rejected proposals." />
+                        </span>
+                      )
+                    }
+                    return (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Badge variant="info">HOLD</Badge>
+                        <HelpHint text="No actionable signals fired this run. The model didn't see enough conviction in any ticker to recommend a trade — staying put is the right call." />
+                      </span>
+                    )
+                  })()}
+                  {group.hiddenCount > 0 && tradeCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleRejected(group.run_id)}
+                      className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground hover:text-warn transition-colors cursor-pointer"
+                      title="Click to show / hide the proposals the judge rejected."
+                    >
+                      {expandedRejectedRuns.has(group.run_id) ? (
+                        <ChevronDown className="h-3 w-3" strokeWidth={2.4} />
+                      ) : (
+                        <ChevronRight className="h-3 w-3" strokeWidth={2.4} />
+                      )}
+                      {group.hiddenCount} judge-rejected
+                    </button>
+                  )}
                   <span className="flex-1" />
                   {isLatestRun && (
                     <button
@@ -882,7 +1049,7 @@ export default function PendingTrades() {
 
                 {/* Summary row */}
                 <div className="px-4 py-2.5 text-[12px] text-fg-dim border-b border-line">
-                  {buildRunSummary(group.proposals)}
+                  {buildRunSummary(group.proposals, group.hiddenCount)}
                 </div>
 
                 {/* Proposals */}
@@ -899,6 +1066,34 @@ export default function PendingTrades() {
                       rejecting={rejectMut.isPending}
                     />
                   ),
+                )}
+
+                {/* Judge-rejected proposals — collapsed by default, expanded
+                    on demand via the header button. Rendered dimmed to make
+                    it visually obvious these aren't actionable. */}
+                {expandedRejectedRuns.has(group.run_id) && group.hiddenProposals.length > 0 && (
+                  <div className="border-t border-line bg-bg-2/40">
+                    <div className="px-4 py-2 flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-warn">
+                        Rejected by judge · {group.hiddenProposals.length}
+                      </span>
+                      <span className="font-mono text-[10px] text-muted-2">
+                        — shown for audit, not actionable
+                      </span>
+                    </div>
+                    <div className="opacity-60">
+                      {group.hiddenProposals.map((p) => (
+                        <TradeCard
+                          key={p.proposal_id}
+                          proposal={p}
+                          onApprove={() => approveMut.mutate(p.proposal_id)}
+                          onReject={() => rejectMut.mutate(p.proposal_id)}
+                          approving={approveMut.isPending}
+                          rejecting={rejectMut.isPending}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 )}
               </Card>
             )

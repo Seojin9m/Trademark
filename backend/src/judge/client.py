@@ -450,11 +450,12 @@ Binary events: {', '.join(e.description for e in news.binary_events) if news.bin
 
 Consider this news context when evaluating. If a binary event (earnings, regulatory) is within 7 days, set binary_event_warning=true."""
 
-    # Inject analyst guidance if one is marked to apply
+    # Inject analyst guidance if one is marked to apply.
+    # No-op if no user_id was threaded down (caller didn't pass one).
     analyst_section = ""
     try:
         from src.analyst.review import get_pipeline_guidance
-        guidance = get_pipeline_guidance()
+        guidance = get_pipeline_guidance(user_id) if user_id else None
         if guidance:
             analyst_section = f"\n\n{guidance}"
     except Exception:
@@ -709,9 +710,32 @@ def evaluate_all_proposals(
 
     def _judge_one(p: dict) -> tuple[dict, JudgeOutput]:
         _log.info(f"  Evaluating: {p['action']} {p.get('shares', 0)} {p['ticker']}...")
-        news = research_map.get(p["ticker"])
-        intel = sector_intel_map.get(p["ticker"])
-        output = evaluate_proposal(p, portfolio_value, pnl, news=news, sector_intel=intel, risk_level=risk_level, user_id=user_id)
+        try:
+            news = research_map.get(p["ticker"])
+            intel = sector_intel_map.get(p["ticker"])
+            output = evaluate_proposal(
+                p, portfolio_value, pnl,
+                news=news, sector_intel=intel,
+                risk_level=risk_level, user_id=user_id,
+            )
+        except Exception as exc:
+            # If anything inside the judge call throws — build_judge_input,
+            # the Anthropic SDK, JSON parsing — we want a fallback verdict
+            # rather than killing the entire batch. The pre-multi-user code
+            # let exceptions propagate and the whole evaluate_all_proposals
+            # call would land in the outer except block, leaving every
+            # other proposal with status=PENDING and judge_response=NULL.
+            _log.exception(f"    {p['ticker']}: judge call raised — recording NEEDS_REVIEW fallback")
+            output = JudgeOutput(
+                verdict=Verdict.NEEDS_REVIEW,
+                confidence=0.0,
+                reasons=[f"Judge call raised {type(exc).__name__}: {exc}"],
+                risk_flags=["Judge call failed — please review manually."],
+                judge_model="error",
+                evaluation_timestamp=datetime.now().isoformat(),
+                input_hash="",
+            )
+
         _log.info(f"    {p['ticker']}: {output.verdict.value} ({output.confidence:.0%})")
 
         p["judge_verdict"] = output.verdict.value
@@ -732,7 +756,14 @@ def evaluate_all_proposals(
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_judge_one, p): p for p in eligible}
         for future in as_completed(futures):
-            results.append(future.result())
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                # Defense in depth: _judge_one already wraps its work, but
+                # a future could still fail before _judge_one executes
+                # (ThreadPoolExecutor internals). Don't let that wipe out
+                # the other proposals' verdicts.
+                _log.exception(f"  judge future failed unexpectedly: {exc}")
 
     return results
 
@@ -841,11 +872,12 @@ def evaluate_portfolio_review(
     except Exception:
         pass
 
-    # Inject analyst guidance if one is marked to apply
+    # Inject analyst guidance if one is marked to apply.
+    # No-op if no user_id was threaded down (caller didn't pass one).
     analyst_section = ""
     try:
         from src.analyst.review import get_pipeline_guidance
-        guidance = get_pipeline_guidance()
+        guidance = get_pipeline_guidance(user_id) if user_id else None
         if guidance:
             analyst_section = f"\n\n{guidance}"
     except Exception:
@@ -929,11 +961,17 @@ def evaluate_portfolio_review(
     return result
 
 
-def get_judge_log(limit: int = 50) -> list[dict]:
-    """Retrieve recent judge log entries from Postgres or SQLite."""
+def get_judge_log(limit: int = 50, user_id: str | None = None) -> list[dict]:
+    """Retrieve recent judge log entries.
+
+    Postgres path filters by ``user_id`` (per-user table). Legacy SQLite path
+    ignores user_id — that file is single-user by definition.
+    """
     _init_judge_log_db()
 
     if _backend() == "postgres":
+        if not user_id:
+            raise ValueError("user_id is required for get_judge_log on Postgres")
         from src.db.postgres import get_pg_connection
         conn = get_pg_connection(role="pooled")
         try:
@@ -941,8 +979,9 @@ def get_judge_log(limit: int = 50) -> list[dict]:
                 cur.execute(
                     "SELECT log_id, created_at, proposal_id, ticker, action, "
                     "input_payload, output_payload, verdict, confidence, model_used, input_hash "
-                    "FROM judge_log ORDER BY created_at DESC LIMIT %s",
-                    [limit],
+                    "FROM judge_log WHERE user_id = %s::uuid "
+                    "ORDER BY created_at DESC LIMIT %s",
+                    [user_id, limit],
                 )
                 rows = cur.fetchall()
                 cols = [d[0] for d in cur.description]

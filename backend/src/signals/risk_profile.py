@@ -1,6 +1,11 @@
 """Risk profile: maps aggressiveness level (1-5) to trading parameters."""
 
 
+# ``deploy_max_new`` controls how many distinct positions deploy mode is
+# willing to spread cash across when the user has idle budget. Lower risk =
+# wider diversification (many small bets, defensive); higher risk =
+# concentrated conviction (few larger bets). Without these caps deploy
+# mode would happily spit out 20+ buys regardless of risk posture.
 RISK_PROFILES = {
     1: {
         "label": "Conservative",
@@ -12,6 +17,7 @@ RISK_PROFILES = {
         "drawdown_alert": -0.10,
         "drawdown_halt": -0.15,
         "max_single_position": 0.07,
+        "deploy_max_new": 12,
         "allowed_risk_tiers": ["standard"],
     },
     2: {
@@ -24,6 +30,7 @@ RISK_PROFILES = {
         "drawdown_alert": -0.12,
         "drawdown_halt": -0.18,
         "max_single_position": 0.08,
+        "deploy_max_new": 10,
         "allowed_risk_tiers": ["standard"],
     },
     3: {
@@ -36,6 +43,7 @@ RISK_PROFILES = {
         "drawdown_alert": -0.15,
         "drawdown_halt": -0.20,
         "max_single_position": 0.10,
+        "deploy_max_new": 7,
         "allowed_risk_tiers": ["standard", "moderate_risk"],
     },
     4: {
@@ -48,6 +56,7 @@ RISK_PROFILES = {
         "drawdown_alert": -0.20,
         "drawdown_halt": -0.25,
         "max_single_position": 0.12,
+        "deploy_max_new": 4,
         "allowed_risk_tiers": ["standard", "moderate_risk", "high_risk"],
     },
     5: {
@@ -60,6 +69,7 @@ RISK_PROFILES = {
         "drawdown_alert": -0.25,
         "drawdown_halt": -0.30,
         "max_single_position": 0.15,
+        "deploy_max_new": 3,
         "allowed_risk_tiers": ["standard", "moderate_risk", "high_risk"],
     },
 }

@@ -97,23 +97,28 @@ def _classify_outcome(excess_return_1m: float | None) -> str | None:
     return "NEUTRAL"
 
 
-def seed_outcomes_from_proposals() -> int:
-    """Seed decision_outcomes from all trade proposals that don't have outcomes yet.
+def seed_outcomes_from_proposals(user_id: str) -> int:
+    """Seed decision_outcomes from the user's trade proposals that don't have outcomes yet.
 
     Tracks every proposal (APPROVED, REJECTED, PENDING, NEEDS_REVIEW) so we can
     evaluate model signal quality independent of the judge's filtering.
     Uses the market close price on the proposal date as entry price.
     """
+    if not user_id:
+        raise ValueError("user_id is required for seed_outcomes_from_proposals")
+
     con = get_connection()
 
-    # Sync stale proposal_status values from trade_proposals → decision_outcomes
+    # Sync stale proposal_status values for the user.
     con.execute("""
         UPDATE decision_outcomes
         SET proposal_status = tp.status
         FROM trade_proposals tp
         WHERE decision_outcomes.proposal_id = tp.proposal_id
           AND decision_outcomes.proposal_status != tp.status
-    """)
+          AND decision_outcomes.user_id = CAST($1 AS UUID)
+          AND tp.user_id = CAST($1 AS UUID)
+    """, [user_id])
 
     universe = load_universe_df()
     sector_map = dict(zip(universe["ticker"], universe.get("sub_sector", pd.Series())))
@@ -126,7 +131,8 @@ def seed_outcomes_from_proposals() -> int:
         WHERE dout.proposal_id IS NULL
           AND tp.action NOT IN ('STAY', 'HOLD')
           AND tp.ticker IS NOT NULL
-    """).fetchall()
+          AND tp.user_id = CAST($1 AS UUID)
+    """, [user_id]).fetchall()
 
     seeded = 0
     for row in new_proposals:
@@ -162,13 +168,14 @@ def seed_outcomes_from_proposals() -> int:
 
         con.execute("""
             INSERT INTO decision_outcomes
-            (proposal_id, ticker, action, decision_date, entry_price, shares,
+            (proposal_id, user_id, ticker, action, decision_date, entry_price, shares,
              composite_score, score_decile, prior_decile,
              judge_verdict, judge_confidence,
              sector, sub_sector, factor_snapshot, proposal_status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, CAST($2 AS UUID), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         """, [
             proposal_id,
+            user_id,
             ticker,
             action,
             proposal_date,
@@ -190,12 +197,14 @@ def seed_outcomes_from_proposals() -> int:
     return seeded
 
 
-def measure_outcomes() -> dict:
-    """Measure returns for all decision_outcomes that have unmeasured horizons.
+def measure_outcomes(user_id: str) -> dict:
+    """Measure returns for unmeasured decision_outcomes for the given user.
 
     For BUY/ADD: measures if the stock went up (good) or down (bad) vs benchmark.
     For SELL/TRIM: inverts the return — stock dropping after sell = GOOD decision.
     """
+    if not user_id:
+        raise ValueError("user_id is required for measure_outcomes")
     con = get_connection()
     benchmark = settings.primary_benchmark
 
@@ -204,7 +213,8 @@ def measure_outcomes() -> dict:
         FROM decision_outcomes
         WHERE entry_price IS NOT NULL
           AND (return_1w IS NULL OR return_1m IS NULL OR return_3m IS NULL)
-    """).fetchall()
+          AND user_id = CAST($1 AS UUID)
+    """, [user_id]).fetchall()
 
     stats = {"measured_1w": 0, "measured_1m": 0, "measured_3m": 0, "classified": 0}
 
@@ -273,52 +283,63 @@ def measure_outcomes() -> dict:
     return stats
 
 
-def get_outcomes(limit: int = 100) -> list[dict]:
-    """Retrieve recent decision outcomes."""
+def get_outcomes(user_id: str, limit: int = 100) -> list[dict]:
+    """Retrieve recent decision outcomes for the given user."""
+    if not user_id:
+        raise ValueError("user_id is required for get_outcomes")
     con = get_connection()
     df = con.execute("""
         SELECT * FROM decision_outcomes
+        WHERE user_id = CAST($1 AS UUID)
         ORDER BY decision_date DESC
-        LIMIT $1
-    """, [limit]).fetchdf()
+        LIMIT $2
+    """, [user_id, limit]).fetchdf()
     con.close()
     if df.empty:
         return []
     return json.loads(df.to_json(orient="records", date_format="iso"))
 
 
-def get_outcome_summary() -> dict:
-    """Get high-level summary of decision outcomes with status breakdown."""
+def get_outcome_summary(user_id: str) -> dict:
+    """High-level decision-outcome summary for the given user."""
+    if not user_id:
+        raise ValueError("user_id is required for get_outcome_summary")
     con = get_connection()
 
-    total = con.execute("SELECT COUNT(*) FROM decision_outcomes").fetchone()[0]
-    classified = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL").fetchone()[0]
+    # All counts/aggregates below filter on user_id so one user's stats can't
+    # bleed into another's dashboard. We pass user_id once per query to keep
+    # the SQL strings simple.
+    def q(sql: str) -> int:
+        return con.execute(sql, [user_id]).fetchone()[0]
+
+    def qf(sql: str):
+        row = con.execute(sql, [user_id]).fetchone()
+        return row[0] if row else None
+
+    base = "FROM decision_outcomes WHERE user_id = CAST($1 AS UUID)"
+
+    total = q(f"SELECT COUNT(*) {base}")
+    classified = q(f"SELECT COUNT(*) {base} AND outcome_1m IS NOT NULL")
     pending = total - classified
 
-    good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD'").fetchone()[0]
-    bad = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'BAD'").fetchone()[0]
-    neutral = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'NEUTRAL'").fetchone()[0]
+    good = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'GOOD'")
+    bad = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'BAD'")
+    neutral = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'NEUTRAL'")
 
-    avg_excess_1m = con.execute("""
-        SELECT AVG(excess_return_1m) FROM decision_outcomes WHERE excess_return_1m IS NOT NULL
-    """).fetchone()[0]
-
-    avg_excess_3m = con.execute("""
-        SELECT AVG(excess_return_3m) FROM decision_outcomes WHERE excess_return_3m IS NOT NULL
-    """).fetchone()[0]
+    avg_excess_1m = qf(f"SELECT AVG(excess_return_1m) {base} AND excess_return_1m IS NOT NULL")
+    avg_excess_3m = qf(f"SELECT AVG(excess_return_3m) {base} AND excess_return_3m IS NOT NULL")
 
     win_rate = good / classified if classified > 0 else None
 
-    buy_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND action IN ('BUY','ADD')").fetchone()[0]
-    buy_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND action IN ('BUY','ADD')").fetchone()[0]
-    sell_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND action IN ('SELL','TRIM')").fetchone()[0]
-    sell_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND action IN ('SELL','TRIM')").fetchone()[0]
+    buy_good = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'GOOD' AND action IN ('BUY','ADD')")
+    buy_total = q(f"SELECT COUNT(*) {base} AND outcome_1m IS NOT NULL AND action IN ('BUY','ADD')")
+    sell_good = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'GOOD' AND action IN ('SELL','TRIM')")
+    sell_total = q(f"SELECT COUNT(*) {base} AND outcome_1m IS NOT NULL AND action IN ('SELL','TRIM')")
 
-    # Breakdown by proposal status (approved vs rejected vs pending)
-    approved_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status IN ('APPROVED', 'JUDGE_APPROVED')").fetchone()[0]
-    approved_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status IN ('APPROVED', 'JUDGE_APPROVED')").fetchone()[0]
-    rejected_good = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m = 'GOOD' AND proposal_status IN ('REJECTED', 'JUDGE_REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
-    rejected_total = con.execute("SELECT COUNT(*) FROM decision_outcomes WHERE outcome_1m IS NOT NULL AND proposal_status IN ('REJECTED', 'JUDGE_REJECTED', 'NEEDS_REVIEW')").fetchone()[0]
+    approved_good = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'GOOD' AND proposal_status IN ('APPROVED','JUDGE_APPROVED')")
+    approved_total = q(f"SELECT COUNT(*) {base} AND outcome_1m IS NOT NULL AND proposal_status IN ('APPROVED','JUDGE_APPROVED')")
+    rejected_good = q(f"SELECT COUNT(*) {base} AND outcome_1m = 'GOOD' AND proposal_status IN ('REJECTED','JUDGE_REJECTED','NEEDS_REVIEW')")
+    rejected_total = q(f"SELECT COUNT(*) {base} AND outcome_1m IS NOT NULL AND proposal_status IN ('REJECTED','JUDGE_REJECTED','NEEDS_REVIEW')")
 
     con.close()
     return {
@@ -342,11 +363,15 @@ def get_outcome_summary() -> dict:
     }
 
 
-def run_outcome_tracking() -> dict:
-    """Full outcome tracking pipeline step: seed new outcomes + measure existing ones."""
-    seeded = seed_outcomes_from_proposals()
-    measurements = measure_outcomes()
-    summary = get_outcome_summary()
+def run_outcome_tracking(user_id: str) -> dict:
+    """Full outcome tracking pipeline step for one user: seed new outcomes + measure existing ones."""
+    if not user_id:
+        raise ValueError("user_id is required for run_outcome_tracking")
+    seeded = seed_outcomes_from_proposals(user_id)
+    # measure_outcomes scopes its UPDATE/SELECT to the user too. The return
+    # columns (price math) are derived from the global prices table.
+    measurements = measure_outcomes(user_id)
+    summary = get_outcome_summary(user_id)
 
     print(f"Outcome tracking: seeded {seeded} new from proposals, measured {measurements}")
     if summary['win_rate']:

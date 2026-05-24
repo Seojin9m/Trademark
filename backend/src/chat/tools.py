@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from config.settings import settings
 from src.db.schema import get_connection
 from src.db.state import load_universe_df
+from src.chat.context import require_current_user_id
 
 
 # ─── Helper ──────────────────────────────────────────────────────────────────
@@ -45,7 +46,7 @@ def get_portfolio_summary() -> str:
     from src.simulation.pnl import compute_pnl
     from src.api.main import get_live_prices
 
-    portfolio = load_portfolio_state()
+    portfolio = load_portfolio_state(require_current_user_id())
     tickers = [p["ticker"] for p in portfolio["positions"]]
     prices = get_live_prices(tickers, portfolio)
     pnl = compute_pnl(portfolio, prices)
@@ -196,7 +197,7 @@ def get_risk_metrics() -> str:
     )
     from src.simulation.pnl import compute_pnl
 
-    portfolio = load_portfolio_state()
+    portfolio = load_portfolio_state(require_current_user_id())
     tickers = [p["ticker"] for p in portfolio["positions"]]
     prices = get_current_prices(tickers)
     weights = compute_portfolio_weights(portfolio, prices)

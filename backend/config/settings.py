@@ -54,7 +54,12 @@ class StrategySettings(BaseSettings):
     # Position sizing
     max_single_position_weight: float = 0.10
     min_position_size_pct: float = 0.01
-    max_cash_pct: float = 0.20
+    # Maximum cash we'll leave idle in the portfolio. build_trade_proposals
+    # uses this as a deploy target: when buy signals collectively under-spend
+    # the available cash, sizes are scaled up so the leftover cash drops to
+    # at most this fraction of the portfolio. The user's stock account is a
+    # "budget" — savings are held elsewhere, so the default reserve is small.
+    max_cash_pct: float = 0.05
     min_positions: int = 8
     max_positions: int = 25
 

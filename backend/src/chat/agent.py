@@ -59,27 +59,42 @@ def _cleanup_expired():
         del _sessions[sid]
 
 
-def get_or_create_session(session_id: str | None = None) -> tuple[str, list]:
-    """Return (session_id, message_history). Creates new session if needed."""
+def get_or_create_session(session_id: str | None = None, user_id: str | None = None) -> tuple[str, list]:
+    """Return (session_id, message_history) for the given user.
+
+    Sessions are tagged with the creating user_id; if a session_id is reused
+    by a different user (collision or hijack attempt), we treat the lookup as
+    a miss and create a fresh session instead of returning the original user's
+    history.
+    """
     _cleanup_expired()
 
-    if session_id and session_id in _sessions:
-        _sessions[session_id]["last_active"] = time.time()
-        return session_id, _sessions[session_id]["messages"]
+    existing = _sessions.get(session_id) if session_id else None
+    if existing and (existing.get("user_id") in (None, user_id)):
+        existing["last_active"] = time.time()
+        # Stamp the user_id if it wasn't set (legacy session from before this change).
+        if user_id and not existing.get("user_id"):
+            existing["user_id"] = user_id
+        return session_id, existing["messages"]
 
     sid = session_id or str(uuid.uuid4())[:12]
     _sessions[sid] = {
         "messages": [],
         "last_active": time.time(),
+        "user_id": user_id,
     }
     return sid, _sessions[sid]["messages"]
 
 
-def delete_session(session_id: str) -> bool:
-    if session_id in _sessions:
-        del _sessions[session_id]
-        return True
-    return False
+def delete_session(session_id: str, user_id: str | None = None) -> bool:
+    """Delete a session only if it belongs to ``user_id`` (or no owner is set)."""
+    sess = _sessions.get(session_id)
+    if not sess:
+        return False
+    if user_id and sess.get("user_id") not in (None, user_id):
+        return False
+    del _sessions[session_id]
+    return True
 
 
 # ─── Agent creation ──────────────────────────────────────────────────────────
@@ -108,7 +123,12 @@ def _get_agent():
 
 # ─── Streaming chat ─────────────────────────────────────────────────────────
 
-async def stream_chat(session_id: str | None, user_message: str, images: list[dict] | None = None):
+async def stream_chat(
+    session_id: str | None,
+    user_message: str,
+    images: list[dict] | None = None,
+    user_id: str | None = None,
+):
     """Async generator that yields SSE-formatted events.
 
     Events:
@@ -120,8 +140,15 @@ async def stream_chat(session_id: str | None, user_message: str, images: list[di
       - {"type": "error", "message": "..."}
     """
     import json
+    from src.chat.context import set_current_user_id
 
-    sid, history = get_or_create_session(session_id)
+    # Make user_id available to any @tool that needs to scope its DB reads
+    # (portfolio, risk, judge logs, etc.). The contextvar lives for the
+    # duration of this coroutine and is automatically isolated across
+    # concurrent requests.
+    set_current_user_id(user_id)
+
+    sid, history = get_or_create_session(session_id, user_id=user_id)
     yield f"data: {json.dumps({'type': 'session', 'session_id': sid})}\n\n"
 
     # Build messages for the agent

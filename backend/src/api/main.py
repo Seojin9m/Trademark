@@ -212,11 +212,57 @@ app.add_middleware(AppTokenMiddleware)
 _pipeline_runs: dict[str, list[dict]] = {}
 _pipeline_locks: dict[str, threading.Event] = {}
 
-# Auto mode state: when enabled, pipeline auto-approves and executes judge-approved trades
-_auto_mode: dict = {"enabled": False}
+# Auto-mode and review-mode are per-user, stored in the ``user_settings`` JSONB
+# row. The helpers below provide get/set with sensible defaults; the API
+# endpoints and pipeline thread read through them so the in-process module
+# dicts can disappear. Defaults: auto_mode=false (safe), review_mode=true.
 
-# Review mode: when enabled, pipeline pauses at gates for human review
-_review_mode: dict = {"enabled": True}
+def _get_user_setting(user_id: str, key: str, default):
+    con = get_connection()
+    try:
+        row = con.execute(
+            "SELECT settings FROM user_settings WHERE user_id = CAST($1 AS UUID)",
+            [user_id],
+        ).fetchone()
+    finally:
+        con.close()
+    if not row or row[0] is None:
+        return default
+    settings_blob = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+    return settings_blob.get(key, default)
+
+
+def _set_user_setting(user_id: str, key, value) -> None:
+    con = get_connection()
+    try:
+        row = con.execute(
+            "SELECT settings FROM user_settings WHERE user_id = CAST($1 AS UUID)",
+            [user_id],
+        ).fetchone()
+        existing = {}
+        if row and row[0] is not None:
+            existing = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        existing[key] = value
+        con.execute(
+            """
+            INSERT INTO user_settings (user_id, settings, updated_at)
+            VALUES (CAST($1 AS UUID), CAST($2 AS JSONB), now())
+            ON CONFLICT (user_id) DO UPDATE SET
+                settings = EXCLUDED.settings,
+                updated_at = now()
+            """,
+            [user_id, json.dumps(existing)],
+        )
+    finally:
+        con.close()
+
+
+def _is_auto_mode(user_id: str) -> bool:
+    return bool(_get_user_setting(user_id, "auto_mode", False))
+
+
+def _is_review_mode(user_id: str) -> bool:
+    return bool(_get_user_setting(user_id, "review_mode", True))
 
 # Gate state: run_id -> {gate_name -> {"data": ..., "event": Event, "response": ...}}
 _pipeline_gates: dict[str, dict[str, dict]] = {}
@@ -311,91 +357,65 @@ def brokerage_disconnect(user: AuthUser = Depends(get_current_user)):
 # ============================================================
 
 @app.post("/api/reset")
-def reset_trading_data(keep_prices: bool = True):
-    """Reset all trading data: proposals, decisions, outcomes, patterns, judge logs, portfolio.
+def reset_trading_data(
+    keep_prices: bool = True,
+    user: AuthUser = Depends(get_current_user),
+):
+    """Reset the signed-in user's trading data: proposals, outcomes, executions,
+    snapshots, judge log entries, portfolio state.
 
-    Keeps price/fundamental/macro data by default (expensive to re-fetch).
-    Resets portfolio_state.json back to default (cash only, no positions).
+    Market data (prices, fundamentals, factor_scores, macro) and global signals
+    (decision_patterns, news_research) are NOT touched — they're shared across
+    users and expensive to re-fetch. ``keep_prices=False`` is a no-op now for
+    that reason; if you really want a global wipe, do it by SQL.
     """
-    import sqlite3
-
     con = get_connection()
 
-    # Tables to always clear (trading activity)
-    always_clear = [
+    # Per-user tables — DELETE scoped to user_id.
+    per_user_tables = [
         "trade_executions",
         "portfolio_snapshots",
         "trade_proposals",
         "decision_outcomes",
-        "decision_patterns",
         "simulated_positions",
-        "news_research",
+        "judge_log",
+        "analyst_reviews",
     ]
-
-    # Optionally clear these too
-    optional_clear = ["adaptive_state"]
-
-    cleared = []
-    for table in always_clear + optional_clear:
+    cleared: list[str] = []
+    for table in per_user_tables:
         try:
-            count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            con.execute(f"DELETE FROM {table}")
+            count = con.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE user_id = CAST($1 AS UUID)",
+                [user.id],
+            ).fetchone()[0]
+            con.execute(
+                f"DELETE FROM {table} WHERE user_id = CAST($1 AS UUID)",
+                [user.id],
+            )
             cleared.append(f"{table} ({count} rows)")
         except Exception:
-            pass  # Table may not exist yet
-
-    if not keep_prices:
-        for table in ["prices", "fundamentals_pit", "factor_scores", "macro_data"]:
-            try:
-                count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                con.execute(f"DELETE FROM {table}")
-                cleared.append(f"{table} ({count} rows)")
-            except Exception:
-                pass
-
+            pass
     con.close()
 
-    # Clear judge log — Postgres in postgres mode, SQLite in legacy mode
-    import os
-    judge_cleared = 0
-    try:
-        if (os.getenv("DB_BACKEND") or "duckdb").lower() == "postgres":
-            jcon = get_connection()
-            judge_cleared = jcon.execute("SELECT COUNT(*) FROM judge_log").fetchone()[0]
-            jcon.execute("DELETE FROM judge_log")
-            jcon.close()
-        else:
-            judge_log_path = settings.paths.judge_log_path
-            if judge_log_path.exists():
-                jcon = sqlite3.connect(str(judge_log_path))
-                judge_cleared = jcon.execute("SELECT COUNT(*) FROM judge_log").fetchone()[0]
-                jcon.execute("DELETE FROM judge_log")
-                jcon.commit()
-                jcon.close()
-        cleared.append(f"judge_log ({judge_cleared} rows)")
-    except Exception:
-        pass
-
-    # Reset portfolio state — prefer re-syncing from Wealthsimple if connected
-    portfolio_reset_msg = "portfolio_state.json (reset to $100k cash)"
+    # Reset portfolio state — prefer a fresh brokerage sync if the user is connected.
+    portfolio_reset_msg = "portfolio_state (reset to $0 cash, no positions)"
     try:
         from src.ingest.brokerage import sync_portfolio, get_connection_status
-        status = get_connection_status()
-        if status.get("connected"):
-            sync_portfolio()
-            portfolio_reset_msg = "portfolio_state.json (re-synced from Wealthsimple)"
+        if get_connection_status(user.id).get("connected"):
+            sync_portfolio(user.id)
+            portfolio_reset_msg = "portfolio_state (re-synced from brokerage)"
         else:
             raise RuntimeError("not connected")
     except Exception:
         from src.db.state import save_portfolio_state as _save_state
         _save_state({
             "as_of_date": datetime.now().strftime("%Y-%m-%d"),
-            "cash": 100000.00,
+            "cash": 0.00,
             "positions": [],
-        })
+        }, user_id=user.id)
     cleared.append(portfolio_reset_msg)
 
-    logger.warning(f"RESET: Cleared {len(cleared)} data stores: {', '.join(cleared)}")
+    logger.warning(f"RESET for {user.email}: Cleared {len(cleared)} data stores: {', '.join(cleared)}")
     return {
         "status": "reset_complete",
         "cleared": cleared,
@@ -404,18 +424,17 @@ def reset_trading_data(keep_prices: bool = True):
 
 
 @app.get("/api/auto-mode")
-def get_auto_mode():
-    """Get current auto mode state."""
-    return _auto_mode
+def get_auto_mode(user: AuthUser = Depends(get_current_user)):
+    """Current auto-mode state for the signed-in user."""
+    return {"enabled": _is_auto_mode(user.id)}
 
 
 @app.post("/api/auto-mode")
-def set_auto_mode(enabled: bool):
-    """Toggle auto mode. When enabled, the pipeline will auto-approve and execute
-    all judge-APPROVED trades without human review."""
-    _auto_mode["enabled"] = enabled
-    logger.warning(f"AUTO MODE {'ENABLED' if enabled else 'DISABLED'}")
-    return _auto_mode
+def set_auto_mode(enabled: bool, user: AuthUser = Depends(get_current_user)):
+    """Toggle the signed-in user's auto-mode. Pipeline auto-approves judge-approved trades."""
+    _set_user_setting(user.id, "auto_mode", enabled)
+    logger.warning(f"AUTO MODE {'ENABLED' if enabled else 'DISABLED'} for {user.email}")
+    return {"enabled": enabled}
 
 
 # ============================================================
@@ -423,17 +442,17 @@ def set_auto_mode(enabled: bool):
 # ============================================================
 
 @app.get("/api/review-mode")
-def get_review_mode():
-    """Get current review mode state."""
-    return _review_mode
+def get_review_mode(user: AuthUser = Depends(get_current_user)):
+    """Current review-mode state for the signed-in user."""
+    return {"enabled": _is_review_mode(user.id)}
 
 
 @app.post("/api/review-mode")
-def set_review_mode(enabled: bool):
-    """Toggle review mode. When enabled, pipeline pauses at gates for human review."""
-    _review_mode["enabled"] = enabled
-    logger.info(f"REVIEW MODE {'ENABLED' if enabled else 'DISABLED'}")
-    return _review_mode
+def set_review_mode(enabled: bool, user: AuthUser = Depends(get_current_user)):
+    """Toggle the signed-in user's review mode. When ON, pipeline pauses at gates."""
+    _set_user_setting(user.id, "review_mode", enabled)
+    logger.info(f"REVIEW MODE {'ENABLED' if enabled else 'DISABLED'} for {user.email}")
+    return {"enabled": enabled}
 
 
 @app.get("/api/pipeline/gate")
@@ -825,30 +844,42 @@ def get_rankings_market_summary():
 
 
 @app.get("/api/proposals")
-def get_proposals(status: str | None = None, limit: int = 50):
-    """Trade proposals, optionally filtered by status."""
+def get_proposals(
+    status: str | None = None,
+    limit: int = 50,
+    user: AuthUser = Depends(get_current_user),
+):
+    """Trade proposals for the signed-in user, optionally filtered by status."""
     con = get_connection()
     if status:
         df = con.execute("""
             SELECT * FROM trade_proposals
-            WHERE status = ?
+            WHERE user_id = CAST(? AS UUID) AND status = ?
             ORDER BY created_at DESC LIMIT ?
-        """, [status, limit]).fetchdf()
+        """, [user.id, status, limit]).fetchdf()
     else:
         df = con.execute("""
             SELECT * FROM trade_proposals
+            WHERE user_id = CAST(? AS UUID)
             ORDER BY created_at DESC LIMIT ?
-        """, [limit]).fetchdf()
+        """, [user.id, limit]).fetchdf()
     con.close()
     return df.to_dict(orient="records")
 
 
 @app.post("/api/proposals/{proposal_id}/approve")
-def approve_proposal(proposal_id: str, notes: str = ""):
-    """Human approves a proposal for self-learning tracking. Does not execute a real trade."""
+def approve_proposal(
+    proposal_id: str,
+    notes: str = "",
+    user: AuthUser = Depends(get_current_user),
+):
+    """Human approves a proposal for self-learning tracking. Scoped to the
+    signed-in user so one user can't approve another user's proposal.
+    """
     con = get_connection()
     row = con.execute(
-        "SELECT * FROM trade_proposals WHERE proposal_id = ?", [proposal_id]
+        "SELECT proposal_id FROM trade_proposals WHERE proposal_id = ? AND user_id = CAST(? AS UUID)",
+        [proposal_id, user.id],
     ).fetchone()
     if not row:
         con.close()
@@ -857,62 +888,76 @@ def approve_proposal(proposal_id: str, notes: str = ""):
     con.execute("""
         UPDATE trade_proposals
         SET status = 'APPROVED', human_decision = 'APPROVED', human_notes = ?
-        WHERE proposal_id = ?
-    """, [notes or "Human approved", proposal_id])
+        WHERE proposal_id = ? AND user_id = CAST(? AS UUID)
+    """, [notes or "Human approved", proposal_id, user.id])
     con.execute("""
         UPDATE decision_outcomes
         SET proposal_status = 'APPROVED'
-        WHERE proposal_id = ?
-    """, [proposal_id])
+        WHERE proposal_id = ? AND user_id = CAST(? AS UUID)
+    """, [proposal_id, user.id])
     con.close()
 
     return {"status": "approved", "proposal_id": proposal_id}
 
 
 @app.post("/api/proposals/{proposal_id}/reject")
-def reject_proposal(proposal_id: str, notes: str = ""):
-    """Human rejects a proposal."""
+def reject_proposal(
+    proposal_id: str,
+    notes: str = "",
+    user: AuthUser = Depends(get_current_user),
+):
+    """Human rejects a proposal — scoped to the signed-in user."""
     con = get_connection()
     con.execute("""
         UPDATE trade_proposals
         SET status = 'REJECTED', human_decision = 'REJECTED', human_notes = ?
-        WHERE proposal_id = ?
-    """, [notes, proposal_id])
+        WHERE proposal_id = ? AND user_id = CAST(? AS UUID)
+    """, [notes, proposal_id, user.id])
     con.execute("""
         UPDATE decision_outcomes
         SET proposal_status = 'REJECTED'
-        WHERE proposal_id = ?
-    """, [proposal_id])
+        WHERE proposal_id = ? AND user_id = CAST(? AS UUID)
+    """, [proposal_id, user.id])
     con.close()
     return {"status": "rejected", "proposal_id": proposal_id}
 
 
 @app.delete("/api/proposals/run/{run_id}")
-def delete_run_proposals(run_id: str):
-    """Permanently delete all proposals for a pipeline run and their related records."""
+def delete_run_proposals(run_id: str, user: AuthUser = Depends(get_current_user)):
+    """Permanently delete all proposals for a pipeline run owned by the user."""
     con = get_connection()
     proposal_ids = [r[0] for r in con.execute(
-        "SELECT proposal_id FROM trade_proposals WHERE run_id = ?", [run_id]
+        "SELECT proposal_id FROM trade_proposals WHERE run_id = ? AND user_id = CAST(? AS UUID)",
+        [run_id, user.id],
     ).fetchall()]
     if not proposal_ids:
         con.close()
         raise HTTPException(status_code=404, detail="No proposals found for this run")
-    con.execute("DELETE FROM decision_outcomes WHERE proposal_id = ANY($1)", [proposal_ids])
-    con.execute("DELETE FROM trade_proposals WHERE run_id = ?", [run_id])
+    # decision_outcomes is per-user too — the proposal_id filter is enough to
+    # be unique, but we double-scope by user_id to defend against any future
+    # collision (and to make the intent obvious in the query).
+    con.execute(
+        "DELETE FROM decision_outcomes WHERE proposal_id = ANY($1) AND user_id = CAST($2 AS UUID)",
+        [proposal_ids, user.id],
+    )
+    con.execute(
+        "DELETE FROM trade_proposals WHERE run_id = ? AND user_id = CAST(? AS UUID)",
+        [run_id, user.id],
+    )
     con.close()
     return {"status": "deleted", "run_id": run_id, "deleted_count": len(proposal_ids)}
 
 
 @app.get("/api/judge-log")
-def get_judge_log_endpoint(limit: int = 50):
-    """Recent LLM judge decisions."""
-    return get_judge_log(limit)
+def get_judge_log_endpoint(limit: int = 50, user: AuthUser = Depends(get_current_user)):
+    """Recent LLM judge decisions for the signed-in user."""
+    return get_judge_log(limit, user_id=user.id)
 
 
 @app.get("/api/judge/portfolio-review")
-def get_portfolio_review():
-    """Get the latest portfolio review from the judge log."""
-    logs = get_judge_log(20)
+def get_portfolio_review(user: AuthUser = Depends(get_current_user)):
+    """Get the latest portfolio review from the user's judge log."""
+    logs = get_judge_log(20, user_id=user.id)
     for log in logs:
         if log.get("action") == "REVIEW" and log.get("ticker") == "PORTFOLIO":
             try:
@@ -924,15 +969,16 @@ def get_portfolio_review():
 
 
 @app.get("/api/executions")
-def get_executions(limit: int = 100):
-    """Trade execution history — actual trades that were applied to the portfolio."""
+def get_executions(limit: int = 100, user: AuthUser = Depends(get_current_user)):
+    """Trade execution history for the signed-in user."""
     con = get_connection()
     try:
         df = con.execute("""
             SELECT * FROM trade_executions
+            WHERE user_id = CAST($1 AS UUID)
             ORDER BY executed_at DESC
-            LIMIT $1
-        """, [limit]).fetchdf()
+            LIMIT $2
+        """, [user.id, limit]).fetchdf()
         con.close()
         if df.empty:
             return []
@@ -1127,15 +1173,14 @@ def get_holding_times(user: AuthUser = Depends(get_current_user)):
 # ============================================================
 
 @app.post("/api/analyst/review")
-def request_analyst_review():
-    """Run an on-demand portfolio review by the LLM quantitative analyst."""
+def request_analyst_review(user: AuthUser = Depends(get_current_user)):
+    """Run an on-demand portfolio review for the signed-in user."""
     try:
         from src.analyst.review import run_analyst_review
-        portfolio = load_portfolio_state()
+        portfolio = load_portfolio_state(user.id)
         tickers = [p["ticker"] for p in portfolio["positions"]]
         prices = get_live_prices(tickers, portfolio)
 
-        # Convert CAD cash to USD for consistent reporting
         if portfolio.get("currency") == "CAD" and portfolio.get("cash", 0) > 0:
             rate = _get_usdcad_rate()
             portfolio = {**portfolio, "cash": round(portfolio["cash"] / rate, 2)}
@@ -1143,10 +1188,8 @@ def request_analyst_review():
         from src.simulation.pnl import compute_pnl
         pnl = compute_pnl(portfolio, prices)
 
-        # Load scores if available
         scores_df = None
         try:
-            from src.db.schema import get_connection
             con = get_connection()
             scores_df = con.execute("""
                 WITH latest AS (
@@ -1159,7 +1202,6 @@ def request_analyst_review():
         except Exception:
             pass
 
-        # Load regime if available
         regime = {}
         try:
             from src.learning.adaptive import AdaptiveStrategyEngine
@@ -1170,32 +1212,29 @@ def request_analyst_review():
         except Exception:
             pass
 
-        review = run_analyst_review(portfolio, pnl, scores_df=scores_df, regime=regime)
-        return review
+        return run_analyst_review(portfolio, pnl, user_id=user.id, scores_df=scores_df, regime=regime)
     except Exception as e:
         logger.error(f"Analyst review failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/analyst/review")
-def get_analyst_review():
-    """Get the latest analyst review."""
+def get_analyst_review(user: AuthUser = Depends(get_current_user)):
+    """Most recent analyst review for the signed-in user."""
     try:
         from src.analyst.review import load_review
-        review = load_review()
-        if not review:
-            return {"review": None}
-        return {"review": review}
+        review = load_review(user.id)
+        return {"review": review or None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/analyst/apply")
-def apply_analyst_review(apply: bool = True):
-    """Mark the analyst review to be applied (or unapplied) in the next pipeline run."""
+def apply_analyst_review(apply: bool = True, user: AuthUser = Depends(get_current_user)):
+    """Mark the user's latest analyst review as applied (or unapplied) for the next pipeline run."""
     try:
         from src.analyst.review import set_apply_to_pipeline
-        review = set_apply_to_pipeline(apply)
+        review = set_apply_to_pipeline(apply, user_id=user.id)
         return {"apply_to_pipeline": review["apply_to_pipeline"], "review_id": review["review_id"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1218,10 +1257,10 @@ def get_exchange_rate(from_currency: str = "USD", to_currency: str = "CAD"):
 
 
 @app.get("/api/risk")
-def get_risk_metrics():
-    """Current risk metrics: drawdown, concentration, beta."""
+def get_risk_metrics(user: AuthUser = Depends(get_current_user)):
+    """Current risk metrics for the signed-in user: drawdown, concentration, sector weights."""
     try:
-        portfolio = load_portfolio_state()
+        portfolio = load_portfolio_state(user.id)
         tickers = [p["ticker"] for p in portfolio["positions"]]
         prices = get_current_prices(tickers)
         weights = compute_portfolio_weights(portfolio, prices)
@@ -1287,31 +1326,39 @@ def get_research(ticker: str | None = None, limit: int = 20):
 # Learning endpoints (Phase 7)
 # ============================================================
 
+# Learning endpoints. The first two (outcomes / summary) are per-user because
+# they aggregate decision_outcomes, which is per-user after the multi-user
+# migration. The remaining six (patterns / alerts / adaptive / signal-quality /
+# factor-ic-history / factor-decay) read globally-aggregated tables — they
+# still require auth so we can know who's calling, but the response is the
+# same for everyone. Per-user aggregation of these is a future iteration.
+
+
 @app.get("/api/learning/outcomes")
-def get_learning_outcomes(limit: int = 100):
-    """Decision outcomes with measured returns."""
+def get_learning_outcomes(limit: int = 100, user: AuthUser = Depends(get_current_user)):
+    """Decision outcomes with measured returns for the signed-in user."""
     try:
         from src.learning.outcome_tracker import get_outcomes
-        return get_outcomes(limit)
+        return get_outcomes(user.id, limit)
     except Exception as e:
         logger.error(f"Learning outcomes endpoint failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/learning/summary")
-def get_learning_summary():
-    """High-level outcome summary: win rate, totals, averages."""
+def get_learning_summary(user: AuthUser = Depends(get_current_user)):
+    """High-level outcome summary for the signed-in user."""
     try:
         from src.learning.outcome_tracker import get_outcome_summary
-        return get_outcome_summary()
+        return get_outcome_summary(user.id)
     except Exception as e:
         logger.error(f"Learning summary endpoint failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/learning/patterns")
-def get_learning_patterns():
-    """Detected decision patterns across all dimensions."""
+def get_learning_patterns(_: AuthUser = Depends(get_current_user)):
+    """Detected decision patterns (globally aggregated for now)."""
     try:
         from src.learning.pattern_detector import get_patterns
         return get_patterns()
@@ -1321,7 +1368,7 @@ def get_learning_patterns():
 
 
 @app.get("/api/learning/alerts")
-def get_learning_alerts():
+def get_learning_alerts(_: AuthUser = Depends(get_current_user)):
     """Alerting patterns (low win rate with sufficient sample size)."""
     try:
         from src.learning.pattern_detector import get_alerts
@@ -1332,8 +1379,8 @@ def get_learning_alerts():
 
 
 @app.get("/api/learning/adaptive")
-def get_adaptive_state_endpoint():
-    """Current adaptive strategy state: regime, IC analysis, constraints."""
+def get_adaptive_state_endpoint(_: AuthUser = Depends(get_current_user)):
+    """Current adaptive strategy state (global): regime, IC analysis, constraints."""
     try:
         from src.learning.adaptive import get_adaptive_state
         state = get_adaptive_state()
@@ -1344,8 +1391,8 @@ def get_adaptive_state_endpoint():
 
 
 @app.get("/api/learning/signal-quality")
-def get_signal_quality_dashboard():
-    """Full signal quality dashboard: rolling IC, hit rates, decay alerts."""
+def get_signal_quality_dashboard(_: AuthUser = Depends(get_current_user)):
+    """Full signal quality dashboard (global): rolling IC, hit rates, decay alerts."""
     try:
         from src.learning.signal_quality import compute_quality_dashboard
         return compute_quality_dashboard()
@@ -1355,8 +1402,8 @@ def get_signal_quality_dashboard():
 
 
 @app.get("/api/learning/factor-ic-history")
-def get_factor_ic_history(lookback_days: int = 180):
-    """Rolling IC time series for each factor."""
+def get_factor_ic_history(lookback_days: int = 180, _: AuthUser = Depends(get_current_user)):
+    """Rolling IC time series for each factor (global)."""
     try:
         from src.learning.signal_quality import compute_rolling_factor_ic
         return compute_rolling_factor_ic(lookback_days=lookback_days)
@@ -1366,8 +1413,8 @@ def get_factor_ic_history(lookback_days: int = 180):
 
 
 @app.get("/api/learning/factor-decay")
-def get_factor_decay_alerts():
-    """Factors losing predictive power."""
+def get_factor_decay_alerts(_: AuthUser = Depends(get_current_user)):
+    """Factors losing predictive power (global)."""
     try:
         from src.learning.signal_quality import detect_factor_decay
         return detect_factor_decay()
@@ -1675,15 +1722,16 @@ def _emit(run_id: str, step: str, status: str, message: str, **extra: object) ->
     log_fn(f"[pipeline:{run_id}] [{step}] {status}: {message}")
 
 
-def _wait_for_gate(run_id: str, gate_name: str, step: str, message: str, data: dict) -> dict | None:
-    """Pause pipeline at a gate and wait for user review.
+def _wait_for_gate(run_id: str, gate_name: str, step: str, message: str, data: dict, user_id: str) -> dict | None:
+    """Pause pipeline at a gate and wait for the user's review.
 
     Returns user's response dict (may contain overrides), or None if aborted.
-    If review mode is disabled, emits the data as a 'data' event and returns immediately.
+    If the user has review mode disabled, emits the data as a 'data' event and
+    returns immediately without blocking.
     """
     safe_data = _sanitize_for_sse(data)
 
-    if not _review_mode["enabled"]:
+    if not _is_review_mode(user_id):
         _emit(run_id, step, "data", message, gate_data=safe_data, gate_name=gate_name)
         return {}
 
@@ -1790,7 +1838,8 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
         scores_preview = json.loads(scores[available_cols].head(30).to_json(orient="records"))
         gate_resp = _wait_for_gate(run_id, "scoring_review", "scoring",
             f"Scored {len(scores)} tickers as of {as_of_date}. Top 5: {', '.join(top5)}",
-            {"scores": scores_preview, "total_count": len(scores), "as_of_date": as_of_date})
+            {"scores": scores_preview, "total_count": len(scores), "as_of_date": as_of_date},
+            user_id=user_id)
         if gate_resp is None:
             return
 
@@ -1894,7 +1943,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
             "actionable_signals": signals_data,
             "hold_signals": hold_signals[:20],
             "total_signals": len(signals),
-        })
+        }, user_id=user_id)
         if gate_resp is None:
             return
 
@@ -1924,7 +1973,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
     try:
         from src.signals.portfolio_engine import build_trade_proposals, store_proposals
         universe = load_universe_df()
-        proposals = build_trade_proposals(actionable, portfolio, prices, universe, adaptive_params=adaptive_params)
+        proposals = build_trade_proposals(actionable, portfolio, prices, universe, adaptive_params=adaptive_params, risk_level=risk_level)
         for p in proposals:
             p["run_id"] = run_id
         store_proposals(proposals, user_id)
@@ -1985,7 +2034,8 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
             proposals_data = [_proposal_to_dict(p) for p in proposals]
             gate_resp = _wait_for_gate(run_id, "proposals_review", "proposals",
                 f"{len(passed)} proposals passed constraints, {len(blocked)} blocked",
-                {"proposals": proposals_data, "passed_count": len(passed), "blocked_count": len(blocked)})
+                {"proposals": proposals_data, "passed_count": len(passed), "blocked_count": len(blocked)},
+                user_id=user_id)
             if gate_resp is None:
                 return
 
@@ -2109,7 +2159,8 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
                 })
             gate_resp = _wait_for_gate(run_id, "research_review", "research",
                 f"Researched {len(research_results)} tickers ({with_news} with news)",
-                {"research": research_data, "total_tickers": len(research_tickers_list)})
+                {"research": research_data, "total_tickers": len(research_tickers_list)},
+                user_id=user_id)
             if gate_resp is None:
                 return
 
@@ -2141,7 +2192,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
     _analyst_guidance_was_active = False
     try:
         from src.analyst.review import get_pipeline_guidance
-        guidance = get_pipeline_guidance()
+        guidance = get_pipeline_guidance(user_id)
         if guidance:
             _analyst_guidance_was_active = True
             _emit(run_id, "judge", "running", "Analyst guidance active — injecting into judge prompts...")
@@ -2207,7 +2258,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
 
             gate_resp = _wait_for_gate(run_id, "judge_review", "judge",
                 f"Judge evaluated {len(judge_results)} proposals: {approved_count} approved, {rejected_count} rejected",
-                {"judge_results": judge_review_data})
+                {"judge_results": judge_review_data}, user_id=user_id)
             if gate_resp is None:
                 return
 
@@ -2236,6 +2287,112 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
                                 pass
 
             _emit(run_id, "judge", "done", f"Judge evaluated {len(judge_results)} proposals: {approved_count} approved, {rejected_count} rejected")
+
+            # Re-budget surviving proposals. The initial allocation in
+            # build_trade_proposals allocates by composite-score, so rejected
+            # high-score buys can starve lower-score survivors. After the judge
+            # culls, we redistribute the freed cash so the remaining proposals
+            # see realistic sizing and accurate "Budget exhausted" flags.
+            try:
+                from src.signals.portfolio_engine import reallocate_budget_after_judge
+                newly_cleared = reallocate_budget_after_judge(user_id, run_id, portfolio, prices, risk_level=risk_level)
+            except Exception as e:
+                _emit(run_id, "judge", "done", f"Budget reallocation skipped: {e}")
+                newly_cleared = []
+
+            # Re-judge proposals that flipped from passed=False (budget
+            # exhausted at initial allocation, judge skipped them) to
+            # passed=True after reallocation. Without this they'd display
+            # "Judge verdict not available" forever, even though they were
+            # only skipped due to a phantom budget claim that no longer exists.
+            if newly_cleared:
+                try:
+                    from src.judge.client import evaluate_proposal
+                    from src.judge.schema import Verdict
+                    _emit(run_id, "judge", "running",
+                          f"Re-judging {len(newly_cleared)} proposals that freed up after reallocation...")
+                    # Pull the freshened proposal rows so the judge sees the
+                    # post-reallocation share counts and clean constraint check.
+                    re_con = get_connection()
+                    try:
+                        df = re_con.execute(
+                            """
+                            SELECT proposal_id, ticker, action, shares, signal_data,
+                                   constraint_check, status
+                            FROM trade_proposals
+                            WHERE proposal_id = ANY($1) AND user_id = CAST($2 AS UUID)
+                            """,
+                            [newly_cleared, user_id],
+                        ).fetchdf()
+                    finally:
+                        re_con.close()
+
+                    re_judged = 0
+                    for row in df.itertuples():
+                        signal_data = row.signal_data if isinstance(row.signal_data, dict) else {}
+                        if isinstance(row.signal_data, str):
+                            try:
+                                signal_data = json.loads(row.signal_data)
+                            except Exception:
+                                signal_data = {}
+                        constraint_check = row.constraint_check if isinstance(row.constraint_check, dict) else {}
+                        if isinstance(row.constraint_check, str):
+                            try:
+                                constraint_check = json.loads(row.constraint_check)
+                            except Exception:
+                                constraint_check = {}
+                        price = prices.get(row.ticker, 0)
+                        estimated_value = int(row.shares) * price if price > 0 else 0
+                        proposal_dict = {
+                            "proposal_id": row.proposal_id,
+                            "ticker": row.ticker,
+                            "action": row.action,
+                            "shares": int(row.shares),
+                            "signal_data": signal_data,
+                            "constraint_check": constraint_check,
+                            "estimated_value": estimated_value,
+                            "current_weight": signal_data.get("current_weight", 0),
+                            "target_weight": signal_data.get("target_weight", 0),
+                            "prior_decile": signal_data.get("prior_decile", 5),
+                        }
+                        try:
+                            news = research_map.get(row.ticker)
+                            intel = sector_intel_map.get(row.ticker)
+                            output = evaluate_proposal(
+                                proposal_dict, portfolio_value, pnl,
+                                news=news, sector_intel=intel,
+                                risk_level=risk_level, user_id=user_id,
+                            )
+                        except Exception as exc:
+                            logger.exception(f"Re-judge of {row.ticker} failed: {exc}")
+                            continue
+
+                        if output.verdict == Verdict.APPROVE:
+                            new_status = "JUDGE_APPROVED"
+                        elif output.verdict == Verdict.REJECT:
+                            new_status = "JUDGE_REJECTED"
+                        else:
+                            new_status = "NEEDS_REVIEW"
+
+                        upd_con = get_connection()
+                        try:
+                            upd_con.execute(
+                                """
+                                UPDATE trade_proposals
+                                SET judge_response = CAST($1 AS JSONB),
+                                    status = $2
+                                WHERE proposal_id = $3 AND user_id = CAST($4 AS UUID)
+                                """,
+                                [output.model_dump_json(), new_status, row.proposal_id, user_id],
+                            )
+                        finally:
+                            upd_con.close()
+                        re_judged += 1
+                    _emit(run_id, "judge", "done",
+                          f"Re-judged {re_judged} freshly-cleared proposals")
+                except Exception as e:
+                    logger.exception(f"Re-judge step failed: {e}")
+                    _emit(run_id, "judge", "done", f"Re-judge step skipped: {e}")
         except Exception as e:
             _emit(run_id, "judge", "done", f"Judge evaluation skipped: {e}")
     else:
@@ -2288,7 +2445,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
     if _analyst_guidance_was_active:
         try:
             from src.analyst.review import set_apply_to_pipeline
-            set_apply_to_pipeline(False)
+            set_apply_to_pipeline(False, user_id=user_id)
         except Exception:
             pass
 
@@ -2331,11 +2488,11 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
                         "ticker": ticker,
                         "action": h["action"].upper(),
                         "shares": shares,
-                        "status": "APPROVED" if _auto_mode["enabled"] else "NEEDS_REVIEW",
+                        "status": "APPROVED" if _is_auto_mode(user_id) else "NEEDS_REVIEW",
                         "signal_data": {"source": "judge_review", "reason": h.get("reason", ""), "conviction": h.get("conviction", 0)},
                         "constraint_check": {"passed": True},
                         "reason": f"Judge review: {h.get('reason', '')}",
-                        "human_decision": "JUDGE_INITIATED" if _auto_mode["enabled"] else None,
+                        "human_decision": "JUDGE_INITIATED" if _is_auto_mode(user_id) else None,
                         "human_notes": f"Judge portfolio review: {h.get('reason', '')}",
                         "created_at": datetime.now().isoformat(),
                     })
@@ -2379,11 +2536,11 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
                     "ticker": ticker,
                     "action": "BUY",
                     "shares": shares,
-                    "status": "APPROVED" if _auto_mode["enabled"] else "NEEDS_REVIEW",
+                    "status": "APPROVED" if _is_auto_mode(user_id) else "NEEDS_REVIEW",
                     "signal_data": {"source": "judge_review", "reason": m.get("reason", ""), "conviction": m.get("conviction", 0)},
                     "constraint_check": {"passed": True},
                     "reason": f"Judge review: {m.get('reason', '')}",
-                    "human_decision": "JUDGE_INITIATED" if _auto_mode["enabled"] else None,
+                    "human_decision": "JUDGE_INITIATED" if _is_auto_mode(user_id) else None,
                     "human_notes": f"Judge portfolio review: {m.get('reason', '')}",
                     "created_at": datetime.now().isoformat(),
                 })
@@ -2411,7 +2568,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
                 proposals_str = ", ".join(f"{p['action']} {p['shares']} {p['ticker']}" for p in judge_proposals)
 
             # Gate: Execution Review (only when auto-mode is on and there are trades)
-            if _auto_mode["enabled"] and judge_proposals:
+            if _is_auto_mode(user_id) and judge_proposals:
                 exec_data = [{
                     "proposal_id": p["proposal_id"], "ticker": p["ticker"],
                     "action": p["action"], "shares": p["shares"],
@@ -2421,7 +2578,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
 
                 gate_resp = _wait_for_gate(run_id, "execution_review", "execution",
                     f"Ready to execute {len(judge_proposals)} judge-initiated trades",
-                    {"trades": exec_data, "auto_mode": True})
+                    {"trades": exec_data, "auto_mode": True}, user_id=user_id)
                 if gate_resp is None:
                     return
 
@@ -2457,7 +2614,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
                       "Judge disagreed but no trades met conviction threshold (>=60%)")
         except Exception as e:
             _emit(run_id, "execution", "error", f"Judge-initiated proposals failed: {e}")
-    elif _auto_mode["enabled"]:
+    elif _is_auto_mode(user_id):
         _emit(run_id, "execution", "skipped", "AUTO MODE: Judge agrees with model — no trades needed")
 
     # Steps 7 + 7b: P&L report and portfolio snapshot — share the same portfolio/prices
@@ -2515,7 +2672,7 @@ def _run_pipeline_thread(run_id: str, user_id: str, sub_sector_filter: str | Non
         from src.learning.outcome_tracker import run_outcome_tracking
         from src.learning.pattern_detector import detect_patterns
 
-        outcome_result = run_outcome_tracking()
+        outcome_result = run_outcome_tracking(user_id)
         patterns = detect_patterns()
 
         seeded = outcome_result["seeded"]
@@ -2907,8 +3064,8 @@ async def analyze_ticker(request: Request):
 # ============================================================
 
 @app.post("/api/chat")
-async def chat_endpoint(request: Request):
-    """SSE streaming chat endpoint. Accepts JSON body with 'message' and optional 'session_id'."""
+async def chat_endpoint(request: Request, user: AuthUser = Depends(get_current_user)):
+    """SSE streaming chat endpoint, scoped to the signed-in user."""
     try:
         body = await request.json()
     except Exception:
@@ -2921,18 +3078,20 @@ async def chat_endpoint(request: Request):
 
     session_id = body.get("session_id")
 
+    # The chat agent's tools (portfolio context, etc.) need user_id to read
+    # the right data — pass it through so the agent can scope every lookup.
     from src.chat.agent import stream_chat
     return StreamingResponse(
-        stream_chat(session_id, message, images=images),
+        stream_chat(session_id, message, images=images, user_id=user.id),
         media_type="text/event-stream",
     )
 
 
 @app.delete("/api/chat/{session_id}")
-def delete_chat_session(session_id: str):
-    """Delete a chat session and its history."""
+def delete_chat_session(session_id: str, user: AuthUser = Depends(get_current_user)):
+    """Delete a chat session and its history (no-op if the session doesn't belong to the user)."""
     from src.chat.agent import delete_session
-    deleted = delete_session(session_id)
+    deleted = delete_session(session_id, user_id=user.id)
     return {"deleted": deleted, "session_id": session_id}
 
 
